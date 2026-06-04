@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { FiSettings } from "react-icons/fi";
 import { supabase } from "../services/supabase";
 
-import uberLogo from "../assets/plataformas/uber.png";
-import logo99 from "../assets/plataformas/99.png";
-import ifoodLogo from "../assets/plataformas/ifood.svg";
-import indriveLogo from "../assets/plataformas/indrive.svg";
-import lalamoveLogo from "../assets/plataformas/lalamove.svg";
-import mercadoLivreLogo from "../assets/plataformas/mercadolivre.png";
-import rappiLogo from "../assets/plataformas/rappi.png";
-import shopeeLogo from "../assets/plataformas/shopee.svg";
+import uberIcon from "../assets/plataformas/uber.png";
+import noveNoveIcon from "../assets/plataformas/99.png";
+import ifoodIcon from "../assets/plataformas/ifood.svg";
+import inDriveIcon from "../assets/plataformas/indrive.svg";
+import lalamoveIcon from "../assets/plataformas/lalamove.svg";
+import mercadoLivreIcon from "../assets/plataformas/mercadolivre.png";
+import rappiIcon from "../assets/plataformas/rappi.png";
+import shopeeIcon from "../assets/plataformas/shopee.svg";
 
 const CONTAS_DASHBOARD_KEY = "controldriver_dashboard_contas_ativas_v1";
 
@@ -25,8 +25,6 @@ export default function Dashboard() {
 
   const [modalPeriodoAberto, setModalPeriodoAberto] = useState(false);
   const [modalContasAberto, setModalContasAberto] = useState(false);
-  const [modalProximasContasAberto, setModalProximasContasAberto] = useState(false);
-  const [diasProximasContas, setDiasProximasContas] = useState(30);
   const [modalAnoAberto, setModalAnoAberto] = useState(false);
   const [modalMesAnoAberto, setModalMesAnoAberto] = useState(false);
   const [etapaMesAno, setEtapaMesAno] = useState("ano");
@@ -63,10 +61,6 @@ export default function Dashboard() {
   useEffect(() => {
     carregarPerformance();
   }, [periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado, metaAtiva]);
-
-  useEffect(() => {
-    carregarProximasContas();
-  }, [diasProximasContas]);
 
   async function carregarTudo() {
     setCarregando(true);
@@ -191,7 +185,7 @@ export default function Dashboard() {
   async function carregarProximasContas() {
     const hojeTexto = dataISO(new Date());
     const limite = new Date();
-    limite.setDate(limite.getDate() + Number(diasProximasContas || 30));
+    limite.setDate(limite.getDate() + 30);
     const limiteTexto = dataISO(limite);
 
     const { data: faturasData } = await supabase
@@ -211,7 +205,7 @@ export default function Dashboard() {
       .gte("data_vencimento", hojeTexto)
       .lte("data_vencimento", limiteTexto)
       .order("data_vencimento", { ascending: true })
-      .limit(8);
+      .limit(5);
 
     const { data: contasPagarData } = await supabase
       .from("saidas")
@@ -220,7 +214,7 @@ export default function Dashboard() {
       .gte("data_vencimento", hojeTexto)
       .lte("data_vencimento", limiteTexto)
       .order("data_vencimento", { ascending: true })
-      .limit(8);
+      .limit(5);
 
     const faturas = (faturasData || []).map((fatura) => ({
       id: `fatura-${fatura.id}`,
@@ -243,7 +237,7 @@ export default function Dashboard() {
     const lista = [...faturas, ...contas]
       .filter((item) => item.valor > 0)
       .sort((a, b) => String(a.data).localeCompare(String(b.data)))
-      .slice(0, 6);
+      .slice(0, 5);
 
     setProximasContas(lista);
   }
@@ -314,9 +308,7 @@ export default function Dashboard() {
     }, criarMetricasVazias());
 
     saidasData.forEach((saida) => {
-      if (!ehGastoOperacional(saida)) return;
-
-      const categoria = normalizarCategoriaOperacional(saida.categoria);
+      const categoria = normalizarCategoria(saida.categoria);
       const valor = Number(saida.valor_total || 0);
 
       resumo.gastosTotal += valor;
@@ -429,6 +421,28 @@ export default function Dashboard() {
     return String(anoSelecionado);
   }
 
+  function rotuloPeriodo() {
+    const mapa = {
+      dia: "do dia",
+      semana: "da semana",
+      mes: "do mês",
+      ano: "do ano",
+    };
+
+    return mapa[periodo] || "do período";
+  }
+
+  function rotuloMeta() {
+    const mapa = {
+      dia: "Meta do dia",
+      semana: "Meta da semana",
+      mes: "Meta do mês",
+      ano: "Meta do ano",
+    };
+
+    return mapa[periodo] || "Meta do período";
+  }
+
   function intervalParaMinutos(intervalo) {
     if (!intervalo) return 0;
     const partes = String(intervalo).split(":");
@@ -533,6 +547,8 @@ export default function Dashboard() {
   const ganhoPorCorrida = metricas.corridas > 0 ? metricas.faturamento / metricas.corridas : 0;
   const plataformas = Object.values(metricas.plataformas || {}).sort((a, b) => b.valor - a.valor);
   const gastos = Object.values(metricas.gastosPorCategoria || {}).sort((a, b) => b.valor - a.valor);
+  const periodoTexto = rotuloPeriodo();
+  const metaTexto = rotuloMeta();
 
   return (
     <div className="space-y-8 pb-10">
@@ -548,43 +564,15 @@ export default function Dashboard() {
       ) : (
         <>
           <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <div className="relative bg-green-500 border border-green-400 rounded-3xl p-6 sm:p-7 text-white overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setModalContasAberto(true)}
-                className="absolute right-4 top-4 w-10 h-10 rounded-xl bg-black/10 border border-white/20 hover:bg-black/20 flex items-center justify-center text-white/90 transition"
-                title="Configurar contas exibidas"
-                aria-label="Configurar contas exibidas"
-              >
-                <FiSettings />
-              </button>
-
-              <div className="pr-12">
-                <p className="text-sm font-black uppercase tracking-wide text-white/80">Saldo Atual Geral</p>
-                <h2 className="text-4xl sm:text-5xl font-black mt-2">{formatarMoeda(saldoGeral)}</h2>
-                <p className="text-sm text-white/80 mt-3">
-                  {contasAtivasDashboard.length} conta(s) incluída(s) neste saldo.
-                </p>
-              </div>
-
-              <div className="mt-5 divide-y divide-white/15">
-                {contasAtivasDashboard.slice(0, 6).map((conta) => (
-                  <div key={conta.id} className="py-2 flex items-center justify-between gap-3 text-sm">
-                    <span className="text-white/85 truncate">{conta.nome}</span>
-                    <span className="text-white/90 whitespace-nowrap">{formatarMoeda(conta.saldo_atual)}</span>
-                  </div>
-                ))}
-
-                {contasAtivasDashboard.length === 0 && (
-                  <p className="text-sm text-white/80 py-2">Nenhuma conta selecionada.</p>
-                )}
-              </div>
-            </div>
+            <SaldoGeralCard
+              saldoGeral={saldoGeral}
+              contas={contasAtivasDashboard}
+              abrirConfiguracao={() => setModalContasAberto(true)}
+              formatarMoeda={formatarMoeda}
+            />
 
             <ProximasContasCard
               contas={proximasContas}
-              dias={diasProximasContas}
-              abrirConfiguracao={() => setModalProximasContasAberto(true)}
               formatarMoeda={formatarMoeda}
               formatarDataBR={formatarDataBR}
             />
@@ -623,48 +611,31 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={() => setModalPeriodoAberto(true)}
-                  className="bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl px-4 py-3 text-gray-200 font-semibold text-left"
+                  className="w-full sm:w-auto bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl px-4 py-3 text-gray-200 font-semibold text-center sm:text-left"
                 >
                   {textoPeriodoSelecionado()}
                 </button>
               </div>
             </div>
 
-            <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch">
-              <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5 sm:p-6">
-                <p className="text-sm text-gray-400">Faturamento bruto</p>
-                <h3 className="text-4xl sm:text-5xl font-black mt-2 text-white">{formatarMoeda(metricas.faturamento)}</h3>
+            <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <FaturamentoMetaCard
+                titulo={`Faturamento bruto ${periodoTexto}`}
+                valor={formatarMoeda(metricas.faturamento)}
+                metaLabel={metaTexto}
+                metaValor={formatarMoeda(metricas.meta)}
+                percentual={metricas.percentualMeta}
+                faltaMeta={metricas.faltaMeta}
+                formatarMoeda={formatarMoeda}
+              />
 
-                <div className="mt-6">
-                  <div className="text-sm mb-2">
-                    <span className="text-gray-400">Meta {textoMetaPeriodo(periodo)}: </span>
-                    <span className="text-white font-semibold">{formatarMoeda(metricas.meta)}</span>
-                  </div>
-
-                  <div className="h-4 rounded-full bg-[#0B1120] overflow-hidden border border-gray-800">
-                    <div
-                      className="h-full bg-green-500 rounded-full transition-all"
-                      style={{ width: `${Math.min(metricas.percentualMeta || 0, 100)}%` }}
-                    />
-                  </div>
-
-                  <p className="text-xs sm:text-sm mt-2 text-gray-400 text-right font-normal">
-                    {metricas.meta <= 0
-                      ? "Nenhuma meta ativa encontrada."
-                      : metricas.faltaMeta > 0
-                      ? `${Math.round(metricas.percentualMeta || 0)}% concluído / Falta ${formatarMoeda(metricas.faltaMeta)} para concluir.`
-                      : `${Math.round(metricas.percentualMeta || 0)}% concluído / Meta batida.`}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <MetricCard titulo="KM Rodados" valor={formatarNumero(metricas.km)} />
-                <MetricCard titulo="Horas" valor={formatarHoras(metricas.minutosTrabalhados)} />
-                <MetricCard titulo="Corridas" valor={formatarNumero(metricas.corridas)} />
-                <MetricCard titulo="Ganho/KM" valor={formatarMoeda(ganhoPorKm)} />
-                <MetricCard titulo="Ganho/Hora" valor={formatarMoeda(ganhoPorHora)} />
-                <MetricCard titulo="Ganho/Corrida" valor={formatarMoeda(ganhoPorCorrida)} />
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <MetricCard titulo={`KM rodados ${periodoTexto}`} valor={formatarNumero(metricas.km)} />
+                <MetricCard titulo={`Horas ${periodoTexto}`} valor={formatarHoras(metricas.minutosTrabalhados)} />
+                <MetricCard titulo={`Corridas ${periodoTexto}`} valor={formatarNumero(metricas.corridas)} />
+                <MetricCard titulo={`Ganho/KM ${periodoTexto}`} valor={formatarMoeda(ganhoPorKm)} />
+                <MetricCard titulo={`Ganho/Hora ${periodoTexto}`} valor={formatarMoeda(ganhoPorHora)} />
+                <MetricCard titulo={`Ganho/Corrida ${periodoTexto}`} valor={formatarMoeda(ganhoPorCorrida)} />
               </div>
             </div>
 
@@ -684,14 +655,6 @@ export default function Dashboard() {
           selecionarTodas={aplicarTodasContas}
           fechar={() => setModalContasAberto(false)}
           formatarMoeda={formatarMoeda}
-        />
-      )}
-
-      {modalProximasContasAberto && (
-        <ModalProximasContas
-          dias={diasProximasContas}
-          setDias={setDiasProximasContas}
-          fechar={() => setModalProximasContasAberto(false)}
         />
       )}
 
@@ -895,58 +858,74 @@ function diasTrabalhoValidos(meta) {
   return dias.filter((dia) => Number(dia) >= inicio.getDate());
 }
 
-function ehGastoOperacional(saida) {
-  const categoria = String(saida?.categoria || "").toLowerCase();
-  const tipo = String(saida?.tipo_movimentacao || "").toLowerCase();
-
-  if (tipo === "conta_pagar") return false;
-  if (categoria.includes("pagamento de fatura")) return false;
-  if (categoria.includes("transfer")) return false;
-
-  const categoriasOperacionais = [
-    "abastecimento",
-    "combustível",
-    "combustivel",
-    "manutenção",
-    "manutencao",
-    "pedágio",
-    "pedagio",
-    "tag",
-    "estacionamento",
-    "alimentação",
-    "alimentacao",
-    "impostos",
-    "recarga elétrica",
-    "recarga eletrica",
-  ];
-
-  return categoriasOperacionais.some((item) => categoria.includes(item));
-}
-
-function normalizarCategoriaOperacional(categoria) {
+function normalizarCategoria(categoria) {
   const texto = String(categoria || "Outros").trim();
-  const minusculo = texto.toLowerCase();
-
-  if (minusculo.includes("abaste") || minusculo.includes("combust")) return "Combustível";
-  if (minusculo.includes("manuten")) return "Manutenção";
-  if (minusculo.includes("pedágio") || minusculo.includes("pedagio") || minusculo.includes("tag")) return "Pedágios/TAG";
-  if (minusculo.includes("estacion")) return "Estacionamento";
-  if (minusculo.includes("aliment")) return "Alimentação";
-  if (minusculo.includes("imposto")) return "Impostos";
-  if (minusculo.includes("recarga")) return "Recarga elétrica";
-
-  return texto || "Outros";
+  if (!texto) return "Outros";
+  return texto;
 }
 
-function textoMetaPeriodo(periodo) {
-  const mapa = {
-    dia: "do dia",
-    semana: "da semana",
-    mes: "do mês",
-    ano: "do ano",
-  };
+function SaldoGeralCard({ saldoGeral, contas, abrirConfiguracao, formatarMoeda }) {
+  return (
+    <div className="relative bg-green-500 border border-green-400 rounded-3xl p-6 sm:p-7 text-white overflow-hidden">
+      <button
+        type="button"
+        onClick={abrirConfiguracao}
+        className="absolute top-4 right-4 w-9 h-9 rounded-xl bg-black/10 hover:bg-black/20 border border-white/15 flex items-center justify-center text-white/90 transition"
+        title="Configurar contas do saldo"
+        aria-label="Configurar contas do saldo"
+      >
+        <FiSettings className="text-lg" />
+      </button>
 
-  return mapa[periodo] || "do período";
+      <div className="pr-12">
+        <p className="text-sm font-black uppercase tracking-wide text-white/80">Saldo Atual Geral</p>
+        <h2 className="text-4xl sm:text-5xl font-black mt-2">{formatarMoeda(saldoGeral)}</h2>
+        <p className="text-sm text-white/80 mt-3">
+          {contas.length} conta(s) incluída(s) neste saldo.
+        </p>
+      </div>
+
+      <div className="mt-5 divide-y divide-white/15">
+        {contas.slice(0, 6).map((conta) => (
+          <div key={conta.id} className="py-2 flex items-center justify-between gap-3 text-sm">
+            <span className="truncate text-white/85">{conta.nome}</span>
+            <span className="whitespace-nowrap text-white/90">{formatarMoeda(conta.saldo_atual)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FaturamentoMetaCard({ titulo, valor, metaLabel, metaValor, percentual, faltaMeta, formatarMoeda }) {
+  const percentualSeguro = Math.max(Number(percentual || 0), 0);
+
+  return (
+    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-6">
+      <p className="text-sm text-gray-400">{titulo}</p>
+      <h3 className="text-4xl font-black mt-2 text-white">{valor}</h3>
+
+      <div className="mt-6">
+        <p className="text-sm text-gray-400">
+          {metaLabel}: <span className="text-white font-semibold">{metaValor}</span>
+        </p>
+
+        <div className="mt-2 h-4 rounded-full bg-[#0B1120] overflow-hidden border border-gray-800">
+          <div
+            className="h-full bg-green-500 rounded-full transition-all"
+            style={{ width: `${Math.min(percentualSeguro, 100)}%` }}
+          />
+        </div>
+
+        <p className="text-xs sm:text-sm mt-2 text-gray-500 leading-relaxed">
+          {percentualSeguro > 0 ? `${Math.round(percentualSeguro)}% concluído` : "0% concluído"}
+          {faltaMeta > 0
+            ? ` / Falta ${formatarMoeda(faltaMeta)} para concluir.`
+            : " / Meta concluída."}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function MetricCard({ titulo, valor }) {
@@ -958,38 +937,29 @@ function MetricCard({ titulo, valor }) {
   );
 }
 
-function ProximasContasCard({ contas, dias, abrirConfiguracao, formatarMoeda, formatarDataBR }) {
+function ProximasContasCard({ contas, formatarMoeda, formatarDataBR }) {
   const total = contas.reduce((soma, item) => soma + Number(item.valor || 0), 0);
 
   return (
-    <div className="relative bg-[#111827] border border-gray-800 rounded-3xl p-5">
-      <button
-        type="button"
-        onClick={abrirConfiguracao}
-        className="absolute right-4 top-4 w-10 h-10 rounded-xl hover:bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition"
-        title="Configurar próximas contas"
-        aria-label="Configurar próximas contas"
-      >
-        <FiSettings />
-      </button>
-
-      <div className="pr-12">
-        <p className="text-sm text-gray-400">Próximas contas a pagar</p>
-        <h3 className="text-3xl font-black mt-1">{formatarMoeda(total)}</h3>
-        <p className="text-xs text-gray-500 mt-1">Vencimentos dos próximos {dias} dias.</p>
+    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-gray-400">Próximas contas</p>
+          <h3 className="text-2xl font-black mt-1">{formatarMoeda(total)}</h3>
+        </div>
+        <span className="text-xs font-black rounded-full bg-red-500/10 text-red-400 border border-red-500/30 px-3 py-1">
+          30 dias
+        </span>
       </div>
 
-      <div className="mt-4 divide-y divide-gray-800">
+      <div className="mt-4 space-y-3">
         {contas.length === 0 ? (
-          <p className="text-sm text-gray-500 py-3">Nenhuma conta próxima encontrada.</p>
+          <p className="text-sm text-gray-500">Nenhuma conta próxima encontrada.</p>
         ) : (
           contas.map((conta) => (
-            <div key={conta.id} className="py-3 flex items-center justify-between gap-3">
+            <div key={conta.id} className="flex items-center justify-between gap-3 border-t border-gray-800 pt-3">
               <div className="min-w-0">
                 <p className="font-bold truncate">{conta.titulo}</p>
-                <p className="text-[11px] text-gray-400 mt-1 uppercase tracking-wide">
-                  {conta.tipo === "Fatura" ? "Cartão de crédito" : "Conta a pagar"}
-                </p>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {formatarDataBR(conta.data)} • {conta.subtitulo}
                 </p>
@@ -1015,18 +985,34 @@ function PlataformasCard({ plataformas, total, formatarMoeda }) {
         ) : (
           plataformas.map((item) => {
             const percentual = total > 0 ? (item.valor / total) * 100 : 0;
+            const icone = iconePlataforma(item.nome);
+
             return (
               <div key={item.nome}>
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="flex items-center gap-2 min-w-0">
-                    <PlataformaLogo nome={item.nome} />
+                  <div className="flex items-center gap-3 min-w-0">
+                    {icone ? (
+                      <img
+                        src={icone}
+                        alt={item.nome}
+                        className="w-9 h-9 rounded-xl object-contain bg-[#0B1120] border border-gray-800 p-1.5 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-9 h-9 rounded-xl bg-[#0B1120] border border-gray-800 flex items-center justify-center text-xs font-black shrink-0">
+                        {String(item.nome || "?").slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+
                     <span className="font-bold truncate">{item.nome}</span>
-                  </span>
+                  </div>
+
                   <span className="font-black whitespace-nowrap">{formatarMoeda(item.valor)}</span>
                 </div>
+
                 <div className="mt-2 h-3 bg-[#0B1120] rounded-full overflow-hidden border border-gray-800">
                   <div className="h-full bg-green-500 rounded-full" style={{ width: `${Math.min(percentual, 100)}%` }} />
                 </div>
+
                 <p className="text-xs text-gray-500 mt-1">
                   {Math.round(percentual)}% • {item.corridas} corrida(s)
                 </p>
@@ -1039,55 +1025,14 @@ function PlataformasCard({ plataformas, total, formatarMoeda }) {
   );
 }
 
-function PlataformaLogo({ nome }) {
-  const logo = pegarLogoPlataforma(nome);
-
-  return (
-    <span className="w-9 h-9 rounded-xl bg-[#0B1120] border border-gray-800 flex items-center justify-center shrink-0 overflow-hidden">
-      {logo ? (
-        <img src={logo} alt={nome || "Plataforma"} className="w-6 h-6 object-contain" />
-      ) : (
-        <span className="text-xs font-black text-gray-300">{iniciaisPlataforma(nome)}</span>
-      )}
-    </span>
-  );
-}
-
-function pegarLogoPlataforma(nome) {
-  const texto = String(nome || "").toLowerCase();
-
-  if (texto.includes("uber")) return uberLogo;
-  if (texto.includes("99")) return logo99;
-  if (texto.includes("ifood") || texto.includes("i food")) return ifoodLogo;
-  if (texto.includes("indrive") || texto.includes("in drive")) return indriveLogo;
-  if (texto.includes("lalamove")) return lalamoveLogo;
-  if (texto.includes("mercado")) return mercadoLivreLogo;
-  if (texto.includes("rappi")) return rappiLogo;
-  if (texto.includes("shopee")) return shopeeLogo;
-
-  return null;
-}
-
-function iniciaisPlataforma(nome) {
-  const texto = String(nome || "").trim();
-  if (!texto) return "•";
-  return texto
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((parte) => parte[0])
-    .join("")
-    .toUpperCase();
-}
-
-
 function GastosCard({ gastos, total, formatarMoeda }) {
   const top = gastos.slice(0, 5);
   const gradiente = montarGradienteDonut(top, total);
 
   return (
     <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
-      <h3 className="text-xl font-bold">Gastos da operação</h3>
-      <p className="text-gray-400 text-sm mt-1">Visão aproximada dos gastos ligados ao trabalho. Não inclui faturas em aberto nem pagamento de fatura.</p>
+      <h3 className="text-xl font-bold">Para onde o dinheiro foi</h3>
+      <p className="text-gray-400 text-sm mt-1">Gastos por categoria no período.</p>
 
       <div className="mt-5 grid grid-cols-1 sm:grid-cols-[150px_1fr] gap-5 items-center">
         <div className="mx-auto w-36 h-36 rounded-full flex items-center justify-center" style={{ background: gradiente }}>
@@ -1121,6 +1066,31 @@ function GastosCard({ gastos, total, formatarMoeda }) {
       </div>
     </div>
   );
+}
+
+function iconePlataforma(nome) {
+  const chave = normalizarNomePlataforma(nome);
+
+  const icones = {
+    uber: uberIcon,
+    "99": noveNoveIcon,
+    ifood: ifoodIcon,
+    indrive: inDriveIcon,
+    lalamove: lalamoveIcon,
+    mercadolivre: mercadoLivreIcon,
+    rappi: rappiIcon,
+    shopee: shopeeIcon,
+  };
+
+  return icones[chave] || null;
+}
+
+function normalizarNomePlataforma(nome) {
+  return String(nome || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
 }
 
 function montarGradienteDonut(items, total) {
@@ -1194,51 +1164,6 @@ function ModalContasDashboard({ contas, contasSelecionadas, alternarConta, selec
     </div>
   );
 }
-
-function ModalProximasContas({ dias, setDias, fechar }) {
-  const opcoes = [7, 15, 30, 60, 90];
-
-  return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[90] p-4">
-      <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-3xl p-6 shadow-2xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-black">Próximas contas</h2>
-            <p className="text-gray-400 text-sm mt-2">Escolha o período de vencimentos que aparece no Dashboard.</p>
-          </div>
-          <button type="button" onClick={fechar} className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-black">
-            ×
-          </button>
-        </div>
-
-        <div className="mt-5 grid grid-cols-2 gap-3">
-          {opcoes.map((opcao) => {
-            const ativo = Number(dias) === opcao;
-            return (
-              <button
-                key={opcao}
-                type="button"
-                onClick={() => setDias(opcao)}
-                className={`rounded-xl border p-4 font-black transition ${
-                  ativo
-                    ? "border-green-400 bg-green-500/10 text-green-400"
-                    : "border-gray-700 bg-[#0B1120] text-white hover:bg-white/5"
-                }`}
-              >
-                {opcao} dias
-              </button>
-            );
-          })}
-        </div>
-
-        <button type="button" onClick={fechar} className="mt-6 w-full bg-green-500 hover:bg-green-600 text-black font-black rounded-xl p-3">
-          Concluir
-        </button>
-      </div>
-    </div>
-  );
-}
-
 
 function ModalPeriodo(props) {
   const {
