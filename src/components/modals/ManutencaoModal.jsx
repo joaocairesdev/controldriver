@@ -1,0 +1,268 @@
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../../services/supabase";
+
+import ModalBase from "./ModalBase";
+import DatePickerModal from "./DatePickerModal";
+import FeedbackModal from "./FeedbackModal";
+import SelecionarVeiculoModal from "./SelecionarVeiculoModal";
+import SelecionarFormaPagamentoModal from "./SelecionarFormaPagamentoModal";
+import SelecionarContaModal from "./SelecionarContaModal";
+import SelecionarCartaoModal from "./SelecionarCartaoModal";
+import SelecionarParcelasModal from "./SelecionarParcelasModal";
+
+export default function ManutencaoModal({ aberto, onClose }) {
+  const hoje = new Date().toISOString().split("T")[0];
+
+  const formasPagamento = [
+    { valor: "dinheiro", titulo: "Dinheiro", descricao: "Sai da carteira" },
+    { valor: "pix", titulo: "Pix", descricao: "Sai direto da conta" },
+    { valor: "debito", titulo: "Débito", descricao: "Sai direto da conta" },
+    { valor: "credito_avista", titulo: "Crédito à Vista", descricao: "Entra na próxima fatura do cartão" },
+    { valor: "credito_parcelado", titulo: "Crédito Parcelado", descricao: "Divide em 2x ou mais no cartão" },
+    { valor: "boleto", titulo: "Boleto", descricao: "Registra uma conta a pagar" },
+  ];
+
+  const [contas, setContas] = useState([]);
+  const [cartoes, setCartoes] = useState([]);
+  const [veiculos, setVeiculos] = useState([]);
+
+  const [dataCompra, setDataCompra] = useState(hoje);
+  const [dataVencimento, setDataVencimento] = useState(hoje);
+  const [formaPagamento, setFormaPagamento] = useState("pix");
+  const [contaId, setContaId] = useState("");
+  const [cartaoId, setCartaoId] = useState("");
+  const [valorTotal, setValorTotal] = useState("");
+  const [numeroParcelas, setNumeroParcelas] = useState("1");
+  const [valorParcela, setValorParcela] = useState("");
+  const [ultimoCampoEditado, setUltimoCampoEditado] = useState("total");
+
+  const [veiculoId, setVeiculoId] = useState("");
+  const [odometro, setOdometro] = useState("");
+  const [tipoManutencao, setTipoManutencao] = useState("");
+  const [servico, setServico] = useState("");
+  const [oficina, setOficina] = useState("");
+  const [proximaRevisaoKm, setProximaRevisaoKm] = useState("");
+  const [proximaRevisaoData, setProximaRevisaoData] = useState("");
+  const [observacoes, setObservacoes] = useState("");
+
+  const [modalDataAberto, setModalDataAberto] = useState(false);
+  const [modalVencimentoAberto, setModalVencimentoAberto] = useState(false);
+  const [modalPagamentoAberto, setModalPagamentoAberto] = useState(false);
+  const [modalContaAberto, setModalContaAberto] = useState(false);
+  const [modalCartaoAberto, setModalCartaoAberto] = useState(false);
+  const [modalVeiculoAberto, setModalVeiculoAberto] = useState(false);
+  const [modalParcelasAberto, setModalParcelasAberto] = useState(false);
+
+  const [salvando, setSalvando] = useState(false);
+  const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "", fecharDepois: false });
+
+  const isCredito = formaPagamento === "credito_avista" || formaPagamento === "credito_parcelado";
+  const isCreditoParcelado = formaPagamento === "credito_parcelado";
+  const isBoleto = formaPagamento === "boleto";
+  const isDinheiro = formaPagamento === "dinheiro";
+
+  const veiculoSelecionado = useMemo(() => veiculos.find((v) => String(v.id) === String(veiculoId)), [veiculos, veiculoId]);
+  const contaSelecionada = useMemo(() => contas.find((c) => String(c.id) === String(contaId)), [contas, contaId]);
+  const carteiraSelecionada = useMemo(() => contas.find((c) => c.tipo_conta === "carteira"), [contas]);
+  const contasBancarias = useMemo(() => contas.filter((c) => (c.tipo_conta || "banco") === "banco"), [contas]);
+  const cartaoSelecionado = useMemo(() => cartoes.find((c) => String(c.id) === String(cartaoId)), [cartoes, cartaoId]);
+
+  useEffect(() => {
+    if (!aberto) return;
+    carregarDados();
+    limparFormulario(false);
+  }, [aberto]);
+
+  useEffect(() => {
+    if (isDinheiro && carteiraSelecionada) {
+      setContaId(String(carteiraSelecionada.id));
+      setCartaoId("");
+    }
+  }, [isDinheiro, carteiraSelecionada]);
+
+  useEffect(() => {
+    if (!isCreditoParcelado) return;
+    const total = moedaParaNumero(valorTotal);
+    const parcelas = Number(numeroParcelas || 1);
+    if (ultimoCampoEditado === "total" && total > 0 && parcelas > 0) {
+      setValorParcela(numeroParaMoedaInput(total / parcelas));
+    }
+  }, [valorTotal, numeroParcelas, isCreditoParcelado, ultimoCampoEditado]);
+
+  useEffect(() => {
+    if (!isCreditoParcelado) return;
+    const parcela = moedaParaNumero(valorParcela);
+    const parcelas = Number(numeroParcelas || 1);
+    if (ultimoCampoEditado === "parcela" && parcela > 0 && parcelas > 0) {
+      setValorTotal(numeroParaMoedaInput(parcela * parcelas));
+    }
+  }, [valorParcela, numeroParcelas, isCreditoParcelado, ultimoCampoEditado]);
+
+  async function carregarContasComSaldo(contasBase) {
+    return Promise.all((contasBase || []).map(async (conta) => {
+      const id = conta.id;
+      const { data: entradas } = await supabase.from("entradas").select(`entrada_plataformas (faturamento, valor_reembolso)`).eq("conta_id", id);
+      const totalEntradas = (entradas || []).reduce((total, entrada) => total + (entrada.entrada_plataformas || []).reduce((soma, item) => soma + Number(item.faturamento || 0) + Number(item.valor_reembolso || 0), 0), 0);
+      const { data: avulsas } = await supabase.from("entradas_avulsas").select("valor").eq("conta_id", id);
+      const totalAvulsas = (avulsas || []).reduce((t, e) => t + Number(e.valor || 0), 0);
+      const { data: recebidas } = await supabase.from("transferencias").select("valor").eq("conta_destino_id", id);
+      const totalRecebidas = (recebidas || []).reduce((t, e) => t + Number(e.valor || 0), 0);
+      const { data: enviadas } = await supabase.from("transferencias").select("valor").eq("conta_origem_id", id);
+      const totalEnviadas = (enviadas || []).reduce((t, e) => t + Number(e.valor || 0), 0);
+      const { data: saidas } = await supabase.from("saidas").select("valor_total, tipo_movimentacao").eq("conta_id", id);
+      const totalSaidas = (saidas || []).filter((s) => s.tipo_movimentacao !== "conta_pagar").reduce((t, s) => t + Number(s.valor_total || 0), 0);
+      return { ...conta, tipo_conta: conta.tipo_conta || "banco", saldo_atual: Number(conta.saldo_inicial || 0) + totalEntradas + totalAvulsas + totalRecebidas - totalSaidas - totalEnviadas };
+    }));
+  }
+
+  async function carregarDados() {
+    const { data: contasData } = await supabase.from("contas").select("*").eq("ativo", true).order("id");
+    const { data: cartoesData } = await supabase.from("cartoes").select("*").eq("ativo", true).order("id");
+    const { data: veiculosData } = await supabase.from("veiculos").select("*").eq("ativo", true).order("id");
+    const contasComSaldo = await carregarContasComSaldo(contasData || []);
+    const cartoesComUso = await carregarUsoDosCartoes(cartoesData || []);
+    setContas(contasComSaldo);
+    setCartoes(cartoesComUso);
+    setVeiculos(veiculosData || []);
+    const carteira = contasComSaldo.find((c) => c.tipo_conta === "carteira");
+    const principal = contasComSaldo.find((c) => c.principal);
+    const veiculoPrincipal = (veiculosData || []).find((v) => v.principal);
+    if (formaPagamento === "dinheiro" && carteira) setContaId(String(carteira.id));
+    else if (principal) setContaId(String(principal.id));
+    if (veiculoPrincipal) setVeiculoId(String(veiculoPrincipal.id));
+  }
+
+  async function carregarUsoDosCartoes(listaCartoes) {
+    if (!listaCartoes.length) return [];
+    const ids = listaCartoes.map((c) => c.id);
+    const { data } = await supabase.from("faturas_cartao").select("cartao_id, valor_total, status").in("cartao_id", ids).in("status", ["aberta", "fechada"]);
+    return listaCartoes.map((cartao) => ({ ...cartao, usado: (data || []).filter((f) => Number(f.cartao_id) === Number(cartao.id)).reduce((t, f) => t + Number(f.valor_total || 0), 0) }));
+  }
+
+  function limparFormulario(limparTudo = true) {
+    setDataCompra(hoje); setDataVencimento(hoje); setFormaPagamento("pix"); setValorTotal(""); setNumeroParcelas("1"); setValorParcela(""); setUltimoCampoEditado("total"); setCartaoId("");
+    setOdometro(""); setTipoManutencao(""); setServico(""); setOficina(""); setProximaRevisaoKm(""); setProximaRevisaoData(""); setObservacoes("");
+    if (limparTudo) { setContaId(""); setVeiculoId(""); }
+  }
+
+  function formatarDataBR(dataISO) { if (!dataISO) return ""; const [ano, mes, dia] = String(dataISO).split("-"); return `${dia}/${mes}/${ano}`; }
+  function formatarMoeda(valor) { return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+  function formatarMoedaDigitada(valor) { return String(valor).replace(/[^\d,]/g, "").replace(/,+/g, ",").replace(/^,/, "").replace(/(,\d{2}).+/, "$1"); }
+  function moedaParaNumero(valor) { if (!valor) return 0; return Number(String(valor).replace(",", ".")); }
+  function numeroParaMoedaInput(valor) { return Number(valor || 0).toFixed(2).replace(".", ","); }
+  function somenteNumeros(valor) { return String(valor).replace(/\D/g, ""); }
+
+  function textoFormaPagamento() { return formasPagamento.find((f) => f.valor === formaPagamento)?.titulo || "Selecionar"; }
+  function textoContaCartao() { if (isCredito) return cartaoSelecionado ? `${cartaoSelecionado.nome} final ${cartaoSelecionado.final_cartao}` : "Selecionar cartão"; if (isDinheiro) return carteiraSelecionada?.nome || "Carteira"; return contaSelecionada?.nome || "Selecionar conta"; }
+  function definirContaBancariaPadrao() { const conta = contasBancarias.find((c) => c.principal) || contasBancarias[0]; if (conta) setContaId(String(conta.id)); }
+  function atualizarValorTotal(valor) { setUltimoCampoEditado("total"); setValorTotal(formatarMoedaDigitada(valor)); }
+  function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) { setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois }); }
+  function fecharFeedback() { const fechar = feedback.fecharDepois; setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "", fecharDepois: false }); if (fechar) onClose(); }
+  function definirStatus() { if (isBoleto) return "aberto"; if (isCredito) return "fatura"; return "pago"; }
+  function definirTipoMovimentacao() { if (isBoleto) return "conta_pagar"; return "saida"; }
+  function ultimoDiaMes(ano, mes) { return new Date(ano, mes, 0).getDate(); }
+  function dataComDiaSeguro(ano, mes, dia) { const d = Math.min(Number(dia || 1), ultimoDiaMes(ano, mes)); return `${ano}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`; }
+  function adicionarMesCompetencia(ano, mes, quantidade) { let novoMes = mes + quantidade; let novoAno = ano; while (novoMes > 12) { novoMes -= 12; novoAno += 1; } while (novoMes < 1) { novoMes += 12; novoAno -= 1; } return { mes: novoMes, ano: novoAno }; }
+  function somarMeses(dataBase, meses) { const d = new Date(`${dataBase}T00:00:00`); d.setMonth(d.getMonth() + meses); return d; }
+  function calcularCompetenciaFatura(dataBase, cartao) { const d = new Date(`${dataBase}T00:00:00`); const diaCompra = d.getDate(); const diaFechamento = Number(cartao?.dia_fechamento || 1); const diaVencimento = Number(cartao?.dia_vencimento || 1); let mesFechamento = d.getMonth() + 1; let anoFechamento = d.getFullYear(); if (diaCompra > diaFechamento) ({ mes: mesFechamento, ano: anoFechamento } = adicionarMesCompetencia(anoFechamento, mesFechamento, 1)); let mes = mesFechamento; let ano = anoFechamento; if (diaVencimento < diaFechamento) ({ mes, ano } = adicionarMesCompetencia(ano, mes, 1)); return { mes, ano, mesFechamento, anoFechamento }; }
+  async function buscarOuCriarFatura({ cartao, dataBase }) { const comp = calcularCompetenciaFatura(dataBase, cartao); const dataFechamento = dataComDiaSeguro(comp.anoFechamento, comp.mesFechamento, cartao.dia_fechamento); const dataVencimento = dataComDiaSeguro(comp.ano, comp.mes, cartao.dia_vencimento); const { data: existente, error: erroBusca } = await supabase.from("faturas_cartao").select("*").eq("cartao_id", Number(cartao.id)).eq("mes", comp.mes).eq("ano", comp.ano).maybeSingle(); if (erroBusca) throw erroBusca; if (existente) return existente; const { data, error } = await supabase.from("faturas_cartao").insert({ cartao_id: Number(cartao.id), mes: comp.mes, ano: comp.ano, data_fechamento: dataFechamento, data_vencimento: dataVencimento, valor_total: 0, status: "aberta" }).select().single(); if (error) throw error; return data; }
+  async function atualizarValorFatura(faturaId, valorSomar) { const { data, error } = await supabase.from("faturas_cartao").select("valor_total").eq("id", faturaId).single(); if (error) throw error; const { error: erroUpdate } = await supabase.from("faturas_cartao").update({ valor_total: Number(data.valor_total || 0) + Number(valorSomar || 0) }).eq("id", faturaId); if (erroUpdate) throw erroUpdate; }
+  async function gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas) { if (!isCredito || !cartaoSelecionado) return; const payload = []; for (let i = 0; i < parcelas; i++) { const dataBase = somarMeses(dataCompra, i).toISOString().split("T")[0]; const fatura = await buscarOuCriarFatura({ cartao: cartaoSelecionado, dataBase }); await atualizarValorFatura(fatura.id, parcelaValor); payload.push({ saida_id: saidaId, cartao_id: Number(cartaoId), fatura_id: fatura.id, numero_parcela: i + 1, total_parcelas: parcelas, valor_parcela: parcelaValor, data_vencimento: fatura.data_vencimento, status: "pendente" }); } if (payload.length) { const { error } = await supabase.from("saidas_parcelas").insert(payload); if (error) throw error; } }
+
+  async function verificarLimiteCartao(total) {
+    if (!cartaoSelecionado) return true;
+    const { data, error } = await supabase.from("faturas_cartao").select("valor_total").eq("cartao_id", Number(cartaoId)).in("status", ["aberta", "fechada"]);
+    if (error) throw error;
+    const usado = (data || []).reduce((t, f) => t + Number(f.valor_total || 0), 0);
+    const disponivel = Number(cartaoSelecionado.limite_total || 0) - usado;
+    if (Number(cartaoSelecionado.limite_total || 0) > 0 && total > disponivel) return window.confirm("⚠ Esta manutenção ultrapassará o limite do cartão.\n\nDeseja continuar mesmo assim?");
+    return true;
+  }
+
+  function validar() {
+    if (!dataCompra || !valorTotal || !veiculoId || !servico.trim()) { abrirFeedback("erro", "Campos obrigatórios", "Preencha data, veículo, serviço e valor."); return false; }
+    if (isCredito && !cartaoId) { abrirFeedback("erro", "Cartão obrigatório", "Selecione um cartão."); return false; }
+    if (isDinheiro && !carteiraSelecionada) { abrirFeedback("erro", "Carteira não encontrada", "Cadastre uma carteira antes de lançar dinheiro."); return false; }
+    if (!isCredito && !isBoleto && !contaId) { abrirFeedback("erro", "Conta obrigatória", "Selecione uma conta."); return false; }
+    if (isBoleto && !dataVencimento) { abrirFeedback("erro", "Vencimento obrigatório", "Informe a data de vencimento."); return false; }
+    if (isCreditoParcelado && Number(numeroParcelas || 0) < 2) { abrirFeedback("erro", "Parcelamento inválido", "Crédito parcelado precisa começar em 2x."); return false; }
+    return true;
+  }
+
+  async function salvar() {
+    if (!validar()) return;
+    const total = moedaParaNumero(valorTotal);
+    const parcelas = isCreditoParcelado ? Number(numeroParcelas || 2) : 1;
+    const parcelaValor = isCreditoParcelado ? moedaParaNumero(valorParcela) : total;
+    if (isCredito && !(await verificarLimiteCartao(total))) return;
+    setSalvando(true);
+    try {
+      const descricao = `Manutenção - ${servico.trim()}${veiculoSelecionado?.nome ? ` - ${veiculoSelecionado.nome}` : ""}`;
+      const { data: saidaCriada, error: erroSaida } = await supabase.from("saidas").insert({ data_compra: dataCompra, forma_pagamento: formaPagamento, tipo_movimentacao: definirTipoMovimentacao(), conta_id: isCredito || isBoleto ? null : Number(contaId), cartao_id: isCredito ? Number(cartaoId) : null, tipo_credito: isCredito ? (isCreditoParcelado ? "parcelado" : "avista") : null, numero_parcelas: parcelas, valor_total: total, valor_parcela: parcelaValor, data_efetivacao: isBoleto ? null : dataCompra, data_vencimento: isBoleto ? dataVencimento : null, categoria: "Manutenção", descricao, status: definirStatus() }).select().single();
+      if (erroSaida) throw erroSaida;
+      if (isCredito) await gerarParcelasEFaturas(saidaCriada.id, total, parcelaValor, parcelas);
+      const { error: erroManutencao } = await supabase.from("saidas_manutencoes").insert({ saida_id: saidaCriada.id, veiculo_id: Number(veiculoId), odometro: Number(odometro || 0), tipo_manutencao: tipoManutencao.trim() || null, servico: servico.trim(), oficina: oficina.trim() || null, proxima_revisao_km: Number(proximaRevisaoKm || 0), proxima_revisao_data: proximaRevisaoData || null, observacoes: observacoes.trim() || null });
+      if (erroManutencao) throw erroManutencao;
+      if (Number(odometro || 0) > Number(veiculoSelecionado?.odometro_atual || 0)) await supabase.from("veiculos").update({ odometro_atual: Number(odometro || 0) }).eq("id", Number(veiculoId));
+      abrirFeedback("sucesso", isBoleto ? "Conta registrada" : "Manutenção salva", isBoleto ? "Conta a pagar registrada com sucesso." : "Manutenção lançada com sucesso.", true);
+      limparFormulario(false);
+    } catch (error) {
+      console.error(error);
+      abrirFeedback("erro", "Erro ao salvar", error.message || "Erro ao salvar manutenção.");
+    } finally { setSalvando(false); }
+  }
+
+  if (!aberto) return null;
+
+  return (
+    <>
+      <ModalBase aberto={aberto} titulo="Nova Manutenção" descricao="Registre serviços, revisões e peças do veículo." onClose={onClose} largura="max-w-5xl">
+        <div className="max-h-[72vh] overflow-y-auto pr-1 scrollbar-hide">
+          <section className="bg-[#0B1120] border border-gray-800 rounded-2xl p-5">
+            <h3 className="font-bold text-lg">Dados principais</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
+              <Campo label="Data"><ButtonField onClick={() => setModalDataAberto(true)}>{formatarDataBR(dataCompra)}</ButtonField></Campo>
+              <Campo label="Forma de pagamento"><ButtonField onClick={() => setModalPagamentoAberto(true)}>{textoFormaPagamento()}</ButtonField></Campo>
+              {!isBoleto && <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"}><ButtonField onClick={() => { if (isDinheiro) return; isCredito ? setModalCartaoAberto(true) : setModalContaAberto(true); }}>{textoContaCartao()}</ButtonField></Campo>}
+              {isBoleto && <Campo label="Vencimento do boleto"><ButtonField onClick={() => setModalVencimentoAberto(true)}>{formatarDataBR(dataVencimento)}</ButtonField></Campo>}
+              <Campo label="Valor total"><MoneyInput value={valorTotal} onChange={atualizarValorTotal} prefix="R$" placeholder="0,00" /></Campo>
+              {isCreditoParcelado && <><Campo label="Quantidade de parcelas"><ButtonField onClick={() => setModalParcelasAberto(true)}>{numeroParcelas}x</ButtonField></Campo><Campo label="Valor da parcela"><MoneyInput value={valorParcela} onChange={(v) => { setUltimoCampoEditado("parcela"); setValorParcela(formatarMoedaDigitada(v)); }} prefix="R$" placeholder="0,00" /></Campo></>}
+            </div>
+          </section>
+
+          <section className="mt-5 bg-[#0B1120] border border-gray-800 rounded-2xl p-5">
+            <h3 className="font-bold text-lg">Dados da manutenção</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
+              <Campo label="Veículo"><ButtonField onClick={() => setModalVeiculoAberto(true)}>{veiculoSelecionado?.nome || "Selecionar veículo"}</ButtonField></Campo>
+              <Campo label="Odômetro"><MoneyInput value={odometro} onChange={(v) => setOdometro(somenteNumeros(v))} suffix="km" placeholder="0" /></Campo>
+              <Campo label="Tipo de manutenção"><input value={tipoManutencao} onChange={(e) => setTipoManutencao(e.target.value)} placeholder="Ex: preventiva, corretiva" className="input-base" /></Campo>
+              <Campo label="Serviço"><input value={servico} onChange={(e) => setServico(e.target.value)} placeholder="Ex: troca de óleo" className="input-base" /></Campo>
+              <Campo label="Oficina"><input value={oficina} onChange={(e) => setOficina(e.target.value)} placeholder="Ex: Auto Center" className="input-base" /></Campo>
+              <Campo label="Próxima revisão em KM"><MoneyInput value={proximaRevisaoKm} onChange={(v) => setProximaRevisaoKm(somenteNumeros(v))} suffix="km" placeholder="0" /></Campo>
+              <Campo label="Data da próxima revisão"><input type="date" value={proximaRevisaoData} onChange={(e) => setProximaRevisaoData(e.target.value)} className="input-base" /></Campo>
+              <Campo label="Observações"><input value={observacoes} onChange={(e) => setObservacoes(e.target.value)} placeholder="Opcional" className="input-base" /></Campo>
+            </div>
+          </section>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mt-6">
+          <button type="button" onClick={onClose} className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3">Cancelar</button>
+          <button type="button" onClick={salvar} disabled={salvando} className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3">{salvando ? "Salvando..." : "Salvar Manutenção"}</button>
+        </div>
+      </ModalBase>
+
+      <DatePickerModal aberto={modalDataAberto} valor={dataCompra} onChange={setDataCompra} onClose={() => setModalDataAberto(false)} titulo="Selecionar data" descricao="Escolha a data da manutenção." />
+      <DatePickerModal aberto={modalVencimentoAberto} valor={dataVencimento} onChange={setDataVencimento} onClose={() => setModalVencimentoAberto(false)} titulo="Vencimento do boleto" descricao="Escolha a data em que esta conta precisa ser paga." />
+      <SelecionarFormaPagamentoModal aberto={modalPagamentoAberto} formasPagamento={formasPagamento} formaPagamento={formaPagamento} onSelecionar={(valor) => { setFormaPagamento(valor); if (valor === "credito_parcelado") { setContaId(""); setNumeroParcelas((a) => Number(a || 0) < 2 ? "2" : a); } if (valor === "credito_avista") { setContaId(""); setNumeroParcelas("1"); setValorParcela(""); } if (valor === "boleto") { setContaId(""); setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); } if (valor === "dinheiro") { setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); if (carteiraSelecionada) setContaId(String(carteiraSelecionada.id)); } if (!["credito_avista", "credito_parcelado", "boleto"].includes(valor)) { setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); if (valor !== "dinheiro") definirContaBancariaPadrao(); } }} onClose={() => setModalPagamentoAberto(false)} />
+      <SelecionarContaModal aberto={modalContaAberto} contas={contasBancarias} contaId={contaId} onSelecionar={setContaId} onClose={() => setModalContaAberto(false)} formatarMoeda={formatarMoeda} />
+      <SelecionarCartaoModal aberto={modalCartaoAberto} cartoes={cartoes} cartaoId={cartaoId} onSelecionar={setCartaoId} onClose={() => setModalCartaoAberto(false)} formatarMoeda={formatarMoeda} />
+      <SelecionarVeiculoModal aberto={modalVeiculoAberto} veiculos={veiculos} veiculoId={veiculoId} onSelecionar={setVeiculoId} onClose={() => setModalVeiculoAberto(false)} />
+      <SelecionarParcelasModal aberto={modalParcelasAberto} numeroParcelas={numeroParcelas} onSelecionar={setNumeroParcelas} onClose={() => setModalParcelasAberto(false)} />
+      <FeedbackModal aberto={feedback.aberto} tipo={feedback.tipo} titulo={feedback.titulo} mensagem={feedback.mensagem} onClose={fecharFeedback} />
+    </>
+  );
+}
+
+function Campo({ label, children }) { return <div><label className="text-sm text-gray-300">{label}</label>{children}</div>; }
+function ButtonField({ children, onClick }) { return <button type="button" onClick={onClick} className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold">{children}</button>; }
+function MoneyInput({ value, onChange, prefix, suffix, placeholder }) { return <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">{prefix && <span className="px-3 text-gray-400">{prefix}</span>}<input type="text" inputMode="decimal" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="w-full bg-transparent p-3 outline-none" />{suffix && <span className="px-3 text-gray-400">{suffix}</span>}</div>; }

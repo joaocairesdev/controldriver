@@ -1,0 +1,181 @@
+import { useState } from "react";
+
+import Sidebar from "./components/Sidebar";
+import Topbar from "./components/Topbar";
+import CronometroJornada from "./components/CronometroJornada";
+
+import Dashboard from "./pages/Dashboard";
+import NovaEntrada from "./pages/NovaEntrada";
+import NovoLancamento from "./pages/NovoLancamento";
+import Contas from "./pages/Contas";
+import Cartoes from "./pages/Cartoes";
+import Veiculos from "./pages/Veiculos";
+import NovaSaida from "./pages/NovaSaida";
+import Extrato from "./pages/Extrato";
+import ContasPagar from "./pages/ContasPagar";
+import Metas from "./pages/Metas";
+
+export default function App() {
+  const [pagina, setPagina] = useState("dashboard");
+  const [menuAberto, setMenuAberto] = useState(false);
+  const [jornadaParaGanhos, setJornadaParaGanhos] = useState(null);
+  const [cronometroEstado, setCronometroEstado] = useState({
+    status: "sem_jornada",
+    tempoFormatado: "00:00:00",
+    contagemRegressiva: null,
+  });
+
+  function navegarPara(novaPagina) {
+    console.log("Mudando para:", novaPagina);
+    setPagina(novaPagina);
+    setMenuAberto(false);
+  }
+
+  function abrirCronometroJornada() {
+    window.dispatchEvent(new CustomEvent("abrir-cronometro-jornada"));
+  }
+
+  return (
+    <div className="h-screen bg-[#0B1120] text-white flex overflow-hidden">
+      <div className="hidden lg:block h-screen shrink-0">
+        <Sidebar setPagina={navegarPara} paginaAtual={pagina} />
+      </div>
+
+      {menuAberto && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div
+            className="absolute inset-0 bg-black/70"
+            onClick={() => setMenuAberto(false)}
+          />
+
+          <div className="relative w-72 max-w-[85vw] h-full">
+            <Sidebar setPagina={navegarPara} paginaAtual={pagina} />
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+        <Topbar
+          menuAberto={menuAberto}
+          abrirMenu={() => setMenuAberto(true)}
+          abrirCronometro={abrirCronometroJornada}
+          cronometroStatus={cronometroEstado.status}
+          cronometroTempo={cronometroEstado.tempoFormatado}
+          cronometroContagem={cronometroEstado.contagemRegressiva}
+        />
+
+        <main className="flex-1 min-w-0 overflow-y-auto scrollbar-hide p-4 sm:p-6 lg:p-10">
+          {pagina === "dashboard" && <Dashboard />}
+
+          {pagina === "novo-lancamento" && (
+            <NovoLancamento
+              abrirEntrada={() => navegarPara("nova-entrada")}
+              abrirVendaProdutos={() => navegarPara("venda-produtos")}
+              abrirTransferencia={() => navegarPara("transferencia")}
+              abrirAbastecimento={() => navegarPara("novo-abastecimento")}
+              abrirManutencao={() => navegarPara("nova-manutencao")}
+              abrirAlimentacao={() => navegarPara("nova-alimentacao")}
+              abrirUsoTag={() => navegarPara("novo-uso-tag")}
+              abrirImpostos={() => navegarPara("novo-impostos")}
+              abrirOutros={() => navegarPara("nova-outra-saida")}
+              jornadaParaGanhos={jornadaParaGanhos}
+              limparJornadaParaGanhos={() => setJornadaParaGanhos(null)}
+            />
+          )}
+
+          {pagina === "nova-entrada" && <NovaEntrada setPagina={navegarPara} />}
+
+          {pagina === "venda-produtos" && (
+            <TelaEmConstrucao
+              titulo="Venda de Produtos"
+              descricao="Aqui vamos controlar vendas dentro do carro, lucro e futuramente estoque."
+              voltar={() => navegarPara("novo-lancamento")}
+            />
+          )}
+
+          {pagina === "transferencia" && (
+            <TelaEmConstrucao
+              titulo="Transferência"
+              descricao="Aqui vamos movimentar valores entre contas, carteira e outros recebimentos."
+              voltar={() => navegarPara("novo-lancamento")}
+            />
+          )}
+
+          {pagina === "contas" && <Contas />}
+
+          {pagina === "contas-pagar" && <ContasPagar />}
+
+          {pagina === "metas" && <Metas />}
+
+          {pagina === "cartoes" && <Cartoes />}
+
+          {pagina === "veiculos" && <Veiculos />}
+
+          {pagina === "extrato" && <Extrato />}
+
+          {pagina === "nova-saida" && <NovaSaida setPagina={navegarPara} />}
+
+          {pagina === "novo-abastecimento" && (
+            <NovaSaida categoriaInicial="Abastecimento" setPagina={navegarPara} />
+          )}
+
+          {pagina === "nova-manutencao" && (
+            <NovaSaida categoriaInicial="Manutenção" setPagina={navegarPara} />
+          )}
+
+          {pagina === "nova-alimentacao" && (
+            <NovaSaida categoriaInicial="Alimentação" setPagina={navegarPara} />
+          )}
+
+          {pagina === "novo-uso-tag" && (
+            <NovaSaida categoriaInicial="Pedágio" setPagina={navegarPara} />
+          )}
+
+          {pagina === "novo-impostos" && (
+            <NovaSaida categoriaInicial="Impostos" setPagina={navegarPara} />
+          )}
+
+          {pagina === "nova-outra-saida" && (
+            <NovaSaida categoriaInicial="Outros" setPagina={navegarPara} />
+          )}
+        </main>
+
+        <CronometroJornada
+          onEstadoChange={setCronometroEstado}
+          onLancarGanhos={(jornadaResumo) => {
+            setJornadaParaGanhos(jornadaResumo);
+            navegarPara("novo-lancamento");
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function TelaEmConstrucao({ titulo, descricao, voltar }) {
+  return (
+    <div>
+      <div className="flex items-center gap-4">
+        <button
+          type="button"
+          onClick={voltar}
+          className="w-10 h-10 rounded-xl border border-gray-700 hover:bg-white/5 flex items-center justify-center"
+        >
+          ←
+        </button>
+
+        <div>
+          <h1 className="text-3xl font-bold">{titulo}</h1>
+          <p className="text-gray-400 mt-1">{descricao}</p>
+        </div>
+      </div>
+
+      <div className="mt-8 bg-[#111827] border border-gray-800 rounded-2xl p-8">
+        <h2 className="text-xl font-bold text-green-400">Em construção</h2>
+        <p className="text-gray-400 mt-2">
+          A rota já está pronta. Agora podemos criar essa tela com calma sem quebrar o fluxo.
+        </p>
+      </div>
+    </div>
+  );
+}
