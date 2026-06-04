@@ -9,6 +9,8 @@ import {
   FiAlertTriangle,
 } from "react-icons/fi";
 
+const APP_VERSION = "0.2.0";
+
 export default function Sidebar({ setPagina, paginaAtual }) {
   const menu = [
     {
@@ -105,6 +107,16 @@ export default function Sidebar({ setPagina, paginaAtual }) {
           );
         })}
       </nav>
+
+      <div className="mt-auto pt-6">
+        <div className="border-t border-gray-800 pt-4">
+          <p className="text-[11px] text-gray-500 font-black uppercase tracking-wide">
+            Control Driver
+          </p>
+          <p className="text-xs text-gray-400 mt-1">Versão {APP_VERSION}</p>
+          <p className="text-[11px] text-gray-600 mt-1">Fase de testes</p>
+        </div>
+      </div>
     </aside>
   );
 }
