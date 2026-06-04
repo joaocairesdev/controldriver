@@ -4,7 +4,6 @@ import { supabase } from "../services/supabase";
 
 export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
   const [aberto, setAberto] = useState(false);
-  const [veiculos, setVeiculos] = useState([]);
   const [jornada, setJornada] = useState(null);
   const [pausaAtual, setPausaAtual] = useState(null);
   const [agora, setAgora] = useState(new Date());
@@ -39,14 +38,6 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
     return () => cancelarContagem();
   }, []);
 
-  const veiculoSelecionado = useMemo(() => {
-    if (jornada?.veiculo_id) {
-      return veiculos.find((item) => String(item.id) === String(jornada.veiculo_id));
-    }
-
-    return veiculos.find((item) => item.principal) || veiculos[0] || null;
-  }, [veiculos, jornada]);
-
   const tempoLiquidoSegundos = useMemo(() => {
     if (!jornada?.inicio) return 0;
 
@@ -80,12 +71,6 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
   async function carregarDados() {
     setCarregando(true);
 
-    const { data: veiculosData } = await supabase
-      .from("veiculos")
-      .select("*")
-      .eq("ativo", true)
-      .order("id");
-
     const { data: jornadaData } = await supabase
       .from("jornadas_trabalho")
       .select("*")
@@ -109,7 +94,6 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
       pausaData = data || null;
     }
 
-    setVeiculos(veiculosData || []);
     setJornada(jornadaData || null);
     setPausaAtual(pausaData);
     setMostrarFinalizar(jornadaData?.status === "aguardando_km");
@@ -141,22 +125,6 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
     return `${String(horas).padStart(2, "0")}:${String(minutos).padStart(2, "0")}`;
   }
 
-  function tituloBotaoFlutuante() {
-    if (contagemRegressiva !== null) return `Iniciando em ${contagemRegressiva} segundos`;
-    if (!jornada) return "Iniciar jornada";
-    if (jornada.status === "pausada") return "Jornada pausada — clicar para continuar ou finalizar";
-    if (jornada.status === "aguardando_km") return "Finalizar jornada — informe os KM rodados";
-    return "Jornada em andamento — clicar para pausar ou finalizar";
-  }
-
-  function corPrincipal() {
-    if (contagemRegressiva !== null) return "bg-green-500 text-white border-green-300 shadow-green-500/40";
-    if (!jornada) return "bg-[#0B1120] text-white border-green-400 shadow-green-500/30";
-    if (jornada.status === "pausada") return "bg-[#0B1120] border-yellow-400 text-yellow-300 shadow-yellow-500/30";
-    if (jornada.status === "aguardando_km") return "bg-[#0B1120] border-red-400 text-red-300 shadow-red-500/30";
-    return "bg-[#0B1120] border-white text-white shadow-green-500/30";
-  }
-
   function statusTexto() {
     if (!jornada) return "Pronto para iniciar";
     if (jornada.status === "pausada") return "Pausada";
@@ -166,17 +134,6 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
 
   function abrirAviso(titulo, mensagem, tipo = "erro") {
     setAviso({ aberto: true, titulo, mensagem, tipo });
-  }
-
-  function abrirPeloBotao() {
-    if (salvando) return;
-
-    if (jornada || jornadaFinalizada) {
-      setAberto(true);
-      return;
-    }
-
-    iniciarContagem();
   }
 
   function iniciarContagem() {
@@ -210,27 +167,16 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
   }
 
   async function iniciarJornada() {
-    const veiculo = veiculoSelecionado;
-
-    if (!veiculo?.id) {
-      abrirAviso("Veículo obrigatório", "Cadastre ou defina um veículo principal antes de iniciar a jornada.");
-      setAberto(true);
-      return;
-    }
-
     setSalvando(true);
 
     const agoraISO = new Date().toISOString();
-    const kmInicial = Number(veiculo.odometro_atual || 0);
 
     const { data, error } = await supabase
       .from("jornadas_trabalho")
       .insert({
-        veiculo_id: Number(veiculo.id),
         data: dataHojeLocal(),
         inicio: agoraISO,
         status: "em_andamento",
-        km_inicial: kmInicial,
         total_pausas_segundos: 0,
       })
       .select()
@@ -412,16 +358,12 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
     }
 
     const fim = jornada.fim || new Date().toISOString();
-    const kmInicial = Number(jornada.km_inicial || veiculoSelecionado?.odometro_atual || 0);
-    const kmFinal = kmInicial + kmRodados;
 
     const { data: jornadaEncerrada, error } = await supabase
       .from("jornadas_trabalho")
       .update({
         fim,
         status: "finalizada",
-        km_inicial: kmInicial,
-        km_final: kmFinal,
         km_rodados: kmRodados,
         total_pausas_segundos: totalPausas,
       })
@@ -434,10 +376,6 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
       abrirAviso("Erro", "Erro ao finalizar jornada.");
       setSalvando(false);
       return;
-    }
-
-    if (veiculoSelecionado?.id && kmFinal > Number(veiculoSelecionado?.odometro_atual || 0)) {
-      await supabase.from("veiculos").update({ odometro_atual: kmFinal }).eq("id", Number(veiculoSelecionado.id));
     }
 
     const segundosLiquidos = calcularSegundosLiquidos(jornadaEncerrada);
