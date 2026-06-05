@@ -6,7 +6,6 @@ import {
   FiRefreshCw,
   FiDroplet,
   FiTool,
-  FiCoffee,
   FiTag,
   FiMoreHorizontal,
   FiPlusCircle,
@@ -36,7 +35,6 @@ export default function NovoLancamento({
   const [modalAbastecimentoAberto, setModalAbastecimentoAberto] = useState(false);
   const [modalManutencaoAberto, setModalManutencaoAberto] = useState(false);
 
-  const [modalAlimentacaoAberto, setModalAlimentacaoAberto] = useState(false);
   const [modalOutrasDespesasAberto, setModalOutrasDespesasAberto] =
     useState(false);
   const [modalDespesasFuturasAberto, setModalDespesasFuturasAberto] =
@@ -107,22 +105,15 @@ export default function NovoLancamento({
 
   const despesas = [
     {
-      titulo: "Alimentação",
-      descricao: "Gastos durante o trabalho",
-      icon: <FiCoffee />,
-      cor: "red",
-      acao: () => setModalAlimentacaoAberto(true),
-    },
-    {
       titulo: "Outras Despesas",
-      descricao: "Seguro, lavagem, acessórios e gastos gerais",
+      descricao: "Despesas de trabalho ou pessoais",
       icon: <FiMoreHorizontal />,
       cor: "purple",
       acao: () => setModalOutrasDespesasAberto(true),
     },
     {
       titulo: "Despesas Futuras",
-      descricao: "Boletos, contas a pagar e vencimentos",
+      descricao: "Boletos, contas da casa e vencimentos",
       icon: <FiCalendar />,
       cor: "gray",
       acao: () => setModalDespesasFuturasAberto(true),
@@ -188,15 +179,6 @@ export default function NovoLancamento({
       <ManutencaoModal
         aberto={modalManutencaoAberto}
         onClose={() => setModalManutencaoAberto(false)}
-      />
-
-      <SaidaModal
-        aberto={modalAlimentacaoAberto}
-        onClose={() => setModalAlimentacaoAberto(false)}
-        titulo="Alimentação"
-        descricaoModal="Registre gastos com alimentação durante o trabalho."
-        categoriaInicial="Alimentação"
-        categoriaBloqueada
       />
 
       <SaidaModal

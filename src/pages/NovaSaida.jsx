@@ -17,6 +17,9 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   const [contas, setContas] = useState([]);
   const [cartoes, setCartoes] = useState([]);
   const [veiculos, setVeiculos] = useState([]);
+  const [categorias, setCategorias] = useState(
+    categoriasPadrao.map((nome) => ({ id: null, nome }))
+  );
 
   const [dataCompra, setDataCompra] = useState(hoje);
   const [formaPagamento, setFormaPagamento] = useState("pix");
@@ -25,6 +28,8 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   const [dataVencimento, setDataVencimento] = useState(hoje);
 
   const [categoria, setCategoria] = useState(categoriaInicial);
+  const [categoriaId, setCategoriaId] = useState(null);
+  const [finalidade, setFinalidade] = useState("trabalho");
   const [descricao, setDescricao] = useState("");
   const [valorTotal, setValorTotal] = useState("");
 
@@ -85,7 +90,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
     { valor: "diesel", titulo: "Diesel" },
   ];
 
-  const categorias = [
+  const categoriasPadrao = [
     "Saída",
     "Abastecimento",
     "Manutenção",
@@ -126,6 +131,16 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
     [cartoes, cartaoId]
   );
 
+  const categoriasNomes = useMemo(
+    () => categorias.map((item) => item.nome).filter(Boolean),
+    [categorias]
+  );
+
+  const categoriaSelecionada = useMemo(
+    () => categorias.find((item) => item.nome === categoria),
+    [categorias, categoria]
+  );
+
   const isAbastecimento = categoria === "Abastecimento";
   const isManutencao = categoria === "Manutenção";
   const isCredito = formaPagamento === "credito_avista" || formaPagamento === "credito_parcelado";
@@ -146,7 +161,16 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
 
   useEffect(() => {
     setCategoria(categoriaInicial);
-  }, [categoriaInicial]);
+    setFinalidade("trabalho");
+    const categoriaEncontrada = categorias.find(
+      (item) => item.nome === categoriaInicial
+    );
+    setCategoriaId(categoriaEncontrada?.id || null);
+  }, [categoriaInicial, categorias]);
+
+  useEffect(() => {
+    setCategoriaId(categoriaSelecionada?.id || null);
+  }, [categoriaSelecionada]);
 
   useEffect(() => {
     if (!isAbastecimento) return;
@@ -277,6 +301,32 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
     );
   }
 
+  async function carregarCategorias() {
+    const fallback = categoriasPadrao.map((nome) => ({ id: null, nome }));
+
+    const { data, error } = await supabase
+      .from("categorias")
+      .select("id, nome, ativo, ordem")
+      .eq("ativo", true)
+      .eq("tipo", "saida")
+      .order("ordem", { ascending: true })
+      .order("nome", { ascending: true });
+
+    if (error) {
+      console.error("Erro ao carregar categorias:", error);
+      setCategorias(fallback);
+      return fallback;
+    }
+
+    const lista = (data || [])
+      .map((item) => ({ id: item.id, nome: item.nome }))
+      .filter((item) => item.nome);
+
+    const categoriasFinais = lista.length > 0 ? lista : fallback;
+    setCategorias(categoriasFinais);
+    return categoriasFinais;
+  }
+
   async function carregarDados() {
     const { data: contasData } = await supabase
       .from("contas")
@@ -296,12 +346,19 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
       .eq("ativo", true)
       .order("id");
 
+    const categoriasData = await carregarCategorias();
+
     const cartoesComUso = await carregarUsoDosCartoes(cartoesData || []);
     const contasComSaldo = await carregarContasComSaldo(contasData || []);
 
     setContas(contasComSaldo);
     setCartoes(cartoesComUso);
     setVeiculos(veiculosData || []);
+
+    const categoriaEncontrada = categoriasData.find(
+      (item) => item.nome === categoriaInicial
+    );
+    setCategoriaId(categoriaEncontrada?.id || null);
 
     const carteira = contasComSaldo.find((conta) => conta.tipo_conta === "carteira");
     const contaPrincipal = contasComSaldo.find((conta) => conta.principal);
@@ -420,6 +477,15 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   setUltimoCampoEditado("total");
   setValorTotal(formatarMoedaDigitada(valor));
 }
+
+  function selecionarCategoria(nomeCategoria) {
+    const categoriaEncontrada = categorias.find(
+      (item) => item.nome === nomeCategoria
+    );
+
+    setCategoria(nomeCategoria);
+    setCategoriaId(categoriaEncontrada?.id || null);
+  }
 
   function atualizarValorLitro(valor) {
     setValorLitro(formatarMoedaDigitada(valor));
@@ -792,6 +858,8 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         data_efetivacao: isBoleto ? null : dataCompra,
         data_vencimento: isBoleto ? dataVencimento : null,
         categoria,
+        categoria_id: categoriaId ? Number(categoriaId) : null,
+        finalidade,
         descricao: isAbastecimento
           ? `Compra de combustível - ${veiculoSelecionado?.nome || "Veículo"}`
           : descricao,
@@ -946,6 +1014,10 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
               </ButtonField>
             </Campo>
           )}
+
+          <Campo label="Finalidade">
+            <FinalidadeSelector finalidade={finalidade} setFinalidade={setFinalidade} />
+          </Campo>
 
           {!isAbastecimento && (
             <Campo label="Descrição">
@@ -1394,9 +1466,9 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
 
       <SelecionarCategoriaModal
         aberto={modalCategoriaAberto}
-        categorias={categorias}
+        categorias={categoriasNomes}
         categoria={categoria}
-        onSelecionar={setCategoria}
+        onSelecionar={selecionarCategoria}
         onClose={() => setModalCategoriaAberto(false)}
       />
 
@@ -1414,6 +1486,36 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         mensagem={feedback.mensagem}
         onClose={fecharFeedback}
       />
+    </div>
+  );
+}
+
+function FinalidadeSelector({ finalidade, setFinalidade }) {
+  const opcoes = [
+    { valor: "trabalho", titulo: "Uso à trabalho" },
+    { valor: "pessoal", titulo: "Uso pessoal" },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-2 mt-2">
+      {opcoes.map((opcao) => {
+        const ativo = finalidade === opcao.valor;
+
+        return (
+          <button
+            key={opcao.valor}
+            type="button"
+            onClick={() => setFinalidade(opcao.valor)}
+            className={`rounded-xl border p-3 text-sm font-black transition ${
+              ativo
+                ? "border-green-400 bg-green-500/10 text-green-400"
+                : "border-gray-700 text-gray-300 hover:bg-white/5"
+            }`}
+          >
+            {opcao.titulo}
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { FiFilter } from "react-icons/fi";
 import { supabase } from "../services/supabase";
+import SelecionarCategoriaModal from "../components/modals/SelecionarCategoriaModal";
+import SelecionarFormaPagamentoModal from "../components/modals/SelecionarFormaPagamentoModal";
 import DetalhesLancamentoModal from "../components/modals/DetalhesLancamentoModal";
 import ConfirmacaoModal from "../components/modals/ConfirmacaoModal";
 import FeedbackModal from "../components/modals/FeedbackModal";
@@ -324,18 +327,51 @@ export default function Extrato() {
 
   const categoriasDisponiveis = useMemo(() => {
     const categorias = todosLancamentos
-      .filter((item) => item.tipo === "saida")
+      .filter((item) => ["saida", "conta_pagar"].includes(item.tipo))
       .map((item) => item.categoria)
       .filter(Boolean);
 
     return [...new Set(categorias)].sort();
   }, [todosLancamentos]);
 
+  const formasPagamentoDisponiveis = useMemo(() => {
+    const nomes = {
+      pix: "Pix",
+      debito: "Débito",
+      dinheiro: "Dinheiro",
+      boleto: "Boleto",
+      tag: "TAG",
+      credito: "Cartão de crédito",
+      credito_avista: "Crédito à Vista",
+      credito_parcelado: "Crédito Parcelado",
+      entrada: "Entrada",
+      entrada_avulsa: "Entrada Avulsa",
+      transferencia: "Transferência",
+    };
+
+    const formas = todosLancamentos
+      .map((item) => item.formaPagamento)
+      .filter(Boolean);
+
+    return [...new Set(formas)].sort().map((valor) => ({
+      valor,
+      titulo: nomes[valor] || valor,
+    }));
+  }, [todosLancamentos]);
+
   const lancamentosFiltrados = useMemo(() => {
     let lista = [...todosLancamentos];
 
-    if (filtroTipo !== "todos" && filtroTipo !== "personalizado") {
-      lista = lista.filter((item) => item.tipo === filtroTipo);
+    if (filtroTipo === "entrada") {
+      lista = lista.filter((item) => ["entrada", "entrada_avulsa"].includes(item.tipo));
+    }
+
+    if (filtroTipo === "saida") {
+      lista = lista.filter((item) => ["saida", "conta_pagar"].includes(item.tipo));
+    }
+
+    if (filtroTipo === "transferencia") {
+      lista = lista.filter((item) => item.tipo === "transferencia");
     }
 
     if (filtroTipo === "personalizado") {
@@ -664,15 +700,12 @@ export default function Extrato() {
         Acompanhe todos os lançamentos de entrada e saída.
       </p>
 
-      <div className="mt-6 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-        <div className="flex items-center gap-3 flex-wrap">
+      <div className="mt-6 space-y-3">
+        <div className="grid grid-cols-4 gap-2">
           {[
             { nome: "Todos", valor: "todos" },
-            { nome: "Entrada", valor: "entrada" },
-            { nome: "Entrada Avulsa", valor: "entrada_avulsa" },
-            { nome: "Saída", valor: "saida" },
-            { nome: "Movimentação", valor: "transferencia" },
-            { nome: "Personalizado", valor: "personalizado" },
+            { nome: "Entradas", valor: "entrada" },
+            { nome: "Saídas", valor: "saida" },
           ].map((item) => {
             const ativo = filtroTipo === item.valor;
 
@@ -681,7 +714,7 @@ export default function Extrato() {
                 key={item.valor}
                 type="button"
                 onClick={() => selecionarFiltro(item.valor)}
-                className={`px-4 py-2 rounded-xl border font-semibold transition ${
+                className={`h-11 px-2 rounded-xl border text-sm font-black transition ${
                   ativo
                     ? "bg-green-500 text-black border-green-500"
                     : "border-gray-700 text-gray-300 hover:bg-white/5"
@@ -692,18 +725,22 @@ export default function Extrato() {
             );
           })}
 
-          {(filtroTipo !== "todos" || busca) && (
-            <button
-              type="button"
-              onClick={limparFiltros}
-              className="px-4 py-2 rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10 font-semibold"
-            >
-              Limpar filtros
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => selecionarFiltro("personalizado")}
+            className={`h-11 rounded-xl border flex items-center justify-center transition ${
+              filtroTipo === "personalizado"
+                ? "bg-green-500 text-black border-green-500"
+                : "border-gray-700 text-gray-300 hover:bg-white/5"
+            }`}
+            title="Filtros personalizados"
+            aria-label="Filtros personalizados"
+          >
+            <FiFilter className="text-lg" />
+          </button>
         </div>
 
-        <div className="relative w-full xl:w-80">
+        <div className="relative w-full">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
             🔍
           </span>
@@ -716,6 +753,16 @@ export default function Extrato() {
             className="w-full bg-[#111827] border border-gray-700 focus:border-green-400 outline-none rounded-xl py-3 pl-11 pr-4"
           />
         </div>
+
+        {(filtroTipo !== "todos" || busca) && (
+          <button
+            type="button"
+            onClick={limparFiltros}
+            className="w-full sm:w-auto px-4 py-2 rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10 font-semibold text-sm"
+          >
+            Limpar filtros
+          </button>
+        )}
       </div>
 
       <div className="mt-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -780,40 +827,53 @@ export default function Extrato() {
         {lancamentosPagina.map((item) => {
           const selecionado = selecionados.includes(item.id);
 
+          const entrada = item.tipo === "entrada" || item.tipo === "entrada_avulsa";
+          const neutro = item.tipo === "conta_pagar" || item.tipo === "transferencia";
+          const sinal = entrada ? "+" : neutro ? "" : "-";
+          const corValor = entrada ? "text-green-400" : neutro ? "text-blue-400" : "text-red-400";
+          const corIcone = entrada
+            ? "bg-green-500/15 text-green-400"
+            : neutro
+            ? "bg-blue-500/15 text-blue-400"
+            : "bg-red-500/15 text-red-400";
+          const icone = entrada ? "↑" : neutro ? "→" : "↓";
+          const colunasCard = modoSelecao
+            ? "grid-cols-[auto_1fr_auto]"
+            : "grid-cols-[1fr_auto] sm:grid-cols-[auto_1fr_auto]";
+
           return (
-          <div
-            key={item.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => {
-              if (modoSelecao) {
-                alternarSelecionado(item.id);
-                return;
-              }
+            <div
+              key={item.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                if (modoSelecao) {
+                  alternarSelecionado(item.id);
+                  return;
+                }
 
-              setLancamentoSelecionado(item);
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" && event.key !== " ") return;
-              event.preventDefault();
+                setLancamentoSelecionado(item);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
 
-              if (modoSelecao) {
-                alternarSelecionado(item.id);
-                return;
-              }
+                if (modoSelecao) {
+                  alternarSelecionado(item.id);
+                  return;
+                }
 
-              setLancamentoSelecionado(item);
-            }}
-            className={`w-full text-left bg-[#111827] border rounded-2xl p-5 flex items-center justify-between gap-4 transition cursor-pointer ${
-              selecionado
-                ? "border-green-400 bg-green-500/10"
-                : "border-gray-800 hover:border-green-400/60"
-            }`}
-          >
-            <div className="flex items-center gap-4">
+                setLancamentoSelecionado(item);
+              }}
+              className={`w-full text-left bg-[#111827] border rounded-2xl p-4 sm:p-5 grid ${colunasCard} items-center gap-3 transition cursor-pointer ${
+                selecionado
+                  ? "border-green-400 bg-green-500/10"
+                  : "border-gray-800 hover:border-green-400/60"
+              }`}
+            >
               {modoSelecao && (
                 <div
-                  className={`w-6 h-6 rounded-lg border flex items-center justify-center shrink-0 ${
+                  className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 text-xs ${
                     selecionado
                       ? "bg-green-500 border-green-500 text-black"
                       : "border-gray-600 text-transparent"
@@ -822,84 +882,60 @@ export default function Extrato() {
                   ✓
                 </div>
               )}
-              <div
-                className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold ${
-                  item.tipo === "entrada" || item.tipo === "entrada_avulsa"
-  ? "bg-green-500/20 text-green-400"
-  : item.tipo === "conta_pagar" || item.tipo === "transferencia"
-  ? "bg-blue-500/20 text-blue-400"
-  : "bg-red-500/20 text-red-400"
-                }`}
-              >
-                {
-  item.tipo === "entrada" || item.tipo === "entrada_avulsa"
-    ? "↑"
-    : item.tipo === "conta_pagar" || item.tipo === "transferencia"
-    ? "→"
-    : "↓"
-}
-              </div>
 
-              <div>
-                <p className="text-sm text-gray-500">{formatarData(item.data)}</p>
-                <h2 className="text-lg font-bold">{item.titulo}</h2>
-                <p className="text-sm text-gray-400 mt-1">{item.descricao}</p>
-              </div>
-            </div>
-
-            <div className="text-right">
-              <p
-                className={`text-xl font-bold ${
-                  item.tipo === "entrada" || item.tipo === "entrada_avulsa"
-  ? "text-green-400"
-  : item.tipo === "conta_pagar" || item.tipo === "transferencia"
-  ? "text-blue-400"
-  : "text-red-400"
-                }`}
-              >
-                {
-  item.tipo === "entrada" || item.tipo === "entrada_avulsa"
-    ? "+"
-    : item.tipo === "conta_pagar" || item.tipo === "transferencia"
-    ? ""
-    : "-"
-} {formatarMoeda(item.valor)}
-              </p>
-
-              {(item.tipo === "entrada" || item.tipo === "entrada_avulsa") && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Para {item.contaDestino}
-                </p>
+              {!modoSelecao && (
+                <div className={`hidden sm:flex w-10 h-10 rounded-xl items-center justify-center font-black shrink-0 ${corIcone}`}>
+                  {icone}
+                </div>
               )}
 
-              {item.tipo === "transferencia" && (
-                <>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Movimentação entre contas
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {!modoSelecao && (
+                    <span className={`sm:hidden w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-black shrink-0 ${corIcone}`}>
+                      {icone}
+                    </span>
+                  )}
+                  <p className="text-xs text-gray-500 truncate">{formatarData(item.data)}</p>
+                </div>
+                <h2 className="text-base sm:text-lg font-black truncate mt-0.5">{item.titulo}</h2>
+                <p className="text-xs sm:text-sm text-gray-400 mt-1 truncate">{item.descricao}</p>
+              </div>
+
+              <div className="text-right min-w-[92px] sm:min-w-[130px]">
+                <p className={`text-base sm:text-xl font-black whitespace-nowrap ${corValor}`}>
+                  {sinal} {formatarMoeda(item.valor)}
+                </p>
+
+                {entrada && (
+                  <p className="text-[11px] sm:text-xs text-gray-500 mt-1 truncate">
+                    Para {item.contaDestino}
                   </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
+                )}
+
+                {item.tipo === "transferencia" && (
+                  <p className="text-[11px] sm:text-xs text-gray-500 mt-1 truncate">
                     {item.contaOrigem} → {item.contaDestino}
                   </p>
-                </>
-              )}
+                )}
 
-             {(item.tipo === "saida" || item.tipo === "conta_pagar") && (
-  <>
-    <p className="text-xs text-gray-400 mt-1">
-      {item.tipo === "conta_pagar"
-        ? `Contas a pagar - ${item.formaPagamentoTexto} Registrado`
-        : item.formaPagamentoTexto}
-    </p>
+                {(item.tipo === "saida" || item.tipo === "conta_pagar") && (
+                  <>
+                    <p className="text-[11px] sm:text-xs text-gray-400 mt-1 truncate">
+                      {item.tipo === "conta_pagar"
+                        ? `Contas a pagar - ${item.formaPagamentoTexto}`
+                        : item.formaPagamentoTexto}
+                    </p>
 
-    {item.tipo !== "conta_pagar" && (
-      <p className="text-xs text-gray-500 mt-0.5">
-        {item.contaOrigem}
-      </p>
-    )}
-  </>
-)}
+                    {item.tipo !== "conta_pagar" && (
+                      <p className="text-[11px] sm:text-xs text-gray-500 mt-0.5 truncate">
+                        {item.contaOrigem}
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
-          </div>
           );
         })}
       </div>
@@ -935,6 +971,8 @@ export default function Extrato() {
           filtros={filtrosPersonalizados}
           setFiltros={setFiltrosPersonalizados}
           categorias={categoriasDisponiveis}
+          formasPagamento={formasPagamentoDisponiveis}
+          formatarData={formatarData}
           fechar={() => setModalPersonalizadoAberto(false)}
           limpar={limparFiltros}
         />
@@ -986,104 +1024,455 @@ export default function Extrato() {
   );
 }
 
-function ModalPersonalizado({ filtros, setFiltros, categorias, fechar, limpar }) {
+function ModalPersonalizado({
+  filtros,
+  setFiltros,
+  categorias,
+  formasPagamento,
+  formatarData,
+  fechar,
+  limpar,
+}) {
+  const [modalPeriodoAberto, setModalPeriodoAberto] = useState(false);
+  const [modalCategoriaAberto, setModalCategoriaAberto] = useState(false);
+  const [modalFormaPagamentoAberto, setModalFormaPagamentoAberto] = useState(false);
+
+  const categoriaTexto =
+    filtros.categoria === "todas" ? "Todas as categorias" : filtros.categoria;
+
+  const formaPagamentoTexto =
+    formasPagamento.find((item) => item.valor === filtros.formaPagamento)?.titulo ||
+    "Todas as formas";
+
+  const periodoTexto = textoPeriodoFiltro(filtros.dataInicio, filtros.dataFim, formatarData);
+  const categoriasFiltro = ["Todas as categorias", ...categorias];
+  const formasFiltro = [
+    { valor: "todas", titulo: "Todas as formas" },
+    ...formasPagamento,
+  ];
+
+  function atualizarFiltro(campo, valor) {
+    setFiltros((filtrosAtuais) => ({ ...filtrosAtuais, [campo]: valor }));
+  }
+
+  function aplicarPeriodo({ dataInicio, dataFim }) {
+    setFiltros((filtrosAtuais) => ({
+      ...filtrosAtuais,
+      dataInicio,
+      dataFim,
+    }));
+  }
+
+  function limparPeriodo() {
+    setFiltros((filtrosAtuais) => ({
+      ...filtrosAtuais,
+      dataInicio: "",
+      dataFim: "",
+    }));
+  }
+
+  function limparEFechar() {
+    limpar();
+  }
+
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="w-full max-w-lg bg-[#111827] border border-gray-800 rounded-2xl p-6">
+    <>
+      <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50 p-4">
+        <div className="w-full max-w-lg bg-[#111827] border border-gray-800 rounded-3xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-hide">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="inline-flex items-center rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-black text-green-400">
+                Filtros do extrato
+              </div>
+
+              <h2 className="text-2xl font-black mt-3">Filtro personalizado</h2>
+              <p className="text-gray-400 mt-2 text-sm leading-relaxed">
+                Escolha o período, categoria e forma de pagamento para refinar os lançamentos.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={fechar}
+              className="w-10 h-10 rounded-2xl bg-red-500 hover:bg-red-600 text-white font-black shrink-0"
+              aria-label="Fechar filtro personalizado"
+            >
+              ×
+            </button>
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 gap-4">
+            <Campo label="Período">
+              <ButtonField onClick={() => setModalPeriodoAberto(true)}>
+                {periodoTexto}
+              </ButtonField>
+            </Campo>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Campo label="Categoria">
+              <ButtonField onClick={() => setModalCategoriaAberto(true)}>
+                {categoriaTexto}
+              </ButtonField>
+            </Campo>
+
+            <Campo label="Forma de pagamento">
+              <ButtonField onClick={() => setModalFormaPagamentoAberto(true)}>
+                {formaPagamentoTexto}
+              </ButtonField>
+            </Campo>
+          </div>
+
+          <div className="mt-6 rounded-2xl bg-[#0B1120] border border-gray-800 p-4">
+            <p className="text-xs text-gray-500 leading-relaxed">
+              No período, primeiro escolha a data inicial. Depois escolha a data final.
+              Datas anteriores ao início ficam bloqueadas automaticamente.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
+            <button
+              type="button"
+              onClick={limparEFechar}
+              className="w-full border border-gray-700 hover:bg-white/5 text-white font-black rounded-2xl p-4"
+            >
+              Limpar filtros
+            </button>
+
+            <button
+              type="button"
+              onClick={fechar}
+              className="w-full bg-green-500 hover:bg-green-600 text-black font-black rounded-2xl p-4"
+            >
+              Aplicar filtros
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <DateRangePickerModal
+        aberto={modalPeriodoAberto}
+        dataInicioAtual={filtros.dataInicio}
+        dataFimAtual={filtros.dataFim}
+        onAplicar={aplicarPeriodo}
+        onLimpar={limparPeriodo}
+        onClose={() => setModalPeriodoAberto(false)}
+        formatarData={formatarData}
+      />
+
+      <SelecionarCategoriaModal
+        aberto={modalCategoriaAberto}
+        categorias={categoriasFiltro}
+        categoria={categoriaTexto}
+        onSelecionar={(valor) =>
+          atualizarFiltro(
+            "categoria",
+            valor === "Todas as categorias" ? "todas" : valor
+          )
+        }
+        onClose={() => setModalCategoriaAberto(false)}
+      />
+
+      <SelecionarFormaPagamentoModal
+        aberto={modalFormaPagamentoAberto}
+        formasPagamento={formasFiltro}
+        formaPagamento={filtros.formaPagamento}
+        onSelecionar={(valor) => atualizarFiltro("formaPagamento", valor)}
+        onClose={() => setModalFormaPagamentoAberto(false)}
+      />
+    </>
+  );
+}
+
+function DateRangePickerModal({
+  aberto,
+  dataInicioAtual,
+  dataFimAtual,
+  onAplicar,
+  onLimpar,
+  onClose,
+  formatarData,
+}) {
+  const hoje = new Date();
+  const dataBase = dataInicioAtual ? new Date(`${dataInicioAtual}T00:00:00`) : hoje;
+
+  const [mes, setMes] = useState(dataBase.getMonth());
+  const [ano, setAno] = useState(dataBase.getFullYear());
+  const [etapa, setEtapa] = useState("inicio");
+  const [dataInicio, setDataInicio] = useState(dataInicioAtual || "");
+  const [dataFim, setDataFim] = useState(dataFimAtual || "");
+  const [modoMesAno, setModoMesAno] = useState(false);
+  const [etapaMesAno, setEtapaMesAno] = useState("ano");
+
+  const meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+  const diasSemana = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+  useEffect(() => {
+    if (!aberto) return;
+
+    const base = dataInicioAtual ? new Date(`${dataInicioAtual}T00:00:00`) : new Date();
+    setMes(base.getMonth());
+    setAno(base.getFullYear());
+    setEtapa(dataInicioAtual && !dataFimAtual ? "fim" : "inicio");
+    setDataInicio(dataInicioAtual || "");
+    setDataFim(dataFimAtual || "");
+    setModoMesAno(false);
+    setEtapaMesAno("ano");
+  }, [aberto, dataInicioAtual, dataFimAtual]);
+
+  if (!aberto) return null;
+
+  function alterarMes(delta) {
+    let novoMes = mes + delta;
+    let novoAno = ano;
+
+    if (novoMes < 0) {
+      novoMes = 11;
+      novoAno -= 1;
+    }
+
+    if (novoMes > 11) {
+      novoMes = 0;
+      novoAno += 1;
+    }
+
+    setMes(novoMes);
+    setAno(novoAno);
+  }
+
+  function diasDoMesCalendario() {
+    const primeiroDia = new Date(ano, mes, 1);
+    const ultimoDia = new Date(ano, mes + 1, 0);
+    const totalDias = ultimoDia.getDate();
+    const diaSemanaInicio = primeiroDia.getDay();
+    const dias = [];
+
+    for (let i = 0; i < diaSemanaInicio; i++) dias.push(null);
+    for (let dia = 1; dia <= totalDias; dia++) dias.push(dia);
+    while (dias.length < 42) dias.push(null);
+
+    return dias;
+  }
+
+  function selecionarDia(dia) {
+    const selecionada = dataISO(new Date(ano, mes, dia));
+
+    if (etapa === "fim" && dataInicio && selecionada < dataInicio) return;
+
+    if (etapa === "inicio") {
+      setDataInicio(selecionada);
+      setDataFim("");
+      setEtapa("fim");
+      return;
+    }
+
+    const inicioFinal = dataInicio || selecionada;
+    onAplicar({ dataInicio: inicioFinal, dataFim: selecionada });
+    onClose();
+  }
+
+  function limparPeriodoInterno() {
+    setDataInicio("");
+    setDataFim("");
+    setEtapa("inicio");
+    onLimpar();
+    onClose();
+  }
+
+  function anosDisponiveis() {
+    const anoAtual = new Date().getFullYear();
+    return Array.from({ length: 13 }, (_, i) => anoAtual - 6 + i);
+  }
+
+  function dataEstaNoIntervalo(data) {
+    if (!dataInicio || !dataFim) return false;
+    return data >= dataInicio && data <= dataFim;
+  }
+
+  function dataEstaSelecionada(data) {
+    return data === dataInicio || data === dataFim;
+  }
+
+  const instrucao = etapa === "inicio"
+    ? "Escolha a data inicial do período."
+    : "Agora escolha a data final. Datas anteriores ao início ficam bloqueadas.";
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-[70] p-4">
+      <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-3xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-hide">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-bold">Filtro personalizado</h2>
-            <p className="text-gray-400 mt-2">
-              Escolha período, categoria e forma de pagamento.
-            </p>
+            <div className="inline-flex items-center rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-black text-green-400">
+              {etapa === "inicio" ? "1 de 2" : "2 de 2"}
+            </div>
+            <h2 className="text-2xl font-black mt-3">Selecionar período</h2>
+            <p className="text-gray-400 text-sm mt-2 leading-relaxed">{instrucao}</p>
           </div>
 
           <button
             type="button"
-            onClick={fechar}
-            className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold"
+            onClick={onClose}
+            className="w-10 h-10 rounded-2xl bg-red-500 hover:bg-red-600 text-white font-black shrink-0"
           >
             ×
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
-          <Campo label="Data inicial">
-            <input
-              type="date"
-              value={filtros.dataInicio}
-              onChange={(e) =>
-                setFiltros((f) => ({ ...f, dataInicio: e.target.value }))
-              }
-              className="input-base"
-            />
-          </Campo>
-
-          <Campo label="Data final">
-            <input
-              type="date"
-              value={filtros.dataFim}
-              onChange={(e) =>
-                setFiltros((f) => ({ ...f, dataFim: e.target.value }))
-              }
-              className="input-base"
-            />
-          </Campo>
-
-          <Campo label="Categoria">
-            <select
-              value={filtros.categoria}
-              onChange={(e) =>
-                setFiltros((f) => ({ ...f, categoria: e.target.value }))
-              }
-              className="input-base"
-            >
-              <option value="todas">Todas</option>
-              <option value="Entrada">Entrada</option>
-              {categorias.map((categoria) => (
-                <option key={categoria} value={categoria}>
-                  {categoria}
-                </option>
-              ))}
-            </select>
-          </Campo>
-
-          <Campo label="Forma de pagamento">
-            <select
-              value={filtros.formaPagamento}
-              onChange={(e) =>
-                setFiltros((f) => ({ ...f, formaPagamento: e.target.value }))
-              }
-              className="input-base"
-            >
-              <option value="todas">Todas</option>
-              <option value="pix">Pix</option>
-              <option value="debito">Débito</option>
-              <option value="dinheiro">Dinheiro</option>
-              <option value="credito">Cartão de crédito</option>
-            </select>
-          </Campo>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <ResumoPeriodo titulo="Início" valor={dataInicio ? formatarData(dataInicio) : "Escolher"} ativo={etapa === "inicio"} />
+          <ResumoPeriodo titulo="Final" valor={dataFim ? formatarData(dataFim) : "Escolher"} ativo={etapa === "fim"} />
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mt-6">
-          <button
-            type="button"
-            onClick={limpar}
-            className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3"
-          >
-            Limpar filtros
-          </button>
+        <div className="mt-5 flex items-center justify-between gap-2">
+          <button type="button" onClick={() => alterarMes(-1)} className="w-10 h-10 rounded-xl hover:bg-white/5 text-gray-300 hover:text-white text-xl">‹</button>
 
           <button
             type="button"
-            onClick={fechar}
-            className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
+            onClick={() => {
+              setModoMesAno(true);
+              setEtapaMesAno("ano");
+            }}
+            className="flex-1 text-center py-2 rounded-xl hover:bg-white/5 transition"
           >
-            Aplicar filtros
+            <span className="text-xl font-black">{meses[mes]}</span>
+            <span className="text-xl font-black mx-2 text-gray-500">/</span>
+            <span className="text-xl font-black">{ano}</span>
+          </button>
+
+          <button type="button" onClick={() => alterarMes(1)} className="w-10 h-10 rounded-xl hover:bg-white/5 text-gray-300 hover:text-white text-xl">›</button>
+        </div>
+
+        {!modoMesAno ? (
+          <div className="grid grid-cols-7 gap-1.5 mt-4 min-h-[292px]">
+            {diasSemana.map((dia) => (
+              <div key={dia} className="text-center text-[11px] text-gray-500 font-bold h-5">{dia}</div>
+            ))}
+
+            {diasDoMesCalendario().map((dia, index) => {
+              if (!dia) return <div key={`vazio-${index}`} className="h-10" />;
+
+              const dataDia = dataISO(new Date(ano, mes, dia));
+              const bloqueado = etapa === "fim" && dataInicio && dataDia < dataInicio;
+              const selecionada = dataEstaSelecionada(dataDia);
+              const noIntervalo = dataEstaNoIntervalo(dataDia);
+
+              return (
+                <button
+                  key={dataDia}
+                  type="button"
+                  disabled={bloqueado}
+                  onClick={() => selecionarDia(dia)}
+                  className={`h-10 rounded-lg border text-xs font-black transition ${
+                    selecionada
+                      ? "border-green-400 bg-green-500 text-black"
+                      : noIntervalo
+                      ? "border-green-500/30 bg-green-500/10 text-green-400"
+                      : bloqueado
+                      ? "border-gray-800 bg-[#0B1120] text-gray-700 opacity-40 cursor-not-allowed"
+                      : "border-gray-700 bg-[#0B1120] text-white hover:bg-white/5"
+                  }`}
+                >
+                  {dia}
+                </button>
+              );
+            })}
+          </div>
+        ) : etapaMesAno === "ano" ? (
+          <div className="mt-5">
+            <p className="text-sm text-gray-400 mb-4">Escolha o ano</p>
+            <div className="grid grid-cols-3 gap-3">
+              {anosDisponiveis().map((itemAno) => (
+                <button
+                  key={itemAno}
+                  type="button"
+                  onClick={() => {
+                    setAno(itemAno);
+                    setEtapaMesAno("mes");
+                  }}
+                  className={`rounded-xl border p-3 font-bold ${
+                    ano === itemAno
+                      ? "border-green-400 bg-green-500/10 text-green-400"
+                      : "border-gray-700 bg-[#0B1120] text-white hover:bg-white/5"
+                  }`}
+                >
+                  {itemAno}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5">
+            <button type="button" onClick={() => setEtapaMesAno("ano")} className="mb-4 text-sm text-gray-400 hover:text-white">← Voltar para anos</button>
+            <div className="grid grid-cols-3 gap-3">
+              {meses.map((nomeMes, index) => (
+                <button
+                  key={nomeMes}
+                  type="button"
+                  onClick={() => {
+                    setMes(index);
+                    setModoMesAno(false);
+                  }}
+                  className={`rounded-xl border p-3 font-bold ${
+                    mes === index
+                      ? "border-green-400 bg-green-500/10 text-green-400"
+                      : "border-gray-700 bg-[#0B1120] text-white hover:bg-white/5"
+                  }`}
+                >
+                  {nomeMes.slice(0, 3)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 mt-6">
+          <button type="button" onClick={limparPeriodoInterno} className="border border-gray-700 hover:bg-white/5 text-white font-black rounded-2xl p-3">
+            Limpar
+          </button>
+          <button type="button" onClick={() => setEtapa("inicio")} className="border border-green-500/50 hover:bg-green-500/10 text-green-400 font-black rounded-2xl p-3">
+            Recomeçar
           </button>
         </div>
       </div>
     </div>
+  );
+}
+
+
+function dataISO(date) {
+  return date.toISOString().split("T")[0];
+}
+
+function ResumoPeriodo({ titulo, valor, ativo }) {
+  return (
+    <div className={`rounded-2xl border p-3 ${ativo ? "border-green-500/50 bg-green-500/10" : "border-gray-800 bg-[#0B1120]"}`}>
+      <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wide">{titulo}</p>
+      <p className={`text-sm font-black mt-1 truncate ${ativo ? "text-green-400" : "text-white"}`}>{valor}</p>
+    </div>
+  );
+}
+
+function textoPeriodoFiltro(dataInicio, dataFim, formatarData) {
+  if (dataInicio && dataFim) {
+    if (dataInicio === dataFim) return formatarData(dataInicio);
+    return `${formatarData(dataInicio)} até ${formatarData(dataFim)}`;
+  }
+
+  if (dataInicio) return `A partir de ${formatarData(dataInicio)}`;
+  if (dataFim) return `Até ${formatarData(dataFim)}`;
+  return "Selecionar período";
+}
+
+function ButtonField({ children, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full min-h-[50px] bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-2xl px-4 py-3 text-left text-sm font-bold text-white transition flex items-center justify-between gap-3"
+    >
+      <span className="truncate">{children}</span>
+      <span className="text-gray-500 text-lg leading-none">›</span>
+    </button>
   );
 }
 

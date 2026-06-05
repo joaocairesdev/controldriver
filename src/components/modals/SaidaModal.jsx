@@ -21,7 +21,7 @@ export default function SaidaModal({
 }) {
   const hoje = new Date().toISOString().split("T")[0];
 
-  const categorias = [
+  const categoriasPadrao = [
     "Alimentação",
     "Lavagem",
     "Seguro",
@@ -53,10 +53,16 @@ export default function SaidaModal({
 
   const [contas, setContas] = useState([]);
   const [cartoes, setCartoes] = useState([]);
+  const [categorias, setCategorias] = useState(
+    categoriasPadrao.map((nome) => ({ id: null, nome }))
+  );
 
   const [dataCompra, setDataCompra] = useState(hoje);
   const [dataVencimento, setDataVencimento] = useState(hoje);
   const [categoria, setCategoria] = useState(categoriaInicial);
+  const [categoriaId, setCategoriaId] = useState(null);
+  const [finalidade, setFinalidade] = useState("trabalho");
+  const [etapa, setEtapa] = useState("tipo_uso");
   const [descricao, setDescricao] = useState("");
   const [valorTotal, setValorTotal] = useState("");
   const [formaPagamento, setFormaPagamento] = useState(
@@ -111,6 +117,27 @@ export default function SaidaModal({
     [cartoes, cartaoId]
   );
 
+  const categoriasNomes = useMemo(
+    () =>
+      categorias
+        .filter((item) => {
+          const tipoUso = item.tipo_uso || "rateada";
+          return tipoUso === finalidade || tipoUso === "rateada";
+        })
+        .map((item) => item.nome)
+        .filter(Boolean),
+    [categorias, finalidade]
+  );
+
+  const categoriaSelecionada = useMemo(
+    () => categorias.find((item) => item.nome === categoria),
+    [categorias, categoria]
+  );
+
+  useEffect(() => {
+    setCategoriaId(categoriaSelecionada?.id || null);
+  }, [categoriaSelecionada]);
+
   useEffect(() => {
     if (!aberto) return;
     carregarDados();
@@ -146,6 +173,32 @@ export default function SaidaModal({
     }
   }, [valorParcela, numeroParcelas, isCreditoParcelado, ultimoCampoEditado]);
 
+  async function carregarCategorias() {
+    const fallback = categoriasPadrao.map((nome) => ({ id: null, nome }));
+
+    const { data, error } = await supabase
+      .from("categorias")
+      .select("id, nome, ativo, ordem, tipo_uso")
+      .eq("ativo", true)
+      .eq("tipo", "saida")
+      .order("ordem", { ascending: true })
+      .order("nome", { ascending: true });
+
+    if (error) {
+      console.error("Erro ao carregar categorias:", error);
+      setCategorias(fallback);
+      return fallback;
+    }
+
+    const lista = (data || [])
+      .map((item) => ({ id: item.id, nome: item.nome, tipo_uso: item.tipo_uso || "rateada" }))
+      .filter((item) => item.nome);
+
+    const categoriasFinais = lista.length > 0 ? lista : fallback;
+    setCategorias(categoriasFinais);
+    return categoriasFinais;
+  }
+
   async function carregarDados() {
     const { data: contasData } = await supabase
       .from("contas")
@@ -159,11 +212,18 @@ export default function SaidaModal({
       .eq("ativo", true)
       .order("id");
 
+    const categoriasData = await carregarCategorias();
+
     const contasComSaldo = await carregarContasComSaldo(contasData || []);
     const cartoesComUso = await carregarUsoDosCartoes(cartoesData || []);
 
     setContas(contasComSaldo);
     setCartoes(cartoesComUso);
+
+    const categoriaEncontrada = categoriasData.find(
+      (item) => item.nome === categoriaInicial
+    );
+    setCategoriaId(categoriaEncontrada?.id || null);
 
     const carteira = contasComSaldo.find((conta) => conta.tipo_conta === "carteira");
     const principal = contasComSaldo.find((conta) => conta.principal);
@@ -330,6 +390,12 @@ export default function SaidaModal({
     setDataCompra(hoje);
     setDataVencimento(hoje);
     setCategoria(categoriaInicial);
+    const categoriaEncontrada = categorias.find(
+      (item) => item.nome === categoriaInicial
+    );
+    setCategoriaId(categoriaEncontrada?.id || null);
+    setFinalidade("trabalho");
+    setEtapa("tipo_uso");
     setDescricao("");
     setValorTotal("");
     setFormaPagamento(modo === "futura" ? "boleto" : "pix");
@@ -385,6 +451,59 @@ export default function SaidaModal({
   function atualizarValorTotal(valor) {
     setUltimoCampoEditado("total");
     setValorTotal(formatarMoedaDigitada(valor));
+  }
+
+  function selecionarCategoria(nomeCategoria) {
+    const categoriaEncontrada = categorias.find(
+      (item) => item.nome === nomeCategoria
+    );
+
+    setCategoria(nomeCategoria);
+    setCategoriaId(categoriaEncontrada?.id || null);
+    if (categoriaEncontrada?.tipo_uso) {
+      setFinalidade(categoriaEncontrada.tipo_uso);
+    }
+  }
+
+  function textoFinalidade(valor) {
+    const nomes = {
+      trabalho: "Uso à trabalho",
+      pessoal: "Uso pessoal",
+      rateada: "Rateada pelo veículo",
+    };
+
+    return nomes[valor] || "Uso à trabalho";
+  }
+
+  function adicionarCategoriaNaLista(novaCategoria) {
+    if (!novaCategoria?.nome) return;
+
+    const categoriaFormatada = {
+      id: novaCategoria.id || null,
+      nome: novaCategoria.nome,
+      tipo_uso: novaCategoria.tipo_uso || finalidade || "rateada",
+    };
+
+    setCategorias((lista) => {
+      const jaExiste = lista.some(
+        (item) => String(item.nome).toLowerCase() === String(categoriaFormatada.nome).toLowerCase()
+      );
+
+      if (jaExiste) {
+        return lista.map((item) =>
+          String(item.nome).toLowerCase() === String(categoriaFormatada.nome).toLowerCase()
+            ? { ...item, ...categoriaFormatada }
+            : item
+        );
+      }
+
+      return [...lista, categoriaFormatada].sort((a, b) =>
+        String(a.nome).localeCompare(String(b.nome), "pt-BR")
+      );
+    });
+
+    setCategoria(categoriaFormatada.nome);
+    setCategoriaId(categoriaFormatada.id || null);
   }
 
   function definirStatus() {
@@ -647,7 +766,7 @@ export default function SaidaModal({
       const { data: saidaCriada, error: erroSaida } = await supabase
         .from("saidas")
         .insert({
-          data_compra: dataCompra,
+          data_compra: isBoleto ? dataVencimento : dataCompra,
           forma_pagamento: formaPagamento,
           tipo_movimentacao: definirTipoMovimentacao(),
           conta_id: isCredito || isBoleto ? null : Number(contaId),
@@ -659,6 +778,8 @@ export default function SaidaModal({
           data_efetivacao: isBoleto ? null : dataCompra,
           data_vencimento: isBoleto ? dataVencimento : null,
           categoria,
+          categoria_id: categoriaId ? Number(categoriaId) : null,
+          finalidade,
           descricao: descricao.trim(),
           status: definirStatus(),
         })
@@ -695,140 +816,206 @@ export default function SaidaModal({
     <>
       <ModalBase
         aberto={aberto}
-        titulo={titulo}
-        descricao={descricaoModal}
+        titulo={etapa === "tipo_uso" ? "Tipo de uso" : titulo}
+        descricao={
+          etapa === "tipo_uso"
+            ? "Antes de registrar, informe se essa despesa é de trabalho, pessoal ou rateada pelo uso do veículo."
+            : descricaoModal
+        }
         onClose={cancelar}
-        largura="max-w-3xl"
+        largura={etapa === "tipo_uso" ? "max-w-xl" : "max-w-3xl"}
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Campo label="Data da compra">
-            <ButtonField onClick={() => setModalDataAberto(true)}>
-              {formatarDataBR(dataCompra)}
-            </ButtonField>
-          </Campo>
-
-          {!categoriaBloqueada && (
-            <Campo label="Categoria">
-              <ButtonField onClick={() => setModalCategoriaAberto(true)}>
-                {categoria}
-              </ButtonField>
-            </Campo>
-          )}
-
-          {categoriaBloqueada && (
-            <Campo label="Categoria">
-              <div className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 font-semibold">
-                {categoria}
-              </div>
-            </Campo>
-          )}
-
-          <Campo label="Descrição">
-            <input
-              type="text"
-              value={descricao}
-              placeholder="Ex: almoço, lavagem, seguro, IPVA..."
-              onChange={(e) => setDescricao(e.target.value)}
-              className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
-            />
-          </Campo>
-
-          <Campo label="Forma de pagamento">
-            {modo === "futura" ? (
-              <div className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 font-semibold">
-                Boleto / Conta a pagar
-              </div>
-            ) : (
-              <ButtonField onClick={() => setModalPagamentoAberto(true)}>
-                {textoFormaPagamento()}
-              </ButtonField>
-            )}
-          </Campo>
-
-          {!isBoleto && (
-            <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"}>
-              <ButtonField
+        {etapa === "tipo_uso" && (
+          <div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <TipoUsoCard
+                ativo={finalidade === "trabalho"}
+                icone="🚕"
+                titulo="Uso à trabalho"
+                descricao="Despesa ligada à operação, rotina na rua ou atividade como motorista."
                 onClick={() => {
-                  if (isDinheiro) return;
-                  isCredito ? setModalCartaoAberto(true) : setModalContaAberto(true);
+                  setFinalidade("trabalho");
+                  setEtapa("dados");
                 }}
+              />
+
+              <TipoUsoCard
+                ativo={finalidade === "pessoal"}
+                icone="🏠"
+                titulo="Uso pessoal"
+                descricao="Despesa da casa, família, lazer ou vida pessoal."
+                onClick={() => {
+                  setFinalidade("pessoal");
+                  setEtapa("dados");
+                }}
+              />
+
+              <TipoUsoCard
+                ativo={finalidade === "rateada"}
+                icone="🚗"
+                titulo="Rateada pelo veículo"
+                descricao="Despesa do carro que depois será dividida pelo uso a trabalho e pessoal."
+                onClick={() => {
+                  setFinalidade("rateada");
+                  setEtapa("dados");
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {etapa === "dados" && (
+          <>
+            <div className="mb-5 flex items-center justify-between gap-3 rounded-2xl border border-gray-800 bg-[#0B1120] p-4">
+              <div>
+                <p className="text-xs text-gray-500">Tipo de uso</p>
+                <p className="font-black text-white">
+                  {textoFinalidade(finalidade)}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setEtapa("tipo_uso")}
+                className="rounded-xl border border-gray-700 px-3 py-2 text-xs font-black text-gray-300 hover:bg-white/5"
               >
-                {textoContaCartao()}
-              </ButtonField>
-            </Campo>
-          )}
+                Alterar
+              </button>
+            </div>
 
-          {isBoleto && (
-            <Campo label="Vencimento">
-              <ButtonField onClick={() => setModalVencimentoAberto(true)}>
-                {formatarDataBR(dataVencimento)}
-              </ButtonField>
-            </Campo>
-          )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {!isBoleto && (
+                <Campo label="Data da compra">
+                  <ButtonField onClick={() => setModalDataAberto(true)}>
+                    {formatarDataBR(dataCompra)}
+                  </ButtonField>
+                </Campo>
+              )}
 
-          <Campo label="Valor total">
-            <MoneyInput
-              value={valorTotal}
-              onChange={atualizarValorTotal}
-              prefix="R$"
-              placeholder="0,00"
-            />
-          </Campo>
-        </div>
+              {isBoleto && (
+                <Campo label="Vencimento">
+                  <ButtonField onClick={() => setModalVencimentoAberto(true)}>
+                    {formatarDataBR(dataVencimento)}
+                  </ButtonField>
+                </Campo>
+              )}
 
-        {isCreditoParcelado && (
-          <div className="mt-5 bg-[#0B1120] border border-gray-800 rounded-2xl p-4">
-            <p className="text-sm text-gray-300 font-semibold">Parcelamento</p>
+              {!categoriaBloqueada && (
+                <Campo label="Categoria">
+                  <ButtonField onClick={() => setModalCategoriaAberto(true)}>
+                    {categoria}
+                  </ButtonField>
+                </Campo>
+              )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              <Campo label="Quantidade de parcelas">
-                <ButtonField onClick={() => setModalParcelasAberto(true)}>
-                  {numeroParcelas}x
-                </ButtonField>
+              {categoriaBloqueada && (
+                <Campo label="Categoria">
+                  <div className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 font-semibold">
+                    {categoria}
+                  </div>
+                </Campo>
+              )}
+
+              <Campo label="Descrição">
+                <input
+                  type="text"
+                  value={descricao}
+                  placeholder={isBoleto ? "Ex: conta de luz, condomínio, internet..." : "Ex: almoço, lavagem, seguro, IPVA..."}
+                  onChange={(e) => setDescricao(e.target.value)}
+                  className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
+                />
               </Campo>
 
-              <Campo label="Valor da parcela">
+              <Campo label="Forma de pagamento">
+                {modo === "futura" ? (
+                  <div className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 font-semibold">
+                    Boleto / Conta a pagar
+                  </div>
+                ) : (
+                  <ButtonField onClick={() => setModalPagamentoAberto(true)}>
+                    {textoFormaPagamento()}
+                  </ButtonField>
+                )}
+              </Campo>
+
+              {!isBoleto && (
+                <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"}>
+                  <ButtonField
+                    onClick={() => {
+                      if (isDinheiro) return;
+                      isCredito ? setModalCartaoAberto(true) : setModalContaAberto(true);
+                    }}
+                  >
+                    {textoContaCartao()}
+                  </ButtonField>
+                </Campo>
+              )}
+
+              <Campo label="Valor total">
                 <MoneyInput
-                  value={valorParcela}
-                  onChange={(valor) => {
-                    setUltimoCampoEditado("parcela");
-                    setValorParcela(formatarMoedaDigitada(valor));
-                  }}
+                  value={valorTotal}
+                  onChange={atualizarValorTotal}
                   prefix="R$"
                   placeholder="0,00"
                 />
               </Campo>
             </div>
-          </div>
+
+            {isCreditoParcelado && (
+              <div className="mt-5 bg-[#0B1120] border border-gray-800 rounded-2xl p-4">
+                <p className="text-sm text-gray-300 font-semibold">Parcelamento</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <Campo label="Quantidade de parcelas">
+                    <ButtonField onClick={() => setModalParcelasAberto(true)}>
+                      {numeroParcelas}x
+                    </ButtonField>
+                  </Campo>
+
+                  <Campo label="Valor da parcela">
+                    <MoneyInput
+                      value={valorParcela}
+                      onChange={(valor) => {
+                        setUltimoCampoEditado("parcela");
+                        setValorParcela(formatarMoedaDigitada(valor));
+                      }}
+                      prefix="R$"
+                      placeholder="0,00"
+                    />
+                  </Campo>
+                </div>
+              </div>
+            )}
+
+            {isBoleto && (
+              <div className="mt-5 bg-blue-500/10 border border-blue-500/30 rounded-2xl p-4">
+                <p className="text-sm text-blue-300 font-bold">Despesa futura</p>
+                <p className="text-xs text-gray-400 mt-2">
+                  Para contas futuras, o app usa a data de vencimento. Ela aparece como conta a pagar e não altera o saldo até ser paga.
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4 mt-6">
+              <button
+                type="button"
+                onClick={cancelar}
+                className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={salvarSaida}
+                disabled={salvando}
+                className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
+              >
+                {salvando ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+          </>
         )}
-
-        {isBoleto && (
-          <div className="mt-5 bg-blue-500/10 border border-blue-500/30 rounded-2xl p-4">
-            <p className="text-sm text-blue-300 font-bold">Despesa futura</p>
-            <p className="text-xs text-gray-400 mt-2">
-              Este lançamento entra como conta a pagar e não altera o saldo até ser pago.
-            </p>
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-4 mt-6">
-          <button
-            type="button"
-            onClick={cancelar}
-            className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3"
-          >
-            Cancelar
-          </button>
-
-          <button
-            type="button"
-            onClick={salvarSaida}
-            disabled={salvando}
-            className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
-          >
-            {salvando ? "Salvando..." : "Salvar"}
-          </button>
-        </div>
       </ModalBase>
 
       <DatePickerModal
@@ -916,10 +1103,13 @@ export default function SaidaModal({
 
       <SelecionarCategoriaModal
         aberto={modalCategoriaAberto}
-        categorias={categorias}
+        categorias={categoriasNomes}
         categoria={categoria}
-        onSelecionar={setCategoria}
+        onSelecionar={selecionarCategoria}
         onClose={() => setModalCategoriaAberto(false)}
+        permitirCriar
+        tipoUsoPadrao={finalidade}
+        onCategoriaCriada={adicionarCategoriaNaLista}
       />
 
       <SelecionarParcelasModal
@@ -937,6 +1127,24 @@ export default function SaidaModal({
         onClose={fecharFeedback}
       />
     </>
+  );
+}
+
+function TipoUsoCard({ ativo, icone, titulo, descricao, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-left rounded-2xl border p-5 transition ${
+        ativo
+          ? "border-green-400 bg-green-500/10"
+          : "border-gray-700 bg-[#0B1120] hover:bg-white/5"
+      }`}
+    >
+      <div className="text-3xl">{icone}</div>
+      <h3 className="text-lg font-black mt-4 text-white">{titulo}</h3>
+      <p className="text-sm text-gray-400 mt-2">{descricao}</p>
+    </button>
   );
 }
 

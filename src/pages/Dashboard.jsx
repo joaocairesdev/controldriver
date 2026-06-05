@@ -12,6 +12,7 @@ import rappiIcon from "../assets/plataformas/rappi.png";
 import shopeeIcon from "../assets/plataformas/shopee.svg";
 
 const CONTAS_DASHBOARD_KEY = "controldriver_dashboard_contas_ativas_v1";
+const CONTAS_PAGAR_DIAS_KEY = "controldriver_dashboard_contas_pagar_dias_v1";
 
 export default function Dashboard() {
   const hoje = new Date();
@@ -25,6 +26,7 @@ export default function Dashboard() {
 
   const [modalPeriodoAberto, setModalPeriodoAberto] = useState(false);
   const [modalContasAberto, setModalContasAberto] = useState(false);
+  const [modalContasPagarAberto, setModalContasPagarAberto] = useState(false);
   const [modalAnoAberto, setModalAnoAberto] = useState(false);
   const [modalMesAnoAberto, setModalMesAnoAberto] = useState(false);
   const [etapaMesAno, setEtapaMesAno] = useState("ano");
@@ -36,6 +38,7 @@ export default function Dashboard() {
   const [metaAtiva, setMetaAtiva] = useState(null);
   const [metricas, setMetricas] = useState(criarMetricasVazias());
   const [proximasContas, setProximasContas] = useState([]);
+  const [diasContasPagar, setDiasContasPagar] = useState(carregarDiasContasPagarLocalStorage());
 
   const meses = [
     "Janeiro",
@@ -61,6 +64,10 @@ export default function Dashboard() {
   useEffect(() => {
     carregarPerformance();
   }, [periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado, metaAtiva]);
+
+  useEffect(() => {
+    if (!carregando) carregarProximasContas();
+  }, [diasContasPagar]);
 
   async function carregarTudo() {
     setCarregando(true);
@@ -185,7 +192,7 @@ export default function Dashboard() {
   async function carregarProximasContas() {
     const hojeTexto = dataISO(new Date());
     const limite = new Date();
-    limite.setDate(limite.getDate() + 30);
+    limite.setDate(limite.getDate() + Number(diasContasPagar || 7));
     const limiteTexto = dataISO(limite);
 
     const { data: faturasData } = await supabase
@@ -245,33 +252,22 @@ export default function Dashboard() {
   async function carregarPerformance() {
     const { inicio, fim } = intervaloDatas();
 
-    const [entradasRes, saidasRes] = await Promise.all([
-      supabase
-        .from("entradas")
-        .select(`
-          id,
-          data,
-          km_rodados,
-          horas_trabalhadas,
-          entrada_plataformas (
-            faturamento,
-            numero_corridas,
-            valor_reembolso,
-            plataformas ( nome )
-          )
-        `)
-        .gte("data", inicio)
-        .lte("data", fim),
-      supabase
-        .from("saidas")
-        .select("id, data_compra, categoria, valor_total, tipo_movimentacao")
-        .neq("tipo_movimentacao", "conta_pagar")
-        .gte("data_compra", inicio)
-        .lte("data_compra", fim),
-    ]);
-
-    const entradasData = entradasRes.data || [];
-    const saidasData = saidasRes.data || [];
+    const { data: entradasData = [] } = await supabase
+      .from("entradas")
+      .select(`
+        id,
+        data,
+        km_rodados,
+        horas_trabalhadas,
+        entrada_plataformas (
+          faturamento,
+          numero_corridas,
+          valor_reembolso,
+          plataformas ( nome )
+        )
+      `)
+      .gte("data", inicio)
+      .lte("data", fim);
 
     const resumo = entradasData.reduce((acc, entrada) => {
       const plataformas = entrada.entrada_plataformas || [];
@@ -307,18 +303,6 @@ export default function Dashboard() {
       return acc;
     }, criarMetricasVazias());
 
-    saidasData.forEach((saida) => {
-      const categoria = normalizarCategoria(saida.categoria);
-      const valor = Number(saida.valor_total || 0);
-
-      resumo.gastosTotal += valor;
-
-      if (!resumo.gastosPorCategoria[categoria]) {
-        resumo.gastosPorCategoria[categoria] = { nome: categoria, valor: 0 };
-      }
-
-      resumo.gastosPorCategoria[categoria].valor += valor;
-    });
 
     const metaPeriodo = calcularMetaPeriodo(metaAtiva, periodo, {
       dataSelecionada,
@@ -344,6 +328,17 @@ export default function Dashboard() {
 
   function salvarContasSelecionadasLocalStorage(ids) {
     localStorage.setItem(CONTAS_DASHBOARD_KEY, JSON.stringify(ids.map(String)));
+  }
+
+  function carregarDiasContasPagarLocalStorage() {
+    const valor = Number(localStorage.getItem(CONTAS_PAGAR_DIAS_KEY) || 7);
+    return [7, 15, 30, 60].includes(valor) ? valor : 7;
+  }
+
+  function alterarDiasContasPagar(dias) {
+    const novoValor = Number(dias || 7);
+    setDiasContasPagar(novoValor);
+    localStorage.setItem(CONTAS_PAGAR_DIAS_KEY, String(novoValor));
   }
 
   function alternarContaDashboard(contaId) {
@@ -546,7 +541,6 @@ export default function Dashboard() {
   const ganhoPorHora = horasDecimal > 0 ? metricas.faturamento / horasDecimal : 0;
   const ganhoPorCorrida = metricas.corridas > 0 ? metricas.faturamento / metricas.corridas : 0;
   const plataformas = Object.values(metricas.plataformas || {}).sort((a, b) => b.valor - a.valor);
-  const gastos = Object.values(metricas.gastosPorCategoria || {}).sort((a, b) => b.valor - a.valor);
   const periodoTexto = rotuloPeriodo();
   const metaTexto = rotuloMeta();
 
@@ -573,6 +567,8 @@ export default function Dashboard() {
 
             <ProximasContasCard
               contas={proximasContas}
+              dias={diasContasPagar}
+              abrirConfiguracao={() => setModalContasPagarAberto(true)}
               formatarMoeda={formatarMoeda}
               formatarDataBR={formatarDataBR}
             />
@@ -639,9 +635,8 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="mt-4 grid grid-cols-1 gap-4">
               <PlataformasCard plataformas={plataformas} total={metricas.faturamento} formatarMoeda={formatarMoeda} />
-              <GastosCard gastos={gastos} total={metricas.gastosTotal} formatarMoeda={formatarMoeda} />
             </div>
           </section>
         </>
@@ -655,6 +650,14 @@ export default function Dashboard() {
           selecionarTodas={aplicarTodasContas}
           fechar={() => setModalContasAberto(false)}
           formatarMoeda={formatarMoeda}
+        />
+      )}
+
+      {modalContasPagarAberto && (
+        <ModalContasPagarDashboard
+          diasSelecionados={diasContasPagar}
+          alterarDias={alterarDiasContasPagar}
+          fechar={() => setModalContasPagarAberto(false)}
         />
       )}
 
@@ -726,8 +729,6 @@ function criarMetricasVazias() {
     corridas: 0,
     minutosTrabalhados: 0,
     plataformas: {},
-    gastosPorCategoria: {},
-    gastosTotal: 0,
     meta: 0,
     percentualMeta: 0,
     faltaMeta: 0,
@@ -858,12 +859,6 @@ function diasTrabalhoValidos(meta) {
   return dias.filter((dia) => Number(dia) >= inicio.getDate());
 }
 
-function normalizarCategoria(categoria) {
-  const texto = String(categoria || "Outros").trim();
-  if (!texto) return "Outros";
-  return texto;
-}
-
 function SaldoGeralCard({ saldoGeral, contas, abrirConfiguracao, formatarMoeda }) {
   return (
     <div className="relative bg-green-500 border border-green-400 rounded-3xl p-6 sm:p-7 text-white overflow-hidden">
@@ -937,19 +932,25 @@ function MetricCard({ titulo, valor }) {
   );
 }
 
-function ProximasContasCard({ contas, formatarMoeda, formatarDataBR }) {
+function ProximasContasCard({ contas, dias, abrirConfiguracao, formatarMoeda, formatarDataBR }) {
   const total = contas.reduce((soma, item) => soma + Number(item.valor || 0), 0);
 
   return (
-    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-gray-400">Próximas contas</p>
-          <h3 className="text-2xl font-black mt-1">{formatarMoeda(total)}</h3>
-        </div>
-        <span className="text-xs font-black rounded-full bg-red-500/10 text-red-400 border border-red-500/30 px-3 py-1">
-          30 dias
-        </span>
+    <div className="relative bg-[#111827] border border-gray-800 rounded-3xl p-5">
+      <button
+        type="button"
+        onClick={abrirConfiguracao}
+        className="absolute top-4 right-4 w-9 h-9 rounded-xl hover:bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition"
+        title="Configurar contas a pagar"
+        aria-label="Configurar contas a pagar"
+      >
+        <FiSettings className="text-lg" />
+      </button>
+
+      <div className="pr-12">
+        <p className="text-sm text-gray-400">Próximas contas a pagar</p>
+        <h3 className="text-2xl font-black mt-1">{formatarMoeda(total)}</h3>
+        <p className="text-xs text-gray-500 mt-1">Vencimentos dos próximos {dias} dias.</p>
       </div>
 
       <div className="mt-4 space-y-3">
@@ -959,8 +960,17 @@ function ProximasContasCard({ contas, formatarMoeda, formatarDataBR }) {
           contas.map((conta) => (
             <div key={conta.id} className="flex items-center justify-between gap-3 border-t border-gray-800 pt-3">
               <div className="min-w-0">
-                <p className="font-bold truncate">{conta.titulo}</p>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`text-[10px] font-black rounded-full px-2 py-0.5 shrink-0 ${
+                    conta.tipo === "Fatura"
+                      ? "bg-purple-500/10 text-purple-300 border border-purple-500/30"
+                      : "bg-blue-500/10 text-blue-300 border border-blue-500/30"
+                  }`}>
+                    {conta.tipo}
+                  </span>
+                  <p className="font-bold truncate">{conta.titulo}</p>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
                   {formatarDataBR(conta.data)} • {conta.subtitulo}
                 </p>
               </div>
@@ -977,11 +987,11 @@ function PlataformasCard({ plataformas, total, formatarMoeda }) {
   return (
     <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
       <h3 className="text-xl font-bold">Ganhos por plataforma</h3>
-      <p className="text-gray-400 text-sm mt-1">Participação no faturamento do período.</p>
+      <p className="text-gray-400 text-sm mt-1">Participação no faturamento do período selecionado.</p>
 
       <div className="mt-5 space-y-4">
         {plataformas.length === 0 ? (
-          <p className="text-sm text-gray-500">Nenhuma plataforma no período.</p>
+          <p className="text-sm text-gray-500">Nenhuma plataforma no período selecionado.</p>
         ) : (
           plataformas.map((item) => {
             const percentual = total > 0 ? (item.valor / total) * 100 : 0;
@@ -995,10 +1005,10 @@ function PlataformasCard({ plataformas, total, formatarMoeda }) {
                       <img
                         src={icone}
                         alt={item.nome}
-                        className="w-9 h-9 rounded-xl object-contain bg-[#0B1120] border border-gray-800 p-1.5 shrink-0"
+                        className="w-12 h-12 object-contain rounded-lg shrink-0"
                       />
                     ) : (
-                      <div className="w-9 h-9 rounded-xl bg-[#0B1120] border border-gray-800 flex items-center justify-center text-xs font-black shrink-0">
+                      <div className="w-11 h-11 rounded-xl bg-[#0B1120] border border-gray-800 flex items-center justify-center text-xs font-black shrink-0">
                         {String(item.nome || "?").slice(0, 2).toUpperCase()}
                       </div>
                     )}
@@ -1020,49 +1030,6 @@ function PlataformasCard({ plataformas, total, formatarMoeda }) {
             );
           })
         )}
-      </div>
-    </div>
-  );
-}
-
-function GastosCard({ gastos, total, formatarMoeda }) {
-  const top = gastos.slice(0, 5);
-  const gradiente = montarGradienteDonut(top, total);
-
-  return (
-    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
-      <h3 className="text-xl font-bold">Para onde o dinheiro foi</h3>
-      <p className="text-gray-400 text-sm mt-1">Gastos por categoria no período.</p>
-
-      <div className="mt-5 grid grid-cols-1 sm:grid-cols-[150px_1fr] gap-5 items-center">
-        <div className="mx-auto w-36 h-36 rounded-full flex items-center justify-center" style={{ background: gradiente }}>
-          <div className="w-24 h-24 rounded-full bg-[#111827] border border-gray-800 flex flex-col items-center justify-center text-center px-2">
-            <span className="text-xs text-gray-500">Total</span>
-            <span className="text-sm font-black">{formatarMoeda(total)}</span>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          {top.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhum gasto no período.</p>
-          ) : (
-            top.map((item, index) => {
-              const percentual = total > 0 ? (item.valor / total) * 100 : 0;
-              return (
-                <div key={item.nome} className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className={`w-3 h-3 rounded-full ${corBolinha(index)}`} />
-                    <span className="text-sm font-bold truncate">{item.nome}</span>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-black">{formatarMoeda(item.valor)}</p>
-                    <p className="text-xs text-gray-500">{Math.round(percentual)}%</p>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
       </div>
     </div>
   );
@@ -1093,26 +1060,73 @@ function normalizarNomePlataforma(nome) {
     .replace(/[^a-z0-9]/g, "");
 }
 
-function montarGradienteDonut(items, total) {
-  if (!items.length || total <= 0) return "conic-gradient(#1f2937 0deg, #1f2937 360deg)";
 
-  const cores = ["#22c55e", "#eab308", "#ef4444", "#3b82f6", "#a855f7"];
-  let inicio = 0;
-  const partes = items.map((item, index) => {
-    const graus = (Number(item.valor || 0) / total) * 360;
-    const fim = inicio + graus;
-    const parte = `${cores[index % cores.length]} ${inicio}deg ${fim}deg`;
-    inicio = fim;
-    return parte;
-  });
+function ModalContasPagarDashboard({ diasSelecionados, alterarDias, fechar }) {
+  const opcoes = [
+    { dias: 7, titulo: "Próximos 7 dias", descricao: "Melhor para acompanhar o curto prazo." },
+    { dias: 15, titulo: "Próximos 15 dias", descricao: "Boa visão para a quinzena." },
+    { dias: 30, titulo: "Próximos 30 dias", descricao: "Visão mensal das obrigações." },
+    { dias: 60, titulo: "Próximos 60 dias", descricao: "Planejamento mais aberto." },
+  ];
 
-  if (inicio < 360) partes.push(`#1f2937 ${inicio}deg 360deg`);
-  return `conic-gradient(${partes.join(", ")})`;
-}
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[90] p-4">
+      <div className="w-full max-w-lg bg-[#111827] border border-gray-800 rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-hide">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-black">Contas a pagar no Dashboard</h2>
+            <p className="text-gray-400 text-sm mt-2">
+              Escolha o período de vencimentos exibido no card inicial.
+            </p>
+          </div>
 
-function corBolinha(index) {
-  const cores = ["bg-green-500", "bg-yellow-500", "bg-red-500", "bg-blue-500", "bg-purple-500"];
-  return cores[index % cores.length];
+          <button
+            type="button"
+            onClick={fechar}
+            className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-black"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {opcoes.map((opcao) => {
+            const ativo = Number(diasSelecionados) === Number(opcao.dias);
+
+            return (
+              <button
+                key={opcao.dias}
+                type="button"
+                onClick={() => alterarDias(opcao.dias)}
+                className={`w-full rounded-2xl p-4 flex items-center justify-between gap-4 text-left border transition ${
+                  ativo
+                    ? "bg-green-500/10 border-green-500/50"
+                    : "bg-[#0B1120] border-gray-800 hover:border-green-500/40"
+                }`}
+              >
+                <div>
+                  <p className="font-black">{opcao.titulo}</p>
+                  <p className="text-sm text-gray-500 mt-1">{opcao.descricao}</p>
+                </div>
+
+                <div className={`w-14 h-8 rounded-full p-1 transition ${ativo ? "bg-green-500" : "bg-gray-700"}`}>
+                  <div className={`w-6 h-6 rounded-full bg-white transition ${ativo ? "translate-x-6" : "translate-x-0"}`} />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <button
+          type="button"
+          onClick={fechar}
+          className="mt-6 w-full bg-green-500 hover:bg-green-600 text-black font-black rounded-xl p-3"
+        >
+          Concluir
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function ModalContasDashboard({ contas, contasSelecionadas, alternarConta, selecionarTodas, fechar, formatarMoeda }) {

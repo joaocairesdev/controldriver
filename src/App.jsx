@@ -14,16 +14,12 @@ import NovaSaida from "./pages/NovaSaida";
 import Extrato from "./pages/Extrato";
 import ContasPagar from "./pages/ContasPagar";
 import Metas from "./pages/Metas";
+import Categorias from "./pages/Categorias";
 
 export default function App() {
   const [pagina, setPagina] = useState("dashboard");
   const [menuAberto, setMenuAberto] = useState(false);
   const [jornadaParaGanhos, setJornadaParaGanhos] = useState(null);
-  const [cronometroEstado, setCronometroEstado] = useState({
-    status: "sem_jornada",
-    tempoFormatado: "00:00:00",
-    contagemRegressiva: null,
-  });
 
   function navegarPara(novaPagina) {
     console.log("Mudando para:", novaPagina);
@@ -59,9 +55,6 @@ export default function App() {
           menuAberto={menuAberto}
           abrirMenu={() => setMenuAberto(true)}
           abrirCronometro={abrirCronometroJornada}
-          cronometroStatus={cronometroEstado.status}
-          cronometroTempo={cronometroEstado.tempoFormatado}
-          cronometroContagem={cronometroEstado.contagemRegressiva}
         />
 
         <main className="flex-1 min-w-0 overflow-y-auto scrollbar-hide p-4 sm:p-6 lg:p-10">
@@ -113,6 +106,8 @@ export default function App() {
 
           {pagina === "extrato" && <Extrato />}
 
+          {pagina === "configuracoes-categorias" && <Categorias />}
+
           {pagina === "nova-saida" && <NovaSaida setPagina={navegarPara} />}
 
           {pagina === "novo-abastecimento" && (
@@ -141,7 +136,6 @@ export default function App() {
         </main>
 
         <CronometroJornada
-          onEstadoChange={setCronometroEstado}
           onLancarGanhos={(jornadaResumo) => {
             setJornadaParaGanhos(jornadaResumo);
             navegarPara("novo-lancamento");

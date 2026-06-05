@@ -605,6 +605,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
       data_efetivacao: data,
       data_vencimento: null,
       categoria: "Recarga TAG",
+      finalidade: "trabalho",
       descricao,
       status: "pago",
     });
@@ -645,6 +646,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
           data_efetivacao: dataBase,
           data_vencimento: null,
           categoria: "Recarga TAG",
+          finalidade: "trabalho",
           descricao: `${descricao} automática confirmada`,
           status: "fatura",
         })
@@ -766,6 +768,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
               valor_parcela: valor,
               data_efetivacao: grupo.data,
               categoria: uso.categoria,
+              finalidade: detalhe.uso || "trabalho",
               descricao: descricaoAutomatica(uso),
               status: "pago",
               tipo_movimentacao: "saida",
