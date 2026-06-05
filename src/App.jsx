@@ -18,7 +18,9 @@ import Metas from "./pages/Metas";
 import Categorias from "./pages/Categorias";
 
 export default function App() {
-  const [pagina, setPagina] = useState("dashboard");
+  const [pagina, setPagina] = useState(() => {
+    return localStorage.getItem("paginaAtual") || "dashboard";
+  });
   const [menuAberto, setMenuAberto] = useState(false);
   const [jornadaParaGanhos, setJornadaParaGanhos] = useState(null);
   const [cronometroEstado, setCronometroEstado] = useState({
@@ -29,8 +31,9 @@ export default function App() {
 
   const toqueInicialX = useRef(null);
   const toqueInicialY = useRef(null);
-  const historicoPaginasRef = useRef(["dashboard"]);
-  const paginaAtualRef = useRef("dashboard");
+  const paginaInicial = localStorage.getItem("paginaAtual") || "dashboard";
+  const historicoPaginasRef = useRef([paginaInicial]);
+  const paginaAtualRef = useRef(paginaInicial);
   const menuAbertoRef = useRef(false);
 
   useEffect(() => {
@@ -57,6 +60,7 @@ export default function App() {
       if (historico.length > 1) {
         historico.pop();
         const paginaAnterior = historico[historico.length - 1] || "dashboard";
+        localStorage.setItem("paginaAtual", paginaAnterior);
         setPagina(paginaAnterior);
         window.history.pushState({ pagina: paginaAnterior }, "");
         return;
@@ -115,38 +119,10 @@ export default function App() {
     };
   }, [menuAberto]);
 
-  useEffect(() => {
-    function bloquearPullToRefresh(evento) {
-      const alvo = evento.target;
-      const areaRolavel = alvo?.closest?.("[data-scroll-container='true']");
-      const scrollTop = areaRolavel
-        ? areaRolavel.scrollTop
-        : document.documentElement.scrollTop;
-
-      if (scrollTop <= 0 && evento.touches?.length === 1) {
-        const toque = evento.touches[0];
-        const inicioY = toqueInicialY.current;
-
-        if (inicioY !== null && toque.clientY > inicioY) {
-          evento.preventDefault();
-        }
-      }
-    }
-
-    document.body.style.overscrollBehaviorY = "none";
-    document.documentElement.style.overscrollBehaviorY = "none";
-
-    window.addEventListener("touchmove", bloquearPullToRefresh, { passive: false });
-
-    return () => {
-      window.removeEventListener("touchmove", bloquearPullToRefresh);
-      document.body.style.overscrollBehaviorY = "";
-      document.documentElement.style.overscrollBehaviorY = "";
-    };
-  }, []);
-
   function navegarPara(novaPagina) {
     console.log("Mudando para:", novaPagina);
+
+    localStorage.setItem("paginaAtual", novaPagina);
 
     if (novaPagina !== paginaAtualRef.current) {
       historicoPaginasRef.current = [
@@ -171,7 +147,7 @@ export default function App() {
     cronometroEstado.contagemRegressiva !== null;
 
   return (
-    <div className="h-dvh bg-[#0B1120] text-white flex overflow-hidden overscroll-none">
+    <div className="h-dvh bg-[#0B1120] text-white flex overflow-hidden">
       <div className="hidden lg:block md:landscape:block h-dvh shrink-0">
         <Sidebar setPagina={navegarPara} paginaAtual={pagina} />
       </div>
@@ -215,7 +191,7 @@ export default function App() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden overscroll-none">
+      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden">
         <Topbar
           menuAberto={menuAberto}
           abrirMenu={() => setMenuAberto(true)}
@@ -227,7 +203,7 @@ export default function App() {
           cronometroContagem={cronometroEstado.contagemRegressiva}
         />
 
-        <main data-scroll-container="true" className="flex-1 min-w-0 overflow-y-auto scrollbar-hide overscroll-contain pt-20 p-4 pb-28 sm:p-6 sm:pt-20 sm:pb-10 md:landscape:p-10 md:landscape:pt-24 lg:p-10 lg:pt-24">
+        <main data-scroll-container="true" className="flex-1 min-w-0 overflow-y-auto scrollbar-hide pt-20 p-4 pb-28 sm:p-6 sm:pt-20 sm:pb-10 md:landscape:p-10 md:landscape:pt-24 lg:p-10 lg:pt-24">
           {pagina === "dashboard" && <Dashboard />}
 
           {pagina === "novo-lancamento" && (
