@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
@@ -20,6 +20,11 @@ export default function App() {
   const [pagina, setPagina] = useState("dashboard");
   const [menuAberto, setMenuAberto] = useState(false);
   const [jornadaParaGanhos, setJornadaParaGanhos] = useState(null);
+  const [cronometroEstado, setCronometroEstado] = useState({
+    status: "sem_jornada",
+    tempoFormatado: "00:00:00",
+    contagemRegressiva: null,
+  });
 
   function navegarPara(novaPagina) {
     console.log("Mudando para:", novaPagina);
@@ -30,6 +35,12 @@ export default function App() {
   function abrirCronometroJornada() {
     window.dispatchEvent(new CustomEvent("abrir-cronometro-jornada"));
   }
+
+  const cronometroVisivel =
+    cronometroEstado.status === "em_andamento" ||
+    cronometroEstado.status === "pausada" ||
+    cronometroEstado.status === "aguardando_km" ||
+    cronometroEstado.contagemRegressiva !== null;
 
   return (
     <div className="h-screen bg-[#0B1120] text-white flex overflow-hidden">
@@ -54,10 +65,15 @@ export default function App() {
         <Topbar
           menuAberto={menuAberto}
           abrirMenu={() => setMenuAberto(true)}
+          abrirInicio={() => navegarPara("dashboard")}
           abrirCronometro={abrirCronometroJornada}
+          abrirConfiguracoes={() => navegarPara("configuracoes-categorias")}
+          cronometroStatus={cronometroEstado.status}
+          cronometroTempo={cronometroEstado.tempoFormatado}
+          cronometroContagem={cronometroEstado.contagemRegressiva}
         />
 
-        <main className="flex-1 min-w-0 overflow-y-auto scrollbar-hide p-4 sm:p-6 lg:p-10">
+        <main className="flex-1 min-w-0 overflow-y-auto scrollbar-hide p-4 pb-28 sm:p-6 sm:pb-10 lg:p-10">
           {pagina === "dashboard" && <Dashboard />}
 
           {pagina === "novo-lancamento" && (
@@ -136,11 +152,43 @@ export default function App() {
         </main>
 
         <CronometroJornada
+          onEstadoChange={setCronometroEstado}
           onLancarGanhos={(jornadaResumo) => {
             setJornadaParaGanhos(jornadaResumo);
             navegarPara("novo-lancamento");
           }}
         />
+
+        {cronometroVisivel && (
+          <button
+            type="button"
+            onClick={abrirCronometroJornada}
+            className="lg:hidden fixed left-4 right-4 bottom-24 z-40 rounded-2xl border border-green-500/40 bg-[#111827]/95 backdrop-blur px-4 py-3 shadow-2xl shadow-black/40 flex items-center justify-between gap-3"
+            title="Abrir cronômetro"
+            aria-label="Abrir cronômetro"
+          >
+            <div className="min-w-0 text-left">
+              <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wide">
+                Jornada
+              </p>
+              <p className="text-sm font-black text-white truncate">
+                {cronometroEstado.status === "pausada"
+                  ? "Pausada"
+                  : cronometroEstado.status === "aguardando_km"
+                  ? "Aguardando KM"
+                  : cronometroEstado.contagemRegressiva !== null
+                  ? "Iniciando"
+                  : "Em andamento"}
+              </p>
+            </div>
+
+            <span className="rounded-xl bg-green-500/10 border border-green-500/40 px-3 py-2 text-green-400 font-black tabular-nums text-sm">
+              {cronometroEstado.contagemRegressiva !== null
+                ? `00:00:0${cronometroEstado.contagemRegressiva}`
+                : cronometroEstado.tempoFormatado}
+            </span>
+          </button>
+        )}
       </div>
     </div>
   );

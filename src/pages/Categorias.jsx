@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { FiEdit2, FiPlus, FiRefreshCw, FiSettings, FiTrash2 } from "react-icons/fi";
+import {
+  FiEdit2,
+  FiLock,
+  FiPlus,
+  FiSettings,
+  FiShield,
+  FiSmartphone,
+  FiTag,
+  FiTrash2,
+  FiUser,
+  FiX,
+} from "react-icons/fi";
 import { supabase } from "../services/supabase";
 import ModalBase from "../components/modals/ModalBase";
 import FeedbackModal from "../components/modals/FeedbackModal";
@@ -8,42 +19,83 @@ const TIPOS_USO = [
   {
     valor: "trabalho",
     titulo: "Sempre trabalho",
-    descricao: "O lançamento entra direto como uso à trabalho.",
   },
   {
     valor: "pessoal",
     titulo: "Sempre pessoal",
-    descricao: "O lançamento entra direto como uso pessoal.",
   },
   {
     valor: "rateada",
     titulo: "Calculado pelo uso do veículo",
-    descricao: "O app divide depois entre trabalho e pessoal pelos km do veículo.",
   },
   {
     valor: "opcional",
     titulo: "Escolher no lançamento",
-    descricao: "O app pergunta se foi uso à trabalho ou uso pessoal na hora de lançar.",
   },
 ];
 
+const ABAS_CONFIGURACOES = [
+  { id: "perfil", titulo: "Perfil", icone: <FiUser /> },
+  { id: "seguranca", titulo: "Privacidade e segurança", icone: <FiShield /> },
+  { id: "aplicativo", titulo: "Aplicativo", icone: <FiSmartphone /> },
+  { id: "categorias", titulo: "Categorias", icone: <FiTag /> },
+];
+
 export default function Categorias() {
+  const [abaAtiva, setAbaAtiva] = useState("categorias");
   const [categorias, setCategorias] = useState([]);
   const [carregando, setCarregando] = useState(true);
-  const [modalAberto, setModalAberto] = useState(false);
-  const [modoConfiguracao, setModoConfiguracao] = useState(false);
+
+  const [modalCadastroAberto, setModalCadastroAberto] = useState(false);
+  const [modalGerenciarAberto, setModalGerenciarAberto] = useState(false);
   const [editando, setEditando] = useState(null);
+
   const [nome, setNome] = useState("");
   const [tipoUso, setTipoUso] = useState("trabalho");
   const [salvando, setSalvando] = useState(false);
-  const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+
+  const [modoGerenciamento, setModoGerenciamento] = useState("normal");
+  const [selecionadas, setSelecionadas] = useState([]);
+  const [buscaAdicionar, setBuscaAdicionar] = useState("");
+
+  const [feedback, setFeedback] = useState({
+    aberto: false,
+    tipo: "sucesso",
+    titulo: "",
+    mensagem: "",
+  });
 
   useEffect(() => {
     carregarCategorias();
   }, []);
 
-  const categoriasAtivas = useMemo(() => categorias.filter((item) => item.ativo), [categorias]);
-  const categoriasInativas = useMemo(() => categorias.filter((item) => !item.ativo), [categorias]);
+  const categoriasOrdenadas = useMemo(
+    () =>
+      [...categorias].sort((a, b) =>
+        String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR", {
+          sensitivity: "base",
+        })
+      ),
+    [categorias]
+  );
+
+  const categoriasAtivas = useMemo(
+    () => categoriasOrdenadas.filter((item) => item.ativo),
+    [categoriasOrdenadas]
+  );
+
+  const categoriasGerenciamento = useMemo(
+    () => categoriasOrdenadas,
+    [categoriasOrdenadas]
+  );
+
+  function normalizarTexto(valor) {
+    return String(valor || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  }
 
   async function carregarCategorias() {
     setCarregando(true);
@@ -52,8 +104,6 @@ export default function Categorias() {
       .from("categorias")
       .select("id, nome, tipo, tipo_uso, ativo, ordem, created_at")
       .eq("tipo", "saida")
-      .order("ativo", { ascending: false })
-      .order("ordem", { ascending: true })
       .order("nome", { ascending: true });
 
     if (error) {
@@ -76,26 +126,55 @@ export default function Categorias() {
     setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
   }
 
-  function abrirNovaCategoria() {
+  function dadosTipoUso(valor) {
+    return TIPOS_USO.find((item) => item.valor === valor) || TIPOS_USO[2];
+  }
+
+  function tituloTipoUso(valor) {
+    return dadosTipoUso(valor).titulo;
+  }
+
+  function corTextoTipoUso(valor) {
+    if (valor === "trabalho") return "text-green-400";
+    if (valor === "pessoal") return "text-blue-400";
+    if (valor === "opcional") return "text-purple-400";
+    return "text-yellow-400";
+  }
+
+  function abrirNovaCategoria(nomeInicial = "") {
     setEditando(null);
-    setNome("");
+    setNome(nomeInicial);
     setTipoUso("trabalho");
-    setModalAberto(true);
+    setModalCadastroAberto(true);
   }
 
   function abrirEditar(categoria) {
     setEditando(categoria);
     setNome(categoria.nome || "");
     setTipoUso(categoria.tipo_uso || "rateada");
-    setModalAberto(true);
+    setModalCadastroAberto(true);
   }
 
-  function fecharModal() {
+  function fecharCadastro() {
     if (salvando) return;
-    setModalAberto(false);
+    setModalCadastroAberto(false);
     setEditando(null);
     setNome("");
     setTipoUso("trabalho");
+  }
+
+  function abrirGerenciamento() {
+    setModoGerenciamento("normal");
+    setSelecionadas([]);
+    setBuscaAdicionar("");
+    setModalGerenciarAberto(true);
+  }
+
+  function fecharGerenciamento() {
+    setModoGerenciamento("normal");
+    setSelecionadas([]);
+    setBuscaAdicionar("");
+    setModalGerenciarAberto(false);
   }
 
   async function salvarCategoria() {
@@ -109,6 +188,30 @@ export default function Categorias() {
     setSalvando(true);
 
     try {
+      const categoriaExistente = categorias.find(
+        (item) => normalizarTexto(item.nome) === normalizarTexto(nomeLimpo)
+      );
+
+      if (!editando && categoriaExistente) {
+        const { error } = await supabase
+          .from("categorias")
+          .update({
+            ativo: true,
+            tipo_uso: tipoUso,
+            nome: categoriaExistente.nome,
+          })
+          .eq("id", categoriaExistente.id);
+
+        if (error) throw error;
+
+        abrirFeedback("sucesso", "Categoria criada", "Categoria cadastrada com sucesso.");
+        setBuscaAdicionar("");
+        setModoGerenciamento("normal");
+        fecharCadastro();
+        await carregarCategorias();
+        return;
+      }
+
       if (editando) {
         const { error } = await supabase
           .from("categorias")
@@ -116,7 +219,9 @@ export default function Categorias() {
           .eq("id", editando.id);
 
         if (error) throw error;
-        abrirFeedback("sucesso", "Categoria atualizada", "A categoria foi atualizada com sucesso.");
+        abrirFeedback("sucesso", "Categoria atualizada", "Categoria atualizada com sucesso.");
+        setBuscaAdicionar("");
+        setModoGerenciamento("normal");
       } else {
         const proximaOrdem = Math.max(0, ...categorias.map((item) => Number(item.ordem || 0))) + 1;
 
@@ -129,10 +234,12 @@ export default function Categorias() {
         });
 
         if (error) throw error;
-        abrirFeedback("sucesso", "Categoria criada", "A categoria foi criada com sucesso.");
+        abrirFeedback("sucesso", "Categoria criada", "Categoria cadastrada com sucesso.");
+        setBuscaAdicionar("");
+        setModoGerenciamento("normal");
       }
 
-      fecharModal();
+      fecharCadastro();
       await carregarCategorias();
     } catch (error) {
       console.error(error);
@@ -143,11 +250,9 @@ export default function Categorias() {
   }
 
   async function alternarAtivo(categoria) {
-    const novoStatus = !categoria.ativo;
-
     const { error } = await supabase
       .from("categorias")
-      .update({ ativo: novoStatus })
+      .update({ ativo: !categoria.ativo })
       .eq("id", categoria.id);
 
     if (error) {
@@ -158,119 +263,252 @@ export default function Categorias() {
     await carregarCategorias();
   }
 
-  function tituloTipoUso(valor) {
-    return TIPOS_USO.find((item) => item.valor === valor)?.titulo || "Calculado pelo uso do veículo";
+  function alternarSelecionada(id) {
+    setSelecionadas((lista) =>
+      lista.includes(id) ? lista.filter((item) => item !== id) : [...lista, id]
+    );
   }
 
-  function descricaoTipoUso(valor) {
-    return TIPOS_USO.find((item) => item.valor === valor)?.descricao || "";
+  async function desativarSelecionadas() {
+    if (selecionadas.length === 0) {
+      abrirFeedback("aviso", "Nenhuma categoria selecionada", "Selecione pelo menos uma categoria.");
+      return;
+    }
+
+    const categoriasSelecionadas = categorias.filter((item) =>
+      selecionadas.includes(item.id)
+    );
+
+    const nomesSelecionados = categoriasSelecionadas.map((item) => item.nome);
+
+    const { data: saidasPorId, error: erroSaidasPorId } = await supabase
+      .from("saidas")
+      .select("categoria_id")
+      .in("categoria_id", selecionadas);
+
+    if (erroSaidasPorId) {
+      abrirFeedback("erro", "Erro ao excluir", erroSaidasPorId.message || "Erro ao verificar uso das categorias.");
+      return;
+    }
+
+    const { data: saidasPorNome, error: erroSaidasPorNome } = await supabase
+      .from("saidas")
+      .select("categoria")
+      .in("categoria", nomesSelecionados);
+
+    if (erroSaidasPorNome) {
+      abrirFeedback("erro", "Erro ao excluir", erroSaidasPorNome.message || "Erro ao verificar uso das categorias.");
+      return;
+    }
+
+    const idsEmUso = new Set(
+      (saidasPorId || [])
+        .map((item) => Number(item.categoria_id))
+        .filter(Boolean)
+    );
+
+    const nomesEmUso = new Set(
+      (saidasPorNome || []).map((item) => normalizarTexto(item.categoria))
+    );
+
+    const categoriasComUso = categoriasSelecionadas.filter(
+      (item) => idsEmUso.has(Number(item.id)) || nomesEmUso.has(normalizarTexto(item.nome))
+    );
+
+    const categoriasSemUso = categoriasSelecionadas.filter(
+      (item) => !idsEmUso.has(Number(item.id)) && !nomesEmUso.has(normalizarTexto(item.nome))
+    );
+
+    if (categoriasSemUso.length > 0) {
+      const { error } = await supabase
+        .from("categorias")
+        .delete()
+        .in("id", categoriasSemUso.map((item) => item.id));
+
+      if (error) {
+        abrirFeedback("erro", "Erro ao excluir", error.message || "Erro ao excluir categorias.");
+        return;
+      }
+    }
+
+    if (categoriasComUso.length > 0) {
+      const { error } = await supabase
+        .from("categorias")
+        .update({ ativo: false })
+        .in("id", categoriasComUso.map((item) => item.id));
+
+      if (error) {
+        abrirFeedback("erro", "Erro ao excluir", error.message || "Erro ao remover categorias da lista visível.");
+        return;
+      }
+    }
+
+    abrirFeedback("sucesso", "Categorias excluídas", "As categorias foram removidas da lista visível.");
+    setSelecionadas([]);
+    setModoGerenciamento("normal");
+    setBuscaAdicionar("");
+    await carregarCategorias();
   }
 
-  function corTipoUso(valor) {
-    if (valor === "trabalho") return "bg-green-500/10 text-green-400 border-green-500/30";
-    if (valor === "pessoal") return "bg-blue-500/10 text-blue-400 border-blue-500/30";
-    if (valor === "opcional") return "bg-purple-500/10 text-purple-400 border-purple-500/30";
-    return "bg-yellow-500/10 text-yellow-400 border-yellow-500/30";
+  async function adicionarPorBusca() {
+    const nomeLimpo = buscaAdicionar.trim();
+
+    if (!nomeLimpo) {
+      abrirFeedback("erro", "Nome obrigatório", "Digite o nome da categoria.");
+      return;
+    }
+
+    const existente = categorias.find(
+      (item) => normalizarTexto(item.nome) === normalizarTexto(nomeLimpo)
+    );
+
+    if (existente?.ativo) {
+      abrirFeedback("aviso", "Categoria já existe", "Essa categoria já está ativa na lista.");
+      setBuscaAdicionar("");
+      setModoGerenciamento("normal");
+      return;
+    }
+
+    if (existente && !existente.ativo) {
+      const { error } = await supabase
+        .from("categorias")
+        .update({ ativo: true })
+        .eq("id", existente.id);
+
+      if (error) {
+        abrirFeedback("erro", "Erro ao adicionar", error.message || "Erro ao adicionar categoria.");
+        return;
+      }
+
+      abrirFeedback("sucesso", "Categoria criada", "Categoria cadastrada com sucesso.");
+      setBuscaAdicionar("");
+      setModoGerenciamento("normal");
+      await carregarCategorias();
+      return;
+    }
+
+    abrirNovaCategoria(nomeLimpo);
   }
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+      <div className="flex flex-col gap-5">
         <div>
-          <p className="text-sm text-gray-500 font-bold uppercase tracking-wide">Configurações</p>
-          <h1 className="text-3xl font-bold mt-1">Categorias</h1>
-          <p className="text-gray-400 mt-2">
-            Defina o tipo de uso padrão de cada categoria.
+          <p className="text-sm text-gray-500 font-bold uppercase tracking-wide">
+            Configurações
           </p>
+          <h1 className="text-3xl font-bold mt-1">Configurações do app</h1>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={abrirNovaCategoria}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-500 hover:bg-green-600 text-black font-black px-4 py-3"
-          >
-            <FiPlus /> Nova categoria
-          </button>
+        <div className="-mx-4 sm:mx-0 overflow-x-auto scrollbar-hide touch-pan-x overscroll-x-contain px-4 sm:px-0 pb-1">
+          <div className="inline-flex w-max max-w-none rounded-2xl border border-gray-800 bg-[#111827] p-1 gap-1">
+            {ABAS_CONFIGURACOES.map((aba) => {
+              const ativo = abaAtiva === aba.id;
 
-          <button
-            type="button"
-            onClick={() => setModoConfiguracao((ativo) => !ativo)}
-            className={`w-12 h-12 rounded-xl border flex items-center justify-center transition ${
-              modoConfiguracao
-                ? "border-green-400 bg-green-500/10 text-green-400"
-                : "border-gray-700 text-gray-400 hover:bg-white/5"
-            }`}
-            title="Configurar categorias"
-            aria-label="Configurar categorias"
-          >
-            <FiSettings className="text-lg" />
-          </button>
+              return (
+                <button
+                  key={aba.id}
+                  type="button"
+                  onClick={() => setAbaAtiva(aba.id)}
+                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-3 sm:px-4 py-3 text-xs sm:text-sm font-bold whitespace-nowrap shrink-0 transition ${
+                    ativo
+                      ? "bg-green-500 text-black"
+                      : "text-gray-400 hover:text-white hover:bg-white/5"
+                  }`}
+                >
+                  <span className="text-base">{aba.icone}</span>
+                  {aba.titulo}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-gray-800 bg-[#111827] p-4">
-        <p className="text-sm text-gray-300 font-bold">Como usar</p>
-        <p className="text-xs sm:text-sm text-gray-500 mt-2 leading-relaxed">
-          Categorias podem ser sempre trabalho, sempre pessoais, calculadas pelo uso do veículo ou perguntadas no lançamento.
-        </p>
-      </div>
-
-      {carregando && (
+      {abaAtiva !== "categorias" && (
         <div className="mt-6 rounded-2xl border border-gray-800 bg-[#111827] p-6">
-          <p className="text-gray-400">Carregando categorias...</p>
+          <div className="w-12 h-12 rounded-xl bg-gray-500/10 border border-gray-700 flex items-center justify-center text-gray-400">
+            <FiLock />
+          </div>
+
+          <h2 className="text-xl font-bold mt-4">Em breve</h2>
+          <p className="text-gray-400 mt-2">Esta configuração ainda será construída.</p>
         </div>
       )}
 
-      {!carregando && (
-        <div className="mt-6 space-y-4">
-          {categoriasAtivas.map((categoria) => (
-            <CategoriaCard
-              key={categoria.id}
-              categoria={categoria}
-              tituloTipoUso={tituloTipoUso}
-              descricaoTipoUso={descricaoTipoUso}
-              corTipoUso={corTipoUso}
-              editar={() => abrirEditar(categoria)}
-              alternarAtivo={() => alternarAtivo(categoria)}
-              modoConfiguracao={modoConfiguracao}
-            />
-          ))}
+      {abaAtiva === "categorias" && (
+        <>
+          <div className="mt-6 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-2xl font-bold">Categorias</h2>
+              <p className="text-gray-400 mt-1">
+                Visualize e organize os tipos de uso padrão das categorias.
+              </p>
+            </div>
 
-          {categoriasAtivas.length === 0 && (
-            <div className="rounded-2xl border border-gray-800 bg-[#111827] p-6 text-center">
-              <p className="text-gray-400">Nenhuma categoria ativa encontrada.</p>
+            <button
+              type="button"
+              onClick={abrirGerenciamento}
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl border border-gray-700 text-gray-300 hover:bg-white/5 flex items-center justify-center transition shrink-0"
+              title="Gerenciar categorias"
+              aria-label="Gerenciar categorias"
+            >
+              <FiSettings className="text-base sm:text-lg" />
+            </button>
+          </div>
+
+          {carregando && (
+            <div className="mt-6 rounded-2xl border border-gray-800 bg-[#111827] p-6">
+              <p className="text-gray-400">Carregando categorias...</p>
             </div>
           )}
 
-          {categoriasInativas.length > 0 && (
-            <section className="pt-4">
-              <h2 className="text-lg font-bold text-gray-300">Categorias desativadas</h2>
-              <div className="mt-3 space-y-3 opacity-75">
-                {categoriasInativas.map((categoria) => (
-                  <CategoriaCard
-                    key={categoria.id}
-                    categoria={categoria}
-                    tituloTipoUso={tituloTipoUso}
-                    descricaoTipoUso={descricaoTipoUso}
-                    corTipoUso={corTipoUso}
-                    editar={() => abrirEditar(categoria)}
-                    alternarAtivo={() => alternarAtivo(categoria)}
-                    modoConfiguracao={modoConfiguracao}
-                  />
-                ))}
-              </div>
-            </section>
+          {!carregando && (
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {categoriasAtivas.map((categoria) => (
+                <CategoriaCardSimples
+                  key={categoria.id}
+                  categoria={categoria}
+                />
+              ))}
+
+              {categoriasAtivas.length === 0 && (
+                <div className="rounded-2xl border border-gray-800 bg-[#111827] p-6 text-center lg:col-span-2">
+                  <p className="text-gray-400">Nenhuma categoria ativa encontrada.</p>
+                </div>
+              )}
+            </div>
           )}
-        </div>
+        </>
       )}
 
+      <ModalGerenciarCategorias
+        aberto={modalGerenciarAberto}
+        categorias={categoriasGerenciamento}
+        categoriasBusca={categoriasOrdenadas}
+        modo={modoGerenciamento}
+        setModo={setModoGerenciamento}
+        selecionadas={selecionadas}
+        alternarSelecionada={alternarSelecionada}
+        buscaAdicionar={buscaAdicionar}
+        setBuscaAdicionar={setBuscaAdicionar}
+        onClose={fecharGerenciamento}
+        onAdicionarBusca={adicionarPorBusca}
+        onEditar={abrirEditar}
+        onAlternarAtivo={alternarAtivo}
+        onExcluirSelecionadas={desativarSelecionadas}
+        normalizarTexto={normalizarTexto}
+        tituloTipoUso={tituloTipoUso}
+        corTextoTipoUso={corTextoTipoUso}
+      />
+
       <ModalBase
-        aberto={modalAberto}
+        aberto={modalCadastroAberto}
         titulo={editando ? "Editar categoria" : "Nova categoria"}
         descricao="Informe o nome e o tipo de uso padrão."
-        onClose={fecharModal}
+        onClose={fecharCadastro}
         largura="max-w-2xl"
+        z="z-[80]"
       >
         <div className="space-y-5">
           <div>
@@ -289,6 +527,7 @@ export default function Categorias() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
               {TIPOS_USO.map((tipo) => {
                 const ativo = tipoUso === tipo.valor;
+
                 return (
                   <button
                     key={tipo.valor}
@@ -300,8 +539,7 @@ export default function Categorias() {
                         : "border-gray-700 bg-[#0B1120] hover:bg-white/5"
                     }`}
                   >
-                    <p className="font-black text-white">{tipo.titulo}</p>
-                    <p className="text-xs text-gray-500 mt-2">{tipo.descricao}</p>
+                    <p className="font-bold text-white">{tipo.titulo}</p>
                   </button>
                 );
               })}
@@ -311,11 +549,12 @@ export default function Categorias() {
           <div className="grid grid-cols-2 gap-3 pt-2">
             <button
               type="button"
-              onClick={fecharModal}
+              onClick={fecharCadastro}
               className="rounded-xl border border-gray-700 hover:bg-white/5 p-3 font-bold"
             >
               Cancelar
             </button>
+
             <button
               type="button"
               onClick={salvarCategoria}
@@ -339,70 +578,245 @@ export default function Categorias() {
   );
 }
 
-function CategoriaCard({
-  categoria,
-  tituloTipoUso,
-  descricaoTipoUso,
-  corTipoUso,
-  editar,
-  alternarAtivo,
-  modoConfiguracao,
-}) {
+function CategoriaCardSimples({ categoria }) {
   return (
-    <div className="relative rounded-2xl border border-gray-800 bg-[#111827] p-4 sm:p-5">
-      {modoConfiguracao && (
-        <div className="absolute right-3 top-3 flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={editar}
-            className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg border border-gray-700 hover:bg-white/5 flex items-center justify-center text-gray-300"
-            title="Editar"
-          >
-            <FiEdit2 className="text-sm" />
-          </button>
+    <div className="rounded-2xl border border-gray-800 bg-[#111827] px-4 py-4 flex items-center justify-center sm:justify-start min-h-[58px]">
+      <h3 className="text-sm sm:text-base font-semibold text-white text-center sm:text-left truncate">
+        {categoria.nome}
+      </h3>
+    </div>
+  );
+}
 
+function ModalGerenciarCategorias({
+  aberto,
+  categorias,
+  categoriasBusca,
+  modo,
+  setModo,
+  selecionadas,
+  alternarSelecionada,
+  buscaAdicionar,
+  setBuscaAdicionar,
+  onClose,
+  onAdicionarBusca,
+  onEditar,
+  onAlternarAtivo,
+  onExcluirSelecionadas,
+  normalizarTexto,
+  tituloTipoUso,
+  corTextoTipoUso,
+}) {
+  if (!aberto) return null;
+
+  const adicionando = modo === "adicionar";
+  const editando = modo === "editar";
+  const excluindo = modo === "excluir";
+
+  const buscaNormalizada = normalizarTexto(buscaAdicionar);
+  const categoriasFiltradas = buscaNormalizada
+    ? categorias.filter((categoria) =>
+        normalizarTexto(categoria.nome).includes(buscaNormalizada)
+      )
+    : categorias;
+
+  const categoriaExata = buscaNormalizada
+    ? categoriasBusca.find((categoria) => normalizarTexto(categoria.nome) === buscaNormalizada)
+    : null;
+
+  const existeExato = Boolean(categoriaExata);
+
+  return (
+    <ModalBase
+      aberto={aberto}
+      titulo="Gerenciar categorias"
+      descricao="Adicione, edite ou exclua uma categoria desejada."
+      onClose={onClose}
+      largura="max-w-3xl"
+      z="z-[70]"
+    >
+      <div className="flex items-center justify-between gap-3 -mt-2 mb-5">
+        <p className="text-xs text-gray-500">
+          {adicionando && "Digite para buscar ou adicionar."}
+          {editando && "Toque para editar."}
+          {excluindo && "Selecione as categorias que deseja excluir."}
+          {!adicionando && !editando && !excluindo && "Toque em uma categoria para ligar ou desligar."}
+        </p>
+
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={alternarAtivo}
-            className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg border flex items-center justify-center ${
-              categoria.ativo
-                ? "border-red-500/50 text-red-400 hover:bg-red-500/10"
+            onClick={() => setModo(adicionando ? "normal" : "adicionar")}
+            className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+              adicionando
+                ? "border-green-400 bg-green-500/10 text-green-400"
                 : "border-green-500/50 text-green-400 hover:bg-green-500/10"
             }`}
-            title={categoria.ativo ? "Desativar" : "Reativar"}
+            title="Adicionar"
           >
-            {categoria.ativo ? (
-              <FiTrash2 className="text-sm" />
-            ) : (
-              <FiRefreshCw className="text-sm" />
-            )}
+            {adicionando ? <FiX /> : <FiPlus />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setModo(editando ? "normal" : "editar")}
+            className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+              editando
+                ? "border-green-400 bg-green-500/10 text-green-400"
+                : "border-gray-700 text-gray-300 hover:bg-white/5"
+            }`}
+            title="Editar"
+          >
+            <FiEdit2 />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setModo(excluindo ? "normal" : "excluir")}
+            className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+              excluindo
+                ? "border-red-400 bg-red-500/10 text-red-400"
+                : "border-gray-700 text-gray-300 hover:bg-white/5"
+            }`}
+            title="Excluir"
+          >
+            <FiTrash2 />
           </button>
         </div>
-      )}
+      </div>
 
-      <div className={`grid grid-cols-1 lg:grid-cols-[minmax(220px,1fr)_minmax(260px,1.2fr)] gap-3 lg:gap-5 ${modoConfiguracao ? "pr-20 sm:pr-24" : ""}`}>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-black text-base sm:text-lg truncate">{categoria.nome}</h3>
+      {adicionando && (
+        <div className="mb-4 rounded-2xl border border-gray-800 bg-[#0B1120] p-3">
+          <label className="text-xs text-gray-400 font-semibold">
+            Buscar ou adicionar categoria
+          </label>
 
-            {!categoria.ativo && (
-              <span className="rounded-full border border-gray-700 px-2.5 py-1 text-[11px] font-bold text-gray-400">
-                Desativada
-              </span>
+          <div className="flex flex-col sm:flex-row gap-2 mt-2">
+            <input
+              type="text"
+              value={buscaAdicionar}
+              onChange={(e) => setBuscaAdicionar(e.target.value)}
+              placeholder="Digite o nome da categoria..."
+              className="w-full bg-[#111827] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
+              autoFocus
+            />
+
+            {buscaAdicionar.trim() && (!existeExato || !categoriaExata?.ativo) && (
+              <button
+                type="button"
+                onClick={onAdicionarBusca}
+                className="rounded-xl bg-green-500 hover:bg-green-600 text-black font-black px-4 py-3 whitespace-nowrap"
+              >
+                Adicionar
+              </button>
+            )}
+
+            {buscaAdicionar.trim() && categoriaExata?.ativo && (
+              <button
+                type="button"
+                disabled
+                className="rounded-xl border border-gray-700 text-gray-500 font-bold px-4 py-3 whitespace-nowrap cursor-not-allowed"
+              >
+                Já existe
+              </button>
             )}
           </div>
         </div>
+      )}
 
-        <div className="min-w-0 lg:flex lg:items-center lg:justify-end lg:gap-3">
-          <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${corTipoUso(categoria.tipo_uso)}`}>
-            {tituloTipoUso(categoria.tipo_uso)}
-          </span>
+      <div className="space-y-2">
+        {categoriasFiltradas.map((categoria) => {
+          const selecionada = selecionadas.includes(categoria.id);
 
-          <p className="text-xs sm:text-sm text-gray-500 mt-2 lg:mt-0 lg:text-right lg:truncate">
-            {descricaoTipoUso(categoria.tipo_uso)}
-          </p>
-        </div>
+          return (
+            <div
+              key={categoria.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                if (editando) onEditar(categoria);
+                else if (excluindo) alternarSelecionada(categoria.id);
+                else onAlternarAtivo(categoria);
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                if (editando) onEditar(categoria);
+                else if (excluindo) alternarSelecionada(categoria.id);
+                else onAlternarAtivo(categoria);
+              }}
+              className={`rounded-xl border bg-[#0B1120] p-3 flex items-center gap-3 transition cursor-pointer hover:bg-white/5 ${
+                selecionada
+                  ? "border-red-400 bg-red-500/10"
+                  : categoria.ativo
+                  ? "border-gray-700"
+                  : "border-gray-800 opacity-60"
+              }`}
+            >
+              {excluindo && (
+                <span
+                  className={`w-5 h-5 rounded-md border flex items-center justify-center text-xs shrink-0 ${
+                    selecionada
+                      ? "bg-red-500 border-red-500 text-white"
+                      : "border-gray-600 text-transparent"
+                  }`}
+                >
+                  ✓
+                </span>
+              )}
+
+              <p className="flex-1 font-semibold text-white truncate">
+                {categoria.nome}
+              </p>
+
+              <span className={`text-xs sm:text-sm font-semibold shrink-0 text-right ${corTextoTipoUso(categoria.tipo_uso)}`}>
+                {tituloTipoUso(categoria.tipo_uso)}
+              </span>
+
+              {!editando && !excluindo && (
+                <span
+                  className={`relative w-12 h-7 rounded-full transition shrink-0 ${
+                    categoria.ativo ? "bg-green-500" : "bg-gray-700"
+                  }`}
+                  title={categoria.ativo ? "Desativar" : "Ativar"}
+                >
+                  <span
+                    className={`absolute top-1 w-5 h-5 rounded-full bg-white transition ${
+                      categoria.ativo ? "right-1" : "left-1"
+                    }`}
+                  />
+                </span>
+              )}
+            </div>
+          );
+        })}
+
+        {categoriasFiltradas.length === 0 && (
+          <div className="rounded-xl border border-gray-800 bg-[#0B1120] p-4">
+            <p className="text-sm text-gray-500">Nenhuma categoria encontrada.</p>
+          </div>
+        )}
       </div>
-    </div>
+
+      {excluindo && (
+        <div className="grid grid-cols-2 gap-3 mt-5">
+          <button
+            type="button"
+            onClick={() => setModo("normal")}
+            className="rounded-xl border border-gray-700 hover:bg-white/5 p-3 font-bold"
+          >
+            Cancelar
+          </button>
+
+          <button
+            type="button"
+            onClick={onExcluirSelecionadas}
+            className="rounded-xl bg-red-500 hover:bg-red-600 text-white p-3 font-black"
+          >
+            Excluir selecionadas
+          </button>
+        </div>
+      )}
+    </ModalBase>
   );
 }

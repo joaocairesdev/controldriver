@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../services/supabase";
+import { FiEdit2, FiPlus, FiTrash2, FiX } from "react-icons/fi";
 
 import ModalBase from "./ModalBase";
 import DatePickerModal from "./DatePickerModal";
@@ -62,7 +63,7 @@ export default function SaidaModal({
   const [categoria, setCategoria] = useState(categoriaInicial);
   const [categoriaId, setCategoriaId] = useState(null);
   const [finalidade, setFinalidade] = useState("trabalho");
-  const [etapa, setEtapa] = useState("tipo_uso");
+  const [etapa, setEtapa] = useState("categoria");
   const [descricao, setDescricao] = useState("");
   const [valorTotal, setValorTotal] = useState("");
   const [formaPagamento, setFormaPagamento] = useState(
@@ -80,6 +81,13 @@ export default function SaidaModal({
   const [modalContaAberto, setModalContaAberto] = useState(false);
   const [modalCartaoAberto, setModalCartaoAberto] = useState(false);
   const [modalCategoriaAberto, setModalCategoriaAberto] = useState(false);
+  const [modalGerenciarCategoriasAberto, setModalGerenciarCategoriasAberto] = useState(false);
+  const [modoGerenciamentoCategorias, setModoGerenciamentoCategorias] = useState("normal");
+  const [buscaAdicionarCategoria, setBuscaAdicionarCategoria] = useState("");
+  const [categoriasSelecionadasExcluir, setCategoriasSelecionadasExcluir] = useState([]);
+  const [nomeCategoriaGerenciador, setNomeCategoriaGerenciador] = useState("");
+  const [tipoUsoCategoriaGerenciador, setTipoUsoCategoriaGerenciador] = useState("opcional");
+  const [categoriaEditandoGerenciador, setCategoriaEditandoGerenciador] = useState(null);
   const [modalParcelasAberto, setModalParcelasAberto] = useState(false);
 
   const [salvando, setSalvando] = useState(false);
@@ -117,16 +125,26 @@ export default function SaidaModal({
     [cartoes, cartaoId]
   );
 
-  const categoriasNomes = useMemo(
+  const categoriasOcultasNaSaidaComum = ["abastecimento", "manutencao", "manutenção"];
+
+  const categoriasDisponiveis = useMemo(
     () =>
       categorias
         .filter((item) => {
-          const tipoUso = item.tipo_uso || "rateada";
-          return tipoUso === finalidade || tipoUso === "rateada";
+          const nomeNormalizado = normalizarTexto(item.nome);
+          return item.ativo !== false && item.nome && !categoriasOcultasNaSaidaComum.includes(nomeNormalizado);
         })
-        .map((item) => item.nome)
-        .filter(Boolean),
-    [categorias, finalidade]
+        .sort((a, b) =>
+          String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR", {
+            sensitivity: "base",
+          })
+        ),
+    [categorias]
+  );
+
+  const categoriasNomes = useMemo(
+    () => categoriasDisponiveis.map((item) => item.nome).filter(Boolean),
+    [categoriasDisponiveis]
   );
 
   const categoriaSelecionada = useMemo(
@@ -174,14 +192,12 @@ export default function SaidaModal({
   }, [valorParcela, numeroParcelas, isCreditoParcelado, ultimoCampoEditado]);
 
   async function carregarCategorias() {
-    const fallback = categoriasPadrao.map((nome) => ({ id: null, nome }));
+    const fallback = categoriasPadrao.map((nome) => ({ id: null, nome, ativo: true }));
 
     const { data, error } = await supabase
       .from("categorias")
       .select("id, nome, ativo, ordem, tipo_uso")
-      .eq("ativo", true)
       .eq("tipo", "saida")
-      .order("ordem", { ascending: true })
       .order("nome", { ascending: true });
 
     if (error) {
@@ -191,7 +207,7 @@ export default function SaidaModal({
     }
 
     const lista = (data || [])
-      .map((item) => ({ id: item.id, nome: item.nome, tipo_uso: item.tipo_uso || "rateada" }))
+      .map((item) => ({ id: item.id, nome: item.nome, ativo: item.ativo !== false, tipo_uso: item.tipo_uso || "rateada" }))
       .filter((item) => item.nome);
 
     const categoriasFinais = lista.length > 0 ? lista : fallback;
@@ -330,6 +346,14 @@ export default function SaidaModal({
     });
   }
 
+  function normalizarTexto(valor) {
+    return String(valor || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  }
+
   function formatarDataBR(dataISOTexto) {
     if (!dataISOTexto) return "-";
     const [ano, mes, dia] = String(dataISOTexto).split("-");
@@ -395,7 +419,7 @@ export default function SaidaModal({
     );
     setCategoriaId(categoriaEncontrada?.id || null);
     setFinalidade("trabalho");
-    setEtapa("tipo_uso");
+    setEtapa(categoriaBloqueada ? "dados" : "categoria");
     setDescricao("");
     setValorTotal("");
     setFormaPagamento(modo === "futura" ? "boleto" : "pix");
@@ -453,6 +477,19 @@ export default function SaidaModal({
     setValorTotal(formatarMoedaDigitada(valor));
   }
 
+  function aplicarTipoUsoDaCategoria(categoriaEncontrada) {
+    const tipoUso = categoriaEncontrada?.tipo_uso || "opcional";
+
+    if (tipoUso === "opcional") {
+      setFinalidade("trabalho");
+      setEtapa("tipo_uso");
+      return;
+    }
+
+    setFinalidade(tipoUso);
+    setEtapa("dados");
+  }
+
   function selecionarCategoria(nomeCategoria) {
     const categoriaEncontrada = categorias.find(
       (item) => item.nome === nomeCategoria
@@ -460,19 +497,25 @@ export default function SaidaModal({
 
     setCategoria(nomeCategoria);
     setCategoriaId(categoriaEncontrada?.id || null);
-    if (categoriaEncontrada?.tipo_uso) {
-      setFinalidade(categoriaEncontrada.tipo_uso);
-    }
+    aplicarTipoUsoDaCategoria(categoriaEncontrada || { nome: nomeCategoria, tipo_uso: "opcional" });
   }
 
   function textoFinalidade(valor) {
     const nomes = {
       trabalho: "Uso à trabalho",
       pessoal: "Uso pessoal",
-      rateada: "Rateada pelo veículo",
+      rateada: "Calculado pelo uso do veículo",
+      opcional: "Escolher no lançamento",
     };
 
     return nomes[valor] || "Uso à trabalho";
+  }
+
+  function corTextoTipoUso(valor) {
+    if (valor === "trabalho") return "text-green-400";
+    if (valor === "pessoal") return "text-blue-400";
+    if (valor === "opcional") return "text-purple-400";
+    return "text-yellow-400";
   }
 
   function adicionarCategoriaNaLista(novaCategoria) {
@@ -504,6 +547,232 @@ export default function SaidaModal({
 
     setCategoria(categoriaFormatada.nome);
     setCategoriaId(categoriaFormatada.id || null);
+    aplicarTipoUsoDaCategoria(categoriaFormatada);
+  }
+
+
+  function abrirGerenciadorCategorias() {
+    setModoGerenciamentoCategorias("normal");
+    setBuscaAdicionarCategoria("");
+    setCategoriasSelecionadasExcluir([]);
+    setModalGerenciarCategoriasAberto(true);
+  }
+
+  function fecharGerenciadorCategorias() {
+    setModoGerenciamentoCategorias("normal");
+    setBuscaAdicionarCategoria("");
+    setCategoriasSelecionadasExcluir([]);
+    setModalGerenciarCategoriasAberto(false);
+  }
+
+  function alternarCategoriaSelecionadaExcluir(id) {
+    setCategoriasSelecionadasExcluir((lista) =>
+      lista.includes(id) ? lista.filter((item) => item !== id) : [...lista, id]
+    );
+  }
+
+  async function alternarCategoriaAtiva(categoriaItem) {
+    const { error } = await supabase
+      .from("categorias")
+      .update({ ativo: !categoriaItem.ativo })
+      .eq("id", categoriaItem.id);
+
+    if (error) {
+      abrirFeedback("erro", "Erro ao alterar", error.message || "Erro ao alterar categoria.");
+      return;
+    }
+
+    await carregarCategorias();
+  }
+
+  async function adicionarCategoriaPeloGerenciador() {
+    const nomeLimpo = buscaAdicionarCategoria.trim();
+
+    if (!nomeLimpo) {
+      abrirFeedback("erro", "Nome obrigatório", "Digite o nome da categoria.");
+      return;
+    }
+
+    const existente = categorias.find(
+      (item) => normalizarTexto(item.nome) === normalizarTexto(nomeLimpo)
+    );
+
+    if (existente?.ativo) {
+      abrirFeedback("aviso", "Categoria já existe", "Essa categoria já está ativa na lista.");
+      setBuscaAdicionarCategoria("");
+      setModoGerenciamentoCategorias("normal");
+      return;
+    }
+
+    if (existente && !existente.ativo) {
+      const { error } = await supabase
+        .from("categorias")
+        .update({ ativo: true })
+        .eq("id", existente.id);
+
+      if (error) {
+        abrirFeedback("erro", "Erro ao adicionar", error.message || "Erro ao adicionar categoria.");
+        return;
+      }
+
+      abrirFeedback("sucesso", "Categoria criada", "Categoria cadastrada com sucesso.");
+      setBuscaAdicionarCategoria("");
+      setModoGerenciamentoCategorias("normal");
+      await carregarCategorias();
+      return;
+    }
+
+    setCategoria(nomeLimpo);
+    setTipoUsoCategoriaGerenciador("opcional");
+    setNomeCategoriaGerenciador(nomeLimpo);
+    setModoGerenciamentoCategorias("cadastro");
+  }
+
+  function abrirCadastroCategoriaGerenciador(nomeInicial = "") {
+    setCategoriaEditandoGerenciador(null);
+    setNomeCategoriaGerenciador(nomeInicial);
+    setTipoUsoCategoriaGerenciador("opcional");
+    setModoGerenciamentoCategorias("cadastro");
+  }
+
+  function abrirEdicaoCategoriaGerenciador(categoriaItem) {
+    setCategoriaEditandoGerenciador(categoriaItem);
+    setNomeCategoriaGerenciador(categoriaItem.nome || "");
+    setTipoUsoCategoriaGerenciador(categoriaItem.tipo_uso || "opcional");
+    setModoGerenciamentoCategorias("cadastro");
+  }
+
+  async function salvarCategoriaGerenciador() {
+    const nomeLimpo = nomeCategoriaGerenciador.trim();
+
+    if (!nomeLimpo) {
+      abrirFeedback("erro", "Nome obrigatório", "Informe o nome da categoria.");
+      return;
+    }
+
+    setSalvando(true);
+
+    try {
+      if (categoriaEditandoGerenciador) {
+        const { error } = await supabase
+          .from("categorias")
+          .update({ nome: nomeLimpo, tipo_uso: tipoUsoCategoriaGerenciador, ativo: true })
+          .eq("id", categoriaEditandoGerenciador.id);
+
+        if (error) throw error;
+      } else {
+        const existente = categorias.find(
+          (item) => normalizarTexto(item.nome) === normalizarTexto(nomeLimpo)
+        );
+
+        if (existente) {
+          const { error } = await supabase
+            .from("categorias")
+            .update({ ativo: true, tipo_uso: tipoUsoCategoriaGerenciador })
+            .eq("id", existente.id);
+
+          if (error) throw error;
+        } else {
+          const proximaOrdem = Math.max(0, ...categorias.map((item) => Number(item.ordem || 0))) + 1;
+
+          const { error } = await supabase.from("categorias").insert({
+            nome: nomeLimpo,
+            tipo: "saida",
+            tipo_uso: tipoUsoCategoriaGerenciador,
+            ativo: true,
+            ordem: proximaOrdem,
+          });
+
+          if (error) throw error;
+        }
+      }
+
+      abrirFeedback("sucesso", "Categoria criada", "Categoria cadastrada com sucesso.");
+      setModoGerenciamentoCategorias("normal");
+      setBuscaAdicionarCategoria("");
+      setNomeCategoriaGerenciador("");
+      setTipoUsoCategoriaGerenciador("opcional");
+      setCategoriaEditandoGerenciador(null);
+      await carregarCategorias();
+    } catch (error) {
+      console.error(error);
+      abrirFeedback("erro", "Erro ao salvar", error.message || "Erro ao salvar categoria.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function excluirCategoriasSelecionadasGerenciador() {
+    if (categoriasSelecionadasExcluir.length === 0) {
+      abrirFeedback("aviso", "Nenhuma categoria selecionada", "Selecione pelo menos uma categoria.");
+      return;
+    }
+
+    const categoriasSelecionadas = categorias.filter((item) =>
+      categoriasSelecionadasExcluir.includes(item.id)
+    );
+
+    const nomesSelecionados = categoriasSelecionadas.map((item) => item.nome);
+
+    const { data: saidasPorId, error: erroSaidasPorId } = await supabase
+      .from("saidas")
+      .select("categoria_id")
+      .in("categoria_id", categoriasSelecionadasExcluir);
+
+    if (erroSaidasPorId) {
+      abrirFeedback("erro", "Erro ao excluir", erroSaidasPorId.message || "Erro ao verificar uso das categorias.");
+      return;
+    }
+
+    const { data: saidasPorNome, error: erroSaidasPorNome } = await supabase
+      .from("saidas")
+      .select("categoria")
+      .in("categoria", nomesSelecionados);
+
+    if (erroSaidasPorNome) {
+      abrirFeedback("erro", "Erro ao excluir", erroSaidasPorNome.message || "Erro ao verificar uso das categorias.");
+      return;
+    }
+
+    const idsEmUso = new Set((saidasPorId || []).map((item) => Number(item.categoria_id)).filter(Boolean));
+    const nomesEmUso = new Set((saidasPorNome || []).map((item) => normalizarTexto(item.categoria)));
+
+    const categoriasComUso = categoriasSelecionadas.filter(
+      (item) => idsEmUso.has(Number(item.id)) || nomesEmUso.has(normalizarTexto(item.nome))
+    );
+
+    const categoriasSemUso = categoriasSelecionadas.filter(
+      (item) => !idsEmUso.has(Number(item.id)) && !nomesEmUso.has(normalizarTexto(item.nome))
+    );
+
+    if (categoriasSemUso.length > 0) {
+      const { error } = await supabase
+        .from("categorias")
+        .delete()
+        .in("id", categoriasSemUso.map((item) => item.id));
+
+      if (error) {
+        abrirFeedback("erro", "Erro ao excluir", error.message || "Erro ao excluir categorias.");
+        return;
+      }
+    }
+
+    if (categoriasComUso.length > 0) {
+      const { error } = await supabase
+        .from("categorias")
+        .update({ ativo: false })
+        .in("id", categoriasComUso.map((item) => item.id));
+
+      if (error) {
+        abrirFeedback("erro", "Erro ao excluir", error.message || "Erro ao remover categorias da lista visível.");
+        return;
+      }
+    }
+
+    abrirFeedback("sucesso", "Categorias excluídas", "As categorias foram removidas da lista visível.");
+    setCategoriasSelecionadasExcluir([]);
+    setModoGerenciamentoCategorias("normal");
+    await carregarCategorias();
   }
 
   function definirStatus() {
@@ -701,8 +970,8 @@ export default function SaidaModal({
   }
 
   function validarCampos() {
-    if (!dataCompra || !categoria || !valorTotal) {
-      abrirFeedback("erro", "Campos obrigatórios", "Preencha data, categoria e valor.");
+    if ((!isBoleto && !dataCompra) || !categoria || !valorTotal) {
+      abrirFeedback("erro", "Campos obrigatórios", isBoleto ? "Preencha categoria e valor." : "Preencha data, categoria e valor.");
       return false;
     }
 
@@ -816,73 +1085,86 @@ export default function SaidaModal({
     <>
       <ModalBase
         aberto={aberto}
-        titulo={etapa === "tipo_uso" ? "Tipo de uso" : titulo}
+        titulo={
+          etapa === "categoria"
+            ? "Escolher categoria"
+            : etapa === "tipo_uso"
+            ? "Tipo de uso"
+            : titulo
+        }
         descricao={
-          etapa === "tipo_uso"
-            ? "Antes de registrar, informe se essa despesa é de trabalho, pessoal ou rateada pelo uso do veículo."
+          etapa === "categoria"
+            ? "Primeiro escolha a categoria da despesa. Ela define como o app vai classificar o lançamento."
+            : etapa === "tipo_uso"
+            ? "Essa categoria permite escolher. Informe se foi uso à trabalho ou uso pessoal."
             : descricaoModal
         }
         onClose={cancelar}
-        largura={etapa === "tipo_uso" ? "max-w-xl" : "max-w-3xl"}
+        largura={etapa === "dados" ? "max-w-3xl" : "max-w-2xl"}
       >
-        {etapa === "tipo_uso" && (
-          <div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <TipoUsoCard
-                ativo={finalidade === "trabalho"}
-                icone="🚕"
-                titulo="Uso à trabalho"
-                descricao="Despesa ligada à operação, rotina na rua ou atividade como motorista."
-                onClick={() => {
-                  setFinalidade("trabalho");
-                  setEtapa("dados");
-                }}
-              />
+        {etapa === "categoria" && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto scrollbar-hide pr-1">
+              {categoriasDisponiveis.map((item) => {
+                const ativo = categoria === item.nome;
 
-              <TipoUsoCard
-                ativo={finalidade === "pessoal"}
-                icone="🏠"
-                titulo="Uso pessoal"
-                descricao="Despesa da casa, família, lazer ou vida pessoal."
-                onClick={() => {
-                  setFinalidade("pessoal");
-                  setEtapa("dados");
-                }}
-              />
-
-              <TipoUsoCard
-                ativo={finalidade === "rateada"}
-                icone="🚗"
-                titulo="Rateada pelo veículo"
-                descricao="Despesa do carro que depois será dividida pelo uso a trabalho e pessoal."
-                onClick={() => {
-                  setFinalidade("rateada");
-                  setEtapa("dados");
-                }}
-              />
+                return (
+                  <button
+                    key={item.id || item.nome}
+                    type="button"
+                    onClick={() => selecionarCategoria(item.nome)}
+                    className={`rounded-2xl border p-4 text-left transition ${
+                      ativo
+                        ? "border-green-400 bg-green-500/10"
+                        : "border-gray-700 bg-[#0B1120] hover:bg-white/5"
+                    }`}
+                  >
+                    <p className="font-black text-white truncate">{item.nome}</p>
+                  </button>
+                );
+              })}
             </div>
+
+            {!categoriaBloqueada && (
+              <button
+                type="button"
+                onClick={abrirGerenciadorCategorias}
+                className="w-full rounded-xl border border-green-500/50 bg-green-500/10 text-green-400 hover:bg-green-500/15 p-4 font-black"
+              >
+                + Nova categoria
+              </button>
+            )}
+          </div>
+        )}
+
+        {etapa === "tipo_uso" && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <TipoUsoCard
+              ativo={finalidade === "trabalho"}
+              icone="🚕"
+              titulo="Uso à trabalho"
+              descricao="Despesa ligada à operação, rotina na rua ou atividade como motorista."
+              onClick={() => {
+                setFinalidade("trabalho");
+                setEtapa("dados");
+              }}
+            />
+
+            <TipoUsoCard
+              ativo={finalidade === "pessoal"}
+              icone="🏠"
+              titulo="Uso pessoal"
+              descricao="Despesa da casa, família, lazer ou vida pessoal."
+              onClick={() => {
+                setFinalidade("pessoal");
+                setEtapa("dados");
+              }}
+            />
           </div>
         )}
 
         {etapa === "dados" && (
           <>
-            <div className="mb-5 flex items-center justify-between gap-3 rounded-2xl border border-gray-800 bg-[#0B1120] p-4">
-              <div>
-                <p className="text-xs text-gray-500">Tipo de uso</p>
-                <p className="font-black text-white">
-                  {textoFinalidade(finalidade)}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setEtapa("tipo_uso")}
-                className="rounded-xl border border-gray-700 px-3 py-2 text-xs font-black text-gray-300 hover:bg-white/5"
-              >
-                Alterar
-              </button>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {!isBoleto && (
                 <Campo label="Data da compra">
@@ -900,9 +1182,21 @@ export default function SaidaModal({
                 </Campo>
               )}
 
+              <Campo label="Forma de pagamento">
+                {modo === "futura" ? (
+                  <div className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 font-semibold">
+                    Boleto / Conta a pagar
+                  </div>
+                ) : (
+                  <ButtonField onClick={() => setModalPagamentoAberto(true)}>
+                    {textoFormaPagamento()}
+                  </ButtonField>
+                )}
+              </Campo>
+
               {!categoriaBloqueada && (
                 <Campo label="Categoria">
-                  <ButtonField onClick={() => setModalCategoriaAberto(true)}>
+                  <ButtonField onClick={() => setEtapa("categoria")}>
                     {categoria}
                   </ButtonField>
                 </Campo>
@@ -916,28 +1210,6 @@ export default function SaidaModal({
                 </Campo>
               )}
 
-              <Campo label="Descrição">
-                <input
-                  type="text"
-                  value={descricao}
-                  placeholder={isBoleto ? "Ex: conta de luz, condomínio, internet..." : "Ex: almoço, lavagem, seguro, IPVA..."}
-                  onChange={(e) => setDescricao(e.target.value)}
-                  className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
-                />
-              </Campo>
-
-              <Campo label="Forma de pagamento">
-                {modo === "futura" ? (
-                  <div className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 font-semibold">
-                    Boleto / Conta a pagar
-                  </div>
-                ) : (
-                  <ButtonField onClick={() => setModalPagamentoAberto(true)}>
-                    {textoFormaPagamento()}
-                  </ButtonField>
-                )}
-              </Campo>
-
               {!isBoleto && (
                 <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"}>
                   <ButtonField
@@ -950,6 +1222,16 @@ export default function SaidaModal({
                   </ButtonField>
                 </Campo>
               )}
+
+              <Campo label="Descrição">
+                <input
+                  type="text"
+                  value={descricao}
+                  placeholder={isBoleto ? "Ex: conta de luz, condomínio, internet..." : "Ex: almoço, lavagem, seguro, IPVA..."}
+                  onChange={(e) => setDescricao(e.target.value)}
+                  className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
+                />
+              </Campo>
 
               <Campo label="Valor total">
                 <MoneyInput
@@ -991,7 +1273,7 @@ export default function SaidaModal({
               <div className="mt-5 bg-blue-500/10 border border-blue-500/30 rounded-2xl p-4">
                 <p className="text-sm text-blue-300 font-bold">Despesa futura</p>
                 <p className="text-xs text-gray-400 mt-2">
-                  Para contas futuras, o app usa a data de vencimento. Ela aparece como conta a pagar e não altera o saldo até ser paga.
+                  Para contas futuras, o app usa apenas a data de vencimento. Ela aparece como conta a pagar e não altera o saldo até ser paga.
                 </p>
               </div>
             )}
@@ -1018,6 +1300,34 @@ export default function SaidaModal({
         )}
       </ModalBase>
 
+
+      <ModalGerenciarCategoriasSaida
+        aberto={modalGerenciarCategoriasAberto}
+        categorias={categorias}
+        modo={modoGerenciamentoCategorias}
+        setModo={setModoGerenciamentoCategorias}
+        buscaAdicionar={buscaAdicionarCategoria}
+        setBuscaAdicionar={setBuscaAdicionarCategoria}
+        selecionadas={categoriasSelecionadasExcluir}
+        alternarSelecionada={alternarCategoriaSelecionadaExcluir}
+        onClose={fecharGerenciadorCategorias}
+        onAdicionarBusca={adicionarCategoriaPeloGerenciador}
+        onAbrirCadastro={abrirCadastroCategoriaGerenciador}
+        onEditar={abrirEdicaoCategoriaGerenciador}
+        onAlternarAtivo={alternarCategoriaAtiva}
+        onExcluirSelecionadas={excluirCategoriasSelecionadasGerenciador}
+        normalizarTexto={normalizarTexto}
+        tituloTipoUso={textoFinalidade}
+        corTextoTipoUso={corTextoTipoUso}
+        nomeCadastro={nomeCategoriaGerenciador}
+        setNomeCadastro={setNomeCategoriaGerenciador}
+        tipoUsoCadastro={tipoUsoCategoriaGerenciador}
+        setTipoUsoCadastro={setTipoUsoCategoriaGerenciador}
+        categoriaEditando={categoriaEditandoGerenciador}
+        onSalvarCadastro={salvarCategoriaGerenciador}
+        salvando={salvando}
+      />
+
       <DatePickerModal
         aberto={modalDataAberto}
         valor={dataCompra}
@@ -1025,6 +1335,34 @@ export default function SaidaModal({
         onClose={() => setModalDataAberto(false)}
         titulo="Selecionar data"
         descricao="Escolha a data da compra."
+      />
+
+
+      <ModalGerenciarCategoriasSaida
+        aberto={modalGerenciarCategoriasAberto}
+        categorias={categorias}
+        modo={modoGerenciamentoCategorias}
+        setModo={setModoGerenciamentoCategorias}
+        buscaAdicionar={buscaAdicionarCategoria}
+        setBuscaAdicionar={setBuscaAdicionarCategoria}
+        selecionadas={categoriasSelecionadasExcluir}
+        alternarSelecionada={alternarCategoriaSelecionadaExcluir}
+        onClose={fecharGerenciadorCategorias}
+        onAdicionarBusca={adicionarCategoriaPeloGerenciador}
+        onAbrirCadastro={abrirCadastroCategoriaGerenciador}
+        onEditar={abrirEdicaoCategoriaGerenciador}
+        onAlternarAtivo={alternarCategoriaAtiva}
+        onExcluirSelecionadas={excluirCategoriasSelecionadasGerenciador}
+        normalizarTexto={normalizarTexto}
+        tituloTipoUso={textoFinalidade}
+        corTextoTipoUso={corTextoTipoUso}
+        nomeCadastro={nomeCategoriaGerenciador}
+        setNomeCadastro={setNomeCategoriaGerenciador}
+        tipoUsoCadastro={tipoUsoCategoriaGerenciador}
+        setTipoUsoCadastro={setTipoUsoCategoriaGerenciador}
+        categoriaEditando={categoriaEditandoGerenciador}
+        onSalvarCadastro={salvarCategoriaGerenciador}
+        salvando={salvando}
       />
 
       <DatePickerModal
@@ -1107,7 +1445,7 @@ export default function SaidaModal({
         categoria={categoria}
         onSelecionar={selecionarCategoria}
         onClose={() => setModalCategoriaAberto(false)}
-        permitirCriar
+        permitirCriar={false}
         tipoUsoPadrao={finalidade}
         onCategoriaCriada={adicionarCategoriaNaLista}
       />
@@ -1127,6 +1465,313 @@ export default function SaidaModal({
         onClose={fecharFeedback}
       />
     </>
+  );
+}
+
+
+function ModalGerenciarCategoriasSaida({
+  aberto,
+  categorias,
+  modo,
+  setModo,
+  buscaAdicionar,
+  setBuscaAdicionar,
+  selecionadas,
+  alternarSelecionada,
+  onClose,
+  onAdicionarBusca,
+  onAbrirCadastro,
+  onEditar,
+  onAlternarAtivo,
+  onExcluirSelecionadas,
+  normalizarTexto,
+  tituloTipoUso,
+  corTextoTipoUso,
+  nomeCadastro,
+  setNomeCadastro,
+  tipoUsoCadastro,
+  setTipoUsoCadastro,
+  categoriaEditando,
+  onSalvarCadastro,
+  salvando,
+}) {
+  if (!aberto) return null;
+
+  const adicionando = modo === "adicionar";
+  const editando = modo === "editar";
+  const excluindo = modo === "excluir";
+  const cadastrando = modo === "cadastro";
+
+  const categoriasOrdenadas = [...categorias].sort((a, b) =>
+    String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR", {
+      sensitivity: "base",
+    })
+  );
+
+  const buscaNormalizada = normalizarTexto(buscaAdicionar);
+  const categoriasFiltradas = buscaNormalizada
+    ? categoriasOrdenadas.filter((categoria) =>
+        normalizarTexto(categoria.nome).includes(buscaNormalizada)
+      )
+    : categoriasOrdenadas;
+
+  const categoriaExata = buscaNormalizada
+    ? categoriasOrdenadas.find((categoria) => normalizarTexto(categoria.nome) === buscaNormalizada)
+    : null;
+
+  return (
+    <ModalBase
+      aberto={aberto}
+      titulo="Gerenciar categorias"
+      descricao="Adicione, edite ou exclua uma categoria desejada."
+      onClose={onClose}
+      largura="max-w-3xl"
+      z="z-[100]"
+    >
+      {!cadastrando && (
+        <>
+          <div className="flex items-center justify-between gap-3 -mt-2 mb-5">
+            <p className="text-xs text-gray-500">
+              {adicionando && "Digite para buscar ou adicionar."}
+              {editando && "Toque para editar."}
+              {excluindo && "Selecione as categorias que deseja excluir."}
+              {!adicionando && !editando && !excluindo && "Toque em uma categoria para ligar ou desligar."}
+            </p>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setModo(adicionando ? "normal" : "adicionar")}
+                className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+                  adicionando
+                    ? "border-green-400 bg-green-500/10 text-green-400"
+                    : "border-green-500/50 text-green-400 hover:bg-green-500/10"
+                }`}
+                title="Adicionar"
+              >
+                {adicionando ? <FiX /> : <FiPlus />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModo(editando ? "normal" : "editar")}
+                className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+                  editando
+                    ? "border-green-400 bg-green-500/10 text-green-400"
+                    : "border-gray-700 text-gray-300 hover:bg-white/5"
+                }`}
+                title="Editar"
+              >
+                <FiEdit2 />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setModo(excluindo ? "normal" : "excluir")}
+                className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+                  excluindo
+                    ? "border-red-400 bg-red-500/10 text-red-400"
+                    : "border-gray-700 text-gray-300 hover:bg-white/5"
+                }`}
+                title="Excluir"
+              >
+                <FiTrash2 />
+              </button>
+            </div>
+          </div>
+
+          {adicionando && (
+            <div className="mb-4 rounded-2xl border border-gray-800 bg-[#0B1120] p-3">
+              <label className="text-xs text-gray-400 font-semibold">
+                Buscar ou adicionar categoria
+              </label>
+
+              <div className="flex flex-col sm:flex-row gap-2 mt-2">
+                <input
+                  type="text"
+                  value={buscaAdicionar}
+                  onChange={(e) => setBuscaAdicionar(e.target.value)}
+                  placeholder="Digite o nome da categoria..."
+                  className="w-full bg-[#111827] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
+                  autoFocus
+                />
+
+                {buscaAdicionar.trim() && (!categoriaExata || !categoriaExata?.ativo) && (
+                  <button
+                    type="button"
+                    onClick={onAdicionarBusca}
+                    className="rounded-xl bg-green-500 hover:bg-green-600 text-black font-black px-4 py-3 whitespace-nowrap"
+                  >
+                    Adicionar
+                  </button>
+                )}
+
+                {buscaAdicionar.trim() && categoriaExata?.ativo && (
+                  <button
+                    type="button"
+                    disabled
+                    className="rounded-xl border border-gray-700 text-gray-500 font-bold px-4 py-3 whitespace-nowrap cursor-not-allowed"
+                  >
+                    Já existe
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto scrollbar-hide pr-1">
+            {categoriasFiltradas.map((categoriaItem) => {
+              const selecionada = selecionadas.includes(categoriaItem.id);
+
+              return (
+                <div
+                  key={categoriaItem.id || categoriaItem.nome}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    if (editando) onEditar(categoriaItem);
+                    else if (excluindo) alternarSelecionada(categoriaItem.id);
+                    else onAlternarAtivo(categoriaItem);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    if (editando) onEditar(categoriaItem);
+                    else if (excluindo) alternarSelecionada(categoriaItem.id);
+                    else onAlternarAtivo(categoriaItem);
+                  }}
+                  className={`rounded-xl border bg-[#0B1120] p-3 flex items-center gap-3 transition cursor-pointer hover:bg-white/5 ${
+                    selecionada
+                      ? "border-red-400 bg-red-500/10"
+                      : categoriaItem.ativo
+                      ? "border-gray-700"
+                      : "border-gray-800 opacity-60"
+                  }`}
+                >
+                  {excluindo && (
+                    <span
+                      className={`w-5 h-5 rounded-md border flex items-center justify-center text-xs shrink-0 ${
+                        selecionada
+                          ? "bg-red-500 border-red-500 text-white"
+                          : "border-gray-600 text-transparent"
+                      }`}
+                    >
+                      ✓
+                    </span>
+                  )}
+
+                  <p className="flex-1 font-semibold text-white truncate">
+                    {categoriaItem.nome}
+                  </p>
+
+                  <span className={`text-xs sm:text-sm font-semibold shrink-0 text-right ${corTextoTipoUso(categoriaItem.tipo_uso)}`}>
+                    {tituloTipoUso(categoriaItem.tipo_uso)}
+                  </span>
+
+                  {!editando && !excluindo && (
+                    <span
+                      className={`relative w-12 h-7 rounded-full transition shrink-0 ${
+                        categoriaItem.ativo ? "bg-green-500" : "bg-gray-700"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-1 w-5 h-5 rounded-full bg-white transition ${
+                          categoriaItem.ativo ? "right-1" : "left-1"
+                        }`}
+                      />
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {excluindo && (
+            <div className="grid grid-cols-2 gap-3 mt-5">
+              <button
+                type="button"
+                onClick={() => setModo("normal")}
+                className="rounded-xl border border-gray-700 hover:bg-white/5 p-3 font-bold"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={onExcluirSelecionadas}
+                className="rounded-xl bg-red-500 hover:bg-red-600 text-white p-3 font-black"
+              >
+                Excluir selecionadas
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {cadastrando && (
+        <div className="space-y-5">
+          <div>
+            <label className="text-sm text-gray-300">Nome da categoria</label>
+            <input
+              type="text"
+              value={nomeCadastro}
+              onChange={(e) => setNomeCadastro(e.target.value)}
+              placeholder="Ex: Seguro, IPVA, Mercado, Pneus..."
+              className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <p className="text-sm text-gray-300">Tipo de uso padrão</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+              {[
+                { valor: "trabalho", titulo: "Sempre trabalho" },
+                { valor: "pessoal", titulo: "Sempre pessoal" },
+                { valor: "rateada", titulo: "Calculado pelo uso do veículo" },
+                { valor: "opcional", titulo: "Escolher no lançamento" },
+              ].map((tipo) => {
+                const ativo = tipoUsoCadastro === tipo.valor;
+
+                return (
+                  <button
+                    key={tipo.valor}
+                    type="button"
+                    onClick={() => setTipoUsoCadastro(tipo.valor)}
+                    className={`rounded-xl border p-4 text-left transition ${
+                      ativo
+                        ? "border-green-400 bg-green-500/10"
+                        : "border-gray-700 bg-[#0B1120] hover:bg-white/5"
+                    }`}
+                  >
+                    <p className="font-bold text-white">{tipo.titulo}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setModo("adicionar")}
+              className="rounded-xl border border-gray-700 hover:bg-white/5 p-3 font-bold"
+            >
+              Voltar
+            </button>
+
+            <button
+              type="button"
+              onClick={onSalvarCadastro}
+              disabled={salvando}
+              className="rounded-xl bg-green-500 hover:bg-green-600 text-black p-3 font-black disabled:opacity-50"
+            >
+              {salvando ? "Salvando..." : categoriaEditando ? "Salvar" : "Adicionar"}
+            </button>
+          </div>
+        </div>
+      )}
+    </ModalBase>
   );
 }
 
