@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import CronometroJornada from "./components/CronometroJornada";
+import MobileBottomNav from "./components/MobileBottomNav";
 
 import Dashboard from "./pages/Dashboard";
 import NovaEntrada from "./pages/NovaEntrada";
@@ -26,6 +27,85 @@ export default function App() {
     contagemRegressiva: null,
   });
 
+  const toqueInicialX = useRef(null);
+  const toqueInicialY = useRef(null);
+
+  useEffect(() => {
+    function aoIniciarToque(evento) {
+      const toque = evento.touches?.[0];
+      if (!toque) return;
+
+      toqueInicialX.current = toque.clientX;
+      toqueInicialY.current = toque.clientY;
+    }
+
+    function aoFinalizarToque(evento) {
+      const toque = evento.changedTouches?.[0];
+      if (!toque) return;
+
+      const inicioX = toqueInicialX.current;
+      const inicioY = toqueInicialY.current;
+
+      if (inicioX === null || inicioY === null) return;
+
+      const deltaX = toque.clientX - inicioX;
+      const deltaY = toque.clientY - inicioY;
+      const movimentoHorizontal =
+        Math.abs(deltaX) > 70 && Math.abs(deltaX) > Math.abs(deltaY) * 1.4;
+
+      if (!movimentoHorizontal) return;
+
+      if (!menuAberto && inicioX <= 28 && deltaX > 0) {
+        setMenuAberto(true);
+      }
+
+      if (menuAberto && deltaX < 0) {
+        setMenuAberto(false);
+      }
+
+      toqueInicialX.current = null;
+      toqueInicialY.current = null;
+    }
+
+    window.addEventListener("touchstart", aoIniciarToque, { passive: true });
+    window.addEventListener("touchend", aoFinalizarToque, { passive: true });
+
+    return () => {
+      window.removeEventListener("touchstart", aoIniciarToque);
+      window.removeEventListener("touchend", aoFinalizarToque);
+    };
+  }, [menuAberto]);
+
+  useEffect(() => {
+    function bloquearPullToRefresh(evento) {
+      const alvo = evento.target;
+      const areaRolavel = alvo?.closest?.("[data-scroll-container='true']");
+      const scrollTop = areaRolavel
+        ? areaRolavel.scrollTop
+        : document.documentElement.scrollTop;
+
+      if (scrollTop <= 0 && evento.touches?.length === 1) {
+        const toque = evento.touches[0];
+        const inicioY = toqueInicialY.current;
+
+        if (inicioY !== null && toque.clientY > inicioY) {
+          evento.preventDefault();
+        }
+      }
+    }
+
+    document.body.style.overscrollBehaviorY = "none";
+    document.documentElement.style.overscrollBehaviorY = "none";
+
+    window.addEventListener("touchmove", bloquearPullToRefresh, { passive: false });
+
+    return () => {
+      window.removeEventListener("touchmove", bloquearPullToRefresh);
+      document.body.style.overscrollBehaviorY = "";
+      document.documentElement.style.overscrollBehaviorY = "";
+    };
+  }, []);
+
   function navegarPara(novaPagina) {
     console.log("Mudando para:", novaPagina);
     setPagina(novaPagina);
@@ -43,8 +123,8 @@ export default function App() {
     cronometroEstado.contagemRegressiva !== null;
 
   return (
-    <div className="h-screen bg-[#0B1120] text-white flex overflow-hidden">
-      <div className="hidden lg:block h-screen shrink-0">
+    <div className="h-dvh bg-[#0B1120] text-white flex overflow-hidden overscroll-none">
+      <div className="hidden lg:block h-dvh shrink-0">
         <Sidebar setPagina={navegarPara} paginaAtual={pagina} />
       </div>
 
@@ -55,13 +135,39 @@ export default function App() {
             onClick={() => setMenuAberto(false)}
           />
 
-          <div className="relative w-72 max-w-[85vw] h-full">
+          <div
+            className="relative w-72 max-w-[85vw] h-full"
+            onTouchStart={(evento) => {
+              const toque = evento.touches?.[0];
+              if (!toque) return;
+              toqueInicialX.current = toque.clientX;
+              toqueInicialY.current = toque.clientY;
+            }}
+            onTouchEnd={(evento) => {
+              const toque = evento.changedTouches?.[0];
+
+              if (
+                !toque ||
+                toqueInicialX.current === null ||
+                toqueInicialY.current === null
+              ) {
+                return;
+              }
+
+              const deltaX = toque.clientX - toqueInicialX.current;
+              const deltaY = toque.clientY - toqueInicialY.current;
+
+              if (deltaX < -60 && Math.abs(deltaX) > Math.abs(deltaY)) {
+                setMenuAberto(false);
+              }
+            }}
+          >
             <Sidebar setPagina={navegarPara} paginaAtual={pagina} />
           </div>
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden overscroll-none">
         <Topbar
           menuAberto={menuAberto}
           abrirMenu={() => setMenuAberto(true)}
@@ -73,7 +179,7 @@ export default function App() {
           cronometroContagem={cronometroEstado.contagemRegressiva}
         />
 
-        <main className="flex-1 min-w-0 overflow-y-auto scrollbar-hide p-4 pb-28 sm:p-6 sm:pb-10 lg:p-10">
+        <main data-scroll-container="true" className="flex-1 min-w-0 overflow-y-auto scrollbar-hide overscroll-contain pt-20 p-4 pb-28 sm:p-6 sm:pt-20 sm:pb-10 lg:p-10 lg:pt-24">
           {pagina === "dashboard" && <Dashboard />}
 
           {pagina === "novo-lancamento" && (
@@ -189,6 +295,11 @@ export default function App() {
             </span>
           </button>
         )}
+
+        <MobileBottomNav
+          paginaAtual={pagina}
+          setPagina={navegarPara}
+        />
       </div>
     </div>
   );

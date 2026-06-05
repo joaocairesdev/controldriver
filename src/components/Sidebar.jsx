@@ -74,7 +74,7 @@ export default function Sidebar({ setPagina, paginaAtual }) {
   }
 
   return (
-    <aside className="w-72 h-dvh bg-[#111827] border-r border-gray-800 p-6 flex flex-col overflow-hidden touch-none">
+    <aside className="w-72 h-dvh bg-[#111827] border-r border-gray-800 p-6 flex flex-col overflow-hidden">
       <div className="flex items-center gap-3 shrink-0">
         <div className="w-11 h-11 rounded-full bg-green-500/15 border border-green-500/40 flex items-center justify-center text-green-400 font-black">
           J

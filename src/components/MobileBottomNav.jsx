@@ -8,7 +8,7 @@ export default function MobileBottomNav({ paginaAtual, setPagina }) {
   ];
 
   return (
-    <nav className="lg:hidden fixed left-1/2 -translate-x-1/2 bottom-3 z-40 w-[min(92vw,390px)] rounded-3xl border border-gray-800 bg-[#111827]/95 backdrop-blur px-3 py-2 shadow-2xl">
+    <nav className="lg:hidden fixed left-1/2 -translate-x-1/2 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-50 w-[min(92vw,390px)] rounded-3xl border border-gray-800 bg-[#111827]/95 backdrop-blur px-3 py-2 shadow-2xl">
       <div className="grid grid-cols-3 items-center gap-2">
         {itens.map((item) => {
           const ativo = paginaAtual === item.pagina;

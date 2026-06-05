@@ -32,7 +32,7 @@ export default function Topbar({
     : "Abrir cronômetro de jornada";
 
   return (
-    <header className="sticky top-0 z-40 h-16 shrink-0 bg-[#111827] border-b border-gray-800 px-3 sm:px-5 lg:px-8 flex items-center justify-between gap-3">
+    <header className="fixed top-0 left-0 right-0 lg:left-72 z-40 h-16 shrink-0 bg-[#111827] border-b border-gray-800 px-3 sm:px-5 lg:px-8 flex items-center justify-between gap-3">
       <div className="flex items-center gap-3 min-w-0">
         <button
           type="button"
