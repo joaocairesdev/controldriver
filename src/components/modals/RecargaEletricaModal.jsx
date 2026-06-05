@@ -314,11 +314,13 @@ export default function RecargaEletricaModal({
   }
 
   function formatarMoedaDigitada(valor) {
-    return String(valor)
-      .replace(/[^\d,]/g, "")
-      .replace(/,+/g, ",")
-      .replace(/^,/, "")
-      .replace(/(,\d{2}).+/, "$1");
+    const somenteDigitos = String(valor || "").replace(/\D/g, "");
+    const centavos = Number(somenteDigitos || 0);
+
+    return (centavos / 100).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   }
 
   function formatarDecimalDigitado(valor, casas = 3) {
@@ -329,10 +331,7 @@ export default function RecargaEletricaModal({
       .replace(new RegExp(`(,\\d{${casas}}).+`), "$1");
   }
 
-  function moedaParaNumero(valor) {
-    if (!valor) return 0;
-    return Number(String(valor).replace(",", "."));
-  }
+  function moedaParaNumero(valor) { if (!valor) return 0; return Number(String(valor).replace(/\./g, "").replace(",", ".")); }
 
   function decimalParaNumero(valor) {
     if (!valor) return 0;
@@ -849,7 +848,7 @@ export default function RecargaEletricaModal({
                   value={valorTotal}
                   onChange={atualizarValorTotal}
                   prefix="R$"
-                  placeholder="0,00"
+                  placeholder=""
                 />
               </Campo>
 
@@ -869,7 +868,7 @@ export default function RecargaEletricaModal({
                         setValorParcela(formatarMoedaDigitada(valor));
                       }}
                       prefix="R$"
-                      placeholder="0,00"
+                      placeholder=""
                     />
                   </Campo>
                 </>
@@ -901,7 +900,7 @@ export default function RecargaEletricaModal({
                   value={valorKwh}
                   onChange={(valor) => setValorKwh(formatarMoedaDigitada(valor))}
                   prefix="R$"
-                  placeholder="0,00"
+                  placeholder=""
                 />
               </Campo>
 
@@ -969,7 +968,7 @@ export default function RecargaEletricaModal({
           </section>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mt-6">
+        <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
           <button
             type="button"
             onClick={onClose}

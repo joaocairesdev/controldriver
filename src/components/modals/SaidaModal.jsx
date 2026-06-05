@@ -5,6 +5,7 @@ import { FiEdit2, FiPlus, FiTrash2, FiX } from "react-icons/fi";
 import ModalBase from "./ModalBase";
 import DatePickerModal from "./DatePickerModal";
 import FeedbackModal from "./FeedbackModal";
+import ConfirmacaoModal from "./ConfirmacaoModal";
 import SelecionarFormaPagamentoModal from "./SelecionarFormaPagamentoModal";
 import SelecionarContaModal from "./SelecionarContaModal";
 import SelecionarCartaoModal from "./SelecionarCartaoModal";
@@ -90,6 +91,7 @@ export default function SaidaModal({
   const [categoriaEditandoGerenciador, setCategoriaEditandoGerenciador] = useState(null);
   const [modalParcelasAberto, setModalParcelasAberto] = useState(false);
 
+  const [modalCancelarAberto, setModalCancelarAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [feedback, setFeedback] = useState({
     aberto: false,
@@ -441,13 +443,16 @@ export default function SaidaModal({
       descricao || valorTotal || dataCompra !== hoje || dataVencimento !== hoje;
 
     if (temDados) {
-      const confirmar = window.confirm(
-        "Deseja cancelar este lançamento?\n\nOs dados preenchidos serão perdidos."
-      );
-
-      if (!confirmar) return;
+      setModalCancelarAberto(true);
+      return;
     }
 
+    resetarFormulario();
+    onClose();
+  }
+
+  function confirmarCancelamento() {
+    setModalCancelarAberto(false);
     resetarFormulario();
     onClose();
   }
@@ -1240,7 +1245,7 @@ export default function SaidaModal({
                   value={valorTotal}
                   onChange={atualizarValorTotal}
                   prefix="R$"
-                  placeholder="0,00"
+                  placeholder=""
                 />
               </Campo>
             </div>
@@ -1264,7 +1269,7 @@ export default function SaidaModal({
                         setValorParcela(formatarMoedaDigitada(valor));
                       }}
                       prefix="R$"
-                      placeholder="0,00"
+                      placeholder=""
                     />
                   </Campo>
                 </div>
@@ -1280,7 +1285,7 @@ export default function SaidaModal({
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4 mt-6">
+            <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
               <button
                 type="button"
                 onClick={cancelar}
@@ -1457,6 +1462,17 @@ export default function SaidaModal({
         numeroParcelas={numeroParcelas}
         onSelecionar={setNumeroParcelas}
         onClose={() => setModalParcelasAberto(false)}
+      />
+
+      <ConfirmacaoModal
+        aberto={modalCancelarAberto}
+        tipo="aviso"
+        titulo="Cancelar lançamento?"
+        mensagem="Os dados preenchidos serão perdidos. Deseja continuar?"
+        textoCancelar="Continuar editando"
+        textoConfirmar="Sim, cancelar"
+        onCancelar={() => setModalCancelarAberto(false)}
+        onConfirmar={confirmarCancelamento}
       />
 
       <FeedbackModal

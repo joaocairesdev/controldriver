@@ -9,6 +9,7 @@ import SelecionarFormaPagamentoModal from "./SelecionarFormaPagamentoModal";
 import SelecionarCartaoModal from "./SelecionarCartaoModal";
 import SelecionarParcelasModal from "./SelecionarParcelasModal";
 import FeedbackModal from "./FeedbackModal";
+import ConfirmacaoModal from "./ConfirmacaoModal";
 
 export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagInicialId = "" }) {
   const hoje = new Date().toISOString().split("T")[0];
@@ -85,6 +86,12 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     mensagem: "",
   });
 
+  const [confirmacaoAcao, setConfirmacaoAcao] = useState({
+    aberto: false,
+    titulo: "",
+    mensagem: "",
+    onConfirmar: null,
+  });
   const [salvando, setSalvando] = useState(false);
   const [confirmacaoRecarga, setConfirmacaoRecarga] = useState({
     aberto: false,
@@ -391,11 +398,16 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
   function cancelarUso() {
     if (temDadosPreenchidos()) {
-      const confirmar = window.confirm(
-        "Deseja cancelar este lançamento?\n\nOs dados preenchidos serão perdidos."
-      );
-
-      if (!confirmar) return;
+      setConfirmacaoAcao({
+        aberto: true,
+        titulo: "Cancelar uso da TAG?",
+        mensagem: "Os dados preenchidos serão perdidos. Deseja continuar?",
+        onConfirmar: () => {
+          resetarFormulario();
+          setEtapa("menu");
+        },
+      });
+      return;
     }
 
     resetarFormulario();
@@ -478,10 +490,14 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   function removerGrupo(grupoIndex) {
     if (grupos.length === 1) return;
 
-    const confirmar = window.confirm("Deseja remover esta data e seus usos?");
-    if (!confirmar) return;
-
-    setGrupos((lista) => lista.filter((_, index) => index !== grupoIndex));
+    setConfirmacaoAcao({
+      aberto: true,
+      titulo: "Remover esta data?",
+      mensagem: "Deseja remover esta data e seus usos?",
+      onConfirmar: () => {
+        setGrupos((lista) => lista.filter((_, index) => index !== grupoIndex));
+      },
+    });
   }
 
   function descricaoAutomatica(uso) {
@@ -839,226 +855,23 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
   function cancelarRecarga() {
     const temDados =
-      valorRecarga ||
-      dataRecarga !== hoje ||
-      formaRecarga !== "pix" ||
-      cartaoRecargaId;
+      valorRecarga || cartaoRecargaId || contaOrigemRecargaId || dataRecarga !== hoje;
 
     if (temDados) {
-      const confirmar = window.confirm(
-        "Deseja cancelar esta recarga?\n\nOs dados preenchidos serão perdidos."
-      );
-
-      if (!confirmar) return;
+      setConfirmacaoAcao({
+        aberto: true,
+        titulo: "Cancelar recarga?",
+        mensagem: "Os dados preenchidos serão perdidos. Deseja continuar?",
+        onConfirmar: () => {
+          resetarRecarga();
+          setEtapa("menu");
+        },
+      });
+      return;
     }
 
-    limparRecarga();
+    resetarRecarga();
     setEtapa("menu");
-  }
-
-  function textoFormaRecarga() {
-    return formasRecarga.find((item) => item.valor === formaRecarga)?.titulo || "Selecionar";
-  }
-
-  function definirContaBancariaRecargaPadrao() {
-    const principal = contasOrigemRecarga.find((conta) => conta.principal);
-    const contaPadrao = principal || contasOrigemRecarga[0];
-
-    if (contaPadrao) {
-      setContaOrigemRecargaId(String(contaPadrao.id));
-    }
-  }
-
-  function ultimoDiaMes(ano, mes) {
-    return new Date(ano, mes, 0).getDate();
-  }
-
-  function dataComDiaSeguro(ano, mes, dia) {
-    const diaSeguro = Math.min(Number(dia || 1), ultimoDiaMes(ano, mes));
-    return `${ano}-${String(mes).padStart(2, "0")}-${String(diaSeguro).padStart(2, "0")}`;
-  }
-
-  function adicionarMesCompetencia(ano, mes, quantidade) {
-    let novoMes = mes + quantidade;
-    let novoAno = ano;
-
-    while (novoMes > 12) {
-      novoMes -= 12;
-      novoAno += 1;
-    }
-
-    while (novoMes < 1) {
-      novoMes += 12;
-      novoAno -= 1;
-    }
-
-    return { mes: novoMes, ano: novoAno };
-  }
-
-  function somarMeses(dataBase, mesesParaSomar) {
-    const data = new Date(`${dataBase}T00:00:00`);
-    data.setMonth(data.getMonth() + mesesParaSomar);
-    return data;
-  }
-
-  function calcularCompetenciaFatura(dataBase, cartao) {
-    const data = new Date(`${dataBase}T00:00:00`);
-    const diaCompra = data.getDate();
-    const diaFechamento = Number(cartao?.dia_fechamento || 1);
-    const diaVencimento = Number(cartao?.dia_vencimento || 1);
-
-    let mesFechamento = data.getMonth() + 1;
-    let anoFechamento = data.getFullYear();
-
-    if (diaCompra > diaFechamento) {
-      const proximo = adicionarMesCompetencia(anoFechamento, mesFechamento, 1);
-      mesFechamento = proximo.mes;
-      anoFechamento = proximo.ano;
-    }
-
-    let mesVencimento = mesFechamento;
-    let anoVencimento = anoFechamento;
-
-    if (diaVencimento < diaFechamento) {
-      const proximo = adicionarMesCompetencia(anoVencimento, mesVencimento, 1);
-      mesVencimento = proximo.mes;
-      anoVencimento = proximo.ano;
-    }
-
-    return {
-      mes: mesVencimento,
-      ano: anoVencimento,
-      mesFechamento,
-      anoFechamento,
-    };
-  }
-
-  async function buscarOuCriarFatura({ cartao, dataBase }) {
-    const competencia = calcularCompetenciaFatura(dataBase, cartao);
-
-    const dataFechamento = dataComDiaSeguro(
-      competencia.anoFechamento,
-      competencia.mesFechamento,
-      cartao.dia_fechamento
-    );
-
-    const dataVencimento = dataComDiaSeguro(
-      competencia.ano,
-      competencia.mes,
-      cartao.dia_vencimento
-    );
-
-    const { data: faturaExistente, error: erroBusca } = await supabase
-      .from("faturas_cartao")
-      .select("*")
-      .eq("cartao_id", Number(cartao.id))
-      .eq("mes", competencia.mes)
-      .eq("ano", competencia.ano)
-      .maybeSingle();
-
-    if (erroBusca) throw erroBusca;
-    if (faturaExistente) return faturaExistente;
-
-    const { data: novaFatura, error: erroCriar } = await supabase
-      .from("faturas_cartao")
-      .insert({
-        cartao_id: Number(cartao.id),
-        mes: competencia.mes,
-        ano: competencia.ano,
-        data_fechamento: dataFechamento,
-        data_vencimento: dataVencimento,
-        valor_total: 0,
-        status: "aberta",
-      })
-      .select()
-      .single();
-
-    if (erroCriar) throw erroCriar;
-    return novaFatura;
-  }
-
-  async function atualizarValorFatura(faturaId, valorSomar) {
-    const { data: fatura, error: erroBusca } = await supabase
-      .from("faturas_cartao")
-      .select("valor_total")
-      .eq("id", faturaId)
-      .single();
-
-    if (erroBusca) throw erroBusca;
-
-    const novoTotal = Number(fatura.valor_total || 0) + Number(valorSomar || 0);
-
-    const { error: erroUpdate } = await supabase
-      .from("faturas_cartao")
-      .update({ valor_total: novoTotal })
-      .eq("id", faturaId);
-
-    if (erroUpdate) throw erroUpdate;
-  }
-
-  async function gerarParcelasRecarga(saidaId, total, parcelaValor, parcelas) {
-    if (!isRecargaCredito || !cartaoRecargaSelecionado) return;
-
-    const parcelasPayload = [];
-
-    for (let index = 0; index < parcelas; index++) {
-      const dataParcela = somarMeses(dataRecarga, index);
-      const dataBase = dataParcela.toISOString().split("T")[0];
-
-      const fatura = await buscarOuCriarFatura({
-        cartao: cartaoRecargaSelecionado,
-        dataBase,
-      });
-
-      await atualizarValorFatura(fatura.id, parcelaValor);
-
-      parcelasPayload.push({
-        saida_id: saidaId,
-        cartao_id: Number(cartaoRecargaId),
-        fatura_id: fatura.id,
-        numero_parcela: index + 1,
-        total_parcelas: parcelas,
-        valor_parcela: parcelaValor,
-        data_vencimento: fatura.data_vencimento,
-        status: "pendente",
-      });
-    }
-
-    if (parcelasPayload.length > 0) {
-      const { error: erroParcelas } = await supabase
-        .from("saidas_parcelas")
-        .insert(parcelasPayload);
-
-      if (erroParcelas) throw erroParcelas;
-    }
-  }
-
-  async function verificarLimiteCartaoRecarga(total) {
-    if (!cartaoRecargaSelecionado) return true;
-
-    const { data: faturasAbertas, error } = await supabase
-      .from("faturas_cartao")
-      .select("valor_total")
-      .eq("cartao_id", Number(cartaoRecargaId))
-      .in("status", ["aberta", "fechada"]);
-
-    if (error) throw error;
-
-    const usadoAtual = (faturasAbertas || []).reduce(
-      (totalAtual, fatura) => totalAtual + Number(fatura.valor_total || 0),
-      0
-    );
-
-    const limite = Number(cartaoRecargaSelecionado.limite_total || 0);
-    const disponivel = limite - usadoAtual;
-
-    if (limite > 0 && total > disponivel) {
-      return window.confirm(
-        "⚠ Esta recarga ultrapassará o limite do cartão.\n\nDeseja continuar mesmo assim?"
-      );
-    }
-
-    return true;
   }
 
   function validarRecarga() {
@@ -1409,7 +1222,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
                                     type="text"
                                     inputMode="numeric"
                                     value={uso.valor}
-                                    placeholder="0,00"
+                                    placeholder=""
                                     onChange={(e) =>
                                       atualizarUso(
                                         grupoIndex,
@@ -1573,7 +1386,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
                       type="text"
                       inputMode="numeric"
                       value={valorRecarga}
-                      placeholder="0,00"
+                      placeholder=""
                       onChange={(e) => {
                         setUltimoCampoRecarga("total");
                         setValorRecarga(formatarMoedaDigitada(e.target.value));
@@ -1604,7 +1417,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
                         type="text"
                         inputMode="numeric"
                         value={valorParcelaRecarga}
-                        placeholder="0,00"
+                        placeholder=""
                         onChange={(e) => {
                           setUltimoCampoRecarga("parcela");
                           setValorParcelaRecarga(formatarMoedaDigitada(e.target.value));
@@ -1662,7 +1475,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4 mt-6">
+              <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
                 <button
                   type="button"
                   onClick={cancelarRecarga}
@@ -1876,6 +1689,21 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
           </div>
         </div>
       )}
+
+      <ConfirmacaoModal
+        aberto={confirmacaoAcao.aberto}
+        tipo="aviso"
+        titulo={confirmacaoAcao.titulo}
+        mensagem={confirmacaoAcao.mensagem}
+        textoCancelar="Continuar editando"
+        textoConfirmar="Confirmar"
+        onCancelar={() => setConfirmacaoAcao({ aberto: false, titulo: "", mensagem: "", onConfirmar: null })}
+        onConfirmar={() => {
+          const acao = confirmacaoAcao.onConfirmar;
+          setConfirmacaoAcao({ aberto: false, titulo: "", mensagem: "", onConfirmar: null });
+          acao?.();
+        }}
+      />
 
       <FeedbackModal
         aberto={feedback.aberto}

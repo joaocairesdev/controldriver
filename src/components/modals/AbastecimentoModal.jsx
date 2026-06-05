@@ -348,11 +348,11 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
               </Campo>
 
               <Campo label="Valor do litro">
-                <MoneyInput value={valorLitro} onChange={(v) => setValorLitro(formatarMoedaDigitada(v))} prefix="R$" placeholder="0,00" />
+                <MoneyInput value={valorLitro} onChange={(v) => setValorLitro(formatarMoedaDigitada(v))} prefix="R$" placeholder="" />
               </Campo>
 
               <Campo label="Valor total">
-                <MoneyInput value={valorTotal} onChange={atualizarValorTotal} prefix="R$" placeholder="0,00" />
+                <MoneyInput value={valorTotal} onChange={atualizarValorTotal} prefix="R$" placeholder="" />
               </Campo>
 
               {isCreditoParcelado && (
@@ -369,7 +369,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
                         setValorParcela(formatarMoedaDigitada(v));
                       }}
                       prefix="R$"
-                      placeholder="0,00"
+                      placeholder=""
                     />
                   </Campo>
                 </>
@@ -420,7 +420,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
           </section>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mt-6">
+        <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
           <button type="button" onClick={onClose} className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3">Cancelar</button>
           <button type="button" onClick={salvar} disabled={salvando} className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3">{salvando ? "Salvando..." : "Salvar Abastecimento"}</button>
         </div>

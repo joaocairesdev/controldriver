@@ -29,6 +29,45 @@ export default function App() {
 
   const toqueInicialX = useRef(null);
   const toqueInicialY = useRef(null);
+  const historicoPaginasRef = useRef(["dashboard"]);
+  const paginaAtualRef = useRef("dashboard");
+  const menuAbertoRef = useRef(false);
+
+  useEffect(() => {
+    paginaAtualRef.current = pagina;
+  }, [pagina]);
+
+  useEffect(() => {
+    menuAbertoRef.current = menuAberto;
+  }, [menuAberto]);
+
+  useEffect(() => {
+    window.history.replaceState({ pagina: paginaAtualRef.current }, "");
+    window.history.pushState({ pagina: paginaAtualRef.current }, "");
+
+    function aoVoltarDoSistema() {
+      if (menuAbertoRef.current) {
+        setMenuAberto(false);
+        window.history.pushState({ pagina: paginaAtualRef.current }, "");
+        return;
+      }
+
+      const historico = historicoPaginasRef.current;
+
+      if (historico.length > 1) {
+        historico.pop();
+        const paginaAnterior = historico[historico.length - 1] || "dashboard";
+        setPagina(paginaAnterior);
+        window.history.pushState({ pagina: paginaAnterior }, "");
+        return;
+      }
+
+      window.history.pushState({ pagina: paginaAtualRef.current }, "");
+    }
+
+    window.addEventListener("popstate", aoVoltarDoSistema);
+    return () => window.removeEventListener("popstate", aoVoltarDoSistema);
+  }, []);
 
   useEffect(() => {
     function aoIniciarToque(evento) {
@@ -108,6 +147,15 @@ export default function App() {
 
   function navegarPara(novaPagina) {
     console.log("Mudando para:", novaPagina);
+
+    if (novaPagina !== paginaAtualRef.current) {
+      historicoPaginasRef.current = [
+        ...historicoPaginasRef.current,
+        novaPagina,
+      ];
+      window.history.pushState({ pagina: novaPagina }, "");
+    }
+
     setPagina(novaPagina);
     setMenuAberto(false);
   }

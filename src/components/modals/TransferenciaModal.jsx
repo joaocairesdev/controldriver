@@ -5,6 +5,7 @@ import ModalBase from "./ModalBase";
 import DatePickerModal from "./DatePickerModal";
 import SelecionarContaModal from "./SelecionarContaModal";
 import FeedbackModal from "./FeedbackModal";
+import ConfirmacaoModal from "./ConfirmacaoModal";
 
 export default function TransferenciaModal({ aberto, onClose }) {
   const hoje = new Date().toISOString().split("T")[0];
@@ -28,6 +29,7 @@ export default function TransferenciaModal({ aberto, onClose }) {
     titulo: "",
     mensagem: "",
   });
+  const [modalCancelarAberto, setModalCancelarAberto] = useState(false);
 
   useEffect(() => {
     if (aberto) carregarContas();
@@ -196,13 +198,16 @@ export default function TransferenciaModal({ aberto, onClose }) {
       contaOrigemId || contaDestinoId || valor || descricao || data !== hoje;
 
     if (temDados) {
-      const confirmar = window.confirm(
-        "Deseja cancelar esta transferência?\n\nOs dados preenchidos serão perdidos."
-      );
-
-      if (!confirmar) return;
+      setModalCancelarAberto(true);
+      return;
     }
 
+    limparFormulario();
+    onClose();
+  }
+
+  function confirmarCancelamento() {
+    setModalCancelarAberto(false);
     limparFormulario();
     onClose();
   }
@@ -303,7 +308,7 @@ export default function TransferenciaModal({ aberto, onClose }) {
                 type="text"
                 inputMode="numeric"
                 value={valor}
-                placeholder="0,00"
+                placeholder=""
                 onChange={(e) => setValor(formatarMoedaDigitada(e.target.value))}
                 className="w-full bg-transparent p-3 outline-none"
               />
@@ -348,7 +353,7 @@ export default function TransferenciaModal({ aberto, onClose }) {
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-4 mt-6">
+        <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
           <button
             type="button"
             onClick={cancelar}
@@ -393,6 +398,17 @@ export default function TransferenciaModal({ aberto, onClose }) {
         onSelecionar={setContaDestinoId}
         onClose={() => setModalDestinoAberto(false)}
         formatarMoeda={formatarMoeda}
+      />
+
+      <ConfirmacaoModal
+        aberto={modalCancelarAberto}
+        tipo="aviso"
+        titulo="Cancelar lançamento?"
+        mensagem="Os dados preenchidos serão perdidos. Deseja continuar?"
+        textoCancelar="Continuar editando"
+        textoConfirmar="Sim, cancelar"
+        onCancelar={() => setModalCancelarAberto(false)}
+        onConfirmar={confirmarCancelamento}
       />
 
       <FeedbackModal

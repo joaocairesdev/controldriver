@@ -147,8 +147,16 @@ export default function ManutencaoModal({ aberto, onClose }) {
 
   function formatarDataBR(dataISO) { if (!dataISO) return ""; const [ano, mes, dia] = String(dataISO).split("-"); return `${dia}/${mes}/${ano}`; }
   function formatarMoeda(valor) { return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
-  function formatarMoedaDigitada(valor) { return String(valor).replace(/[^\d,]/g, "").replace(/,+/g, ",").replace(/^,/, "").replace(/(,\d{2}).+/, "$1"); }
-  function moedaParaNumero(valor) { if (!valor) return 0; return Number(String(valor).replace(",", ".")); }
+  function formatarMoedaDigitada(valor) {
+    const somenteDigitos = String(valor || "").replace(/\D/g, "");
+    const centavos = Number(somenteDigitos || 0);
+
+    return (centavos / 100).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+  function moedaParaNumero(valor) { if (!valor) return 0; return Number(String(valor).replace(/\./g, "").replace(",", ".")); }
   function numeroParaMoedaInput(valor) { return Number(valor || 0).toFixed(2).replace(".", ","); }
   function somenteNumeros(valor) { return String(valor).replace(/\D/g, ""); }
 
@@ -225,8 +233,8 @@ export default function ManutencaoModal({ aberto, onClose }) {
               <Campo label="Forma de pagamento"><ButtonField onClick={() => setModalPagamentoAberto(true)}>{textoFormaPagamento()}</ButtonField></Campo>
               {!isBoleto && <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"}><ButtonField onClick={() => { if (isDinheiro) return; isCredito ? setModalCartaoAberto(true) : setModalContaAberto(true); }}>{textoContaCartao()}</ButtonField></Campo>}
               {isBoleto && <Campo label="Vencimento do boleto"><ButtonField onClick={() => setModalVencimentoAberto(true)}>{formatarDataBR(dataVencimento)}</ButtonField></Campo>}
-              <Campo label="Valor total"><MoneyInput value={valorTotal} onChange={atualizarValorTotal} prefix="R$" placeholder="0,00" /></Campo>
-              {isCreditoParcelado && <><Campo label="Quantidade de parcelas"><ButtonField onClick={() => setModalParcelasAberto(true)}>{numeroParcelas}x</ButtonField></Campo><Campo label="Valor da parcela"><MoneyInput value={valorParcela} onChange={(v) => { setUltimoCampoEditado("parcela"); setValorParcela(formatarMoedaDigitada(v)); }} prefix="R$" placeholder="0,00" /></Campo></>}
+              <Campo label="Valor total"><MoneyInput value={valorTotal} onChange={atualizarValorTotal} prefix="R$" placeholder="" /></Campo>
+              {isCreditoParcelado && <><Campo label="Quantidade de parcelas"><ButtonField onClick={() => setModalParcelasAberto(true)}>{numeroParcelas}x</ButtonField></Campo><Campo label="Valor da parcela"><MoneyInput value={valorParcela} onChange={(v) => { setUltimoCampoEditado("parcela"); setValorParcela(formatarMoedaDigitada(v)); }} prefix="R$" placeholder="" /></Campo></>}
             </div>
           </section>
 
@@ -245,7 +253,7 @@ export default function ManutencaoModal({ aberto, onClose }) {
           </section>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mt-6">
+        <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
           <button type="button" onClick={onClose} className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3">Cancelar</button>
           <button type="button" onClick={salvar} disabled={salvando} className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3">{salvando ? "Salvando..." : "Salvar Manutenção"}</button>
         </div>
