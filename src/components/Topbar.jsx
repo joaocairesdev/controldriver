@@ -32,12 +32,12 @@ export default function Topbar({
     : "Abrir cronômetro de jornada";
 
   return (
-    <header className="fixed top-0 left-0 right-0 lg:left-72 z-40 h-16 shrink-0 bg-[#111827] border-b border-gray-800 px-3 sm:px-5 lg:px-8 flex items-center justify-between gap-3">
+    <header className="fixed top-0 left-0 right-0 md:landscape:left-72 lg:left-72 z-40 h-16 shrink-0 bg-[#111827] border-b border-gray-800 px-3 sm:px-5 lg:px-8 flex items-center justify-between gap-3">
       <div className="flex items-center gap-3 min-w-0">
         <button
           type="button"
           onClick={abrirMenu}
-          className="lg:hidden w-10 h-10 rounded-xl hover:bg-white/5 flex items-center justify-center text-gray-300 hover:text-white shrink-0"
+          className="lg:hidden md:landscape:hidden w-10 h-10 rounded-xl hover:bg-white/5 flex items-center justify-center text-gray-300 hover:text-white shrink-0"
           title="Abrir menu"
           aria-label="Abrir menu"
         >

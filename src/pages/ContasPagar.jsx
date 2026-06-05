@@ -69,21 +69,63 @@ export default function ContasPagar() {
           return total + totalPlataformas;
         }, 0);
 
-        const { data: saidas } = await supabase
-          .from("saidas")
-          .select("valor_total")
+        const { data: entradasAvulsas } = await supabase
+          .from("entradas_avulsas")
+          .select("valor")
           .eq("conta_id", conta.id);
 
-        const totalSaidas = (saidas || []).reduce(
-          (total, saida) => total + Number(saida.valor_total || 0),
+        const totalEntradasAvulsas = (entradasAvulsas || []).reduce(
+          (total, entrada) => total + Number(entrada.valor || 0),
           0
         );
 
+        const { data: transferenciasRecebidas } = await supabase
+          .from("transferencias")
+          .select("valor")
+          .eq("conta_destino_id", conta.id);
+
+        const totalTransferenciasRecebidas = (
+          transferenciasRecebidas || []
+        ).reduce(
+          (total, transferencia) => total + Number(transferencia.valor || 0),
+          0
+        );
+
+        const { data: transferenciasEnviadas } = await supabase
+          .from("transferencias")
+          .select("valor")
+          .eq("conta_origem_id", conta.id);
+
+        const totalTransferenciasEnviadas = (
+          transferenciasEnviadas || []
+        ).reduce(
+          (total, transferencia) => total + Number(transferencia.valor || 0),
+          0
+        );
+
+        const { data: saidas } = await supabase
+          .from("saidas")
+          .select("valor_total, tipo_movimentacao")
+          .eq("conta_id", conta.id);
+
+        const totalSaidas = (saidas || [])
+          .filter((saida) => saida.tipo_movimentacao !== "conta_pagar")
+          .reduce(
+            (total, saida) => total + Number(saida.valor_total || 0),
+            0
+          );
+
         const saldoAtual =
-          Number(conta.saldo_inicial || 0) + totalEntradas - totalSaidas;
+          Number(conta.saldo_inicial || 0) +
+          totalEntradas +
+          totalEntradasAvulsas +
+          totalTransferenciasRecebidas -
+          totalSaidas -
+          totalTransferenciasEnviadas;
 
         return {
           ...conta,
+          tipo_conta: conta.tipo_conta || "banco",
           saldo_atual: saldoAtual,
         };
       })
@@ -106,9 +148,12 @@ export default function ContasPagar() {
     setCarregando(false);
   }
 
-  const contasNegativas = contas.filter(
-    (conta) => Number(conta.saldo_atual || 0) < 0
-  );
+  const contasNegativas = contas.filter((conta) => {
+    const isTagPrePaga =
+      conta.tipo_conta === "tag" && (conta.tipo_tag || "pre_paga") === "pre_paga";
+
+    return !isTagPrePaga && Number(conta.saldo_atual || 0) < 0;
+  });
 
   const totalChequeEspecial = contasNegativas.reduce(
     (total, conta) => total + Math.abs(Number(conta.saldo_atual || 0)),

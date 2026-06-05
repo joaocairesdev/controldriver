@@ -3,15 +3,31 @@ import { FiFileText, FiHome, FiPlusCircle } from "react-icons/fi";
 export default function MobileBottomNav({ paginaAtual, setPagina }) {
   const itens = [
     { nome: "Início", pagina: "dashboard", icone: <FiHome /> },
-    { nome: "Novo", pagina: "novo-lancamento", icone: <FiPlusCircle />, destaque: true },
+    {
+      nome: "Novo",
+      pagina: "novo-lancamento",
+      icone: <FiPlusCircle />,
+      ativoExtra: [
+        "nova-entrada",
+        "venda-produtos",
+        "transferencia",
+        "nova-saida",
+        "novo-abastecimento",
+        "nova-manutencao",
+        "nova-alimentacao",
+        "novo-uso-tag",
+        "novo-impostos",
+        "nova-outra-saida",
+      ],
+    },
     { nome: "Extrato", pagina: "extrato", icone: <FiFileText /> },
   ];
 
   return (
-    <nav className="lg:hidden fixed left-0 right-0 bottom-0 z-50 border-t border-gray-800 bg-[#111827] pb-[calc(env(safe-area-inset-bottom)+0.35rem)] pt-2 shadow-2xl">
+    <nav className="lg:hidden md:landscape:hidden fixed left-0 right-0 bottom-0 z-50 border-t border-gray-800 bg-[#111827] pb-[calc(env(safe-area-inset-bottom)+0.35rem)] pt-2 shadow-2xl">
       <div className="grid grid-cols-3 items-center">
         {itens.map((item, index) => {
-          const ativo = paginaAtual === item.pagina;
+          const ativo = paginaAtual === item.pagina || item.ativoExtra?.includes(paginaAtual);
 
           return (
             <button
@@ -21,16 +37,12 @@ export default function MobileBottomNav({ paginaAtual, setPagina }) {
               className={`min-h-[60px] flex flex-col items-center justify-center gap-1 px-2 transition ${
                 index > 0 ? "border-l border-gray-800" : ""
               } ${
-                item.destaque
-                  ? "text-green-400"
-                  : ativo
-                  ? "text-green-400"
-                  : "text-gray-400"
+                ativo ? "text-green-400" : "text-gray-400"
               }`}
             >
               <span
                 className={`text-xl shrink-0 ${
-                  item.destaque ? "text-green-400" : ""
+                  ativo ? "text-green-400" : ""
                 }`}
               >
                 {item.icone}
@@ -38,7 +50,7 @@ export default function MobileBottomNav({ paginaAtual, setPagina }) {
 
               <span
                 className={`text-xs font-black ${
-                  item.destaque ? "text-green-400" : ""
+                  ativo ? "text-green-400" : ""
                 }`}
               >
                 {item.nome}

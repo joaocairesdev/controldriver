@@ -172,12 +172,12 @@ export default function App() {
 
   return (
     <div className="h-dvh bg-[#0B1120] text-white flex overflow-hidden overscroll-none">
-      <div className="hidden lg:block h-dvh shrink-0">
+      <div className="hidden lg:block md:landscape:block h-dvh shrink-0">
         <Sidebar setPagina={navegarPara} paginaAtual={pagina} />
       </div>
 
       {menuAberto && (
-        <div className="fixed inset-0 z-50 lg:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden md:landscape:hidden">
           <div
             className="absolute inset-0 bg-black/70"
             onClick={() => setMenuAberto(false)}
@@ -227,7 +227,7 @@ export default function App() {
           cronometroContagem={cronometroEstado.contagemRegressiva}
         />
 
-        <main data-scroll-container="true" className="flex-1 min-w-0 overflow-y-auto scrollbar-hide overscroll-contain pt-20 p-4 pb-28 sm:p-6 sm:pt-20 sm:pb-10 lg:p-10 lg:pt-24">
+        <main data-scroll-container="true" className="flex-1 min-w-0 overflow-y-auto scrollbar-hide overscroll-contain pt-20 p-4 pb-28 sm:p-6 sm:pt-20 sm:pb-10 md:landscape:p-10 md:landscape:pt-24 lg:p-10 lg:pt-24">
           {pagina === "dashboard" && <Dashboard />}
 
           {pagina === "novo-lancamento" && (
