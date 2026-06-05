@@ -265,41 +265,12 @@ export default function App() {
           }}
         />
 
-        {cronometroVisivel && (
-          <button
-            type="button"
-            onClick={abrirCronometroJornada}
-            className="lg:hidden fixed left-4 right-4 bottom-24 z-40 rounded-2xl border border-green-500/40 bg-[#111827]/95 backdrop-blur px-4 py-3 shadow-2xl shadow-black/40 flex items-center justify-between gap-3"
-            title="Abrir cronômetro"
-            aria-label="Abrir cronômetro"
-          >
-            <div className="min-w-0 text-left">
-              <p className="text-[11px] text-gray-400 font-bold uppercase tracking-wide">
-                Jornada
-              </p>
-              <p className="text-sm font-black text-white truncate">
-                {cronometroEstado.status === "pausada"
-                  ? "Pausada"
-                  : cronometroEstado.status === "aguardando_km"
-                  ? "Aguardando KM"
-                  : cronometroEstado.contagemRegressiva !== null
-                  ? "Iniciando"
-                  : "Em andamento"}
-              </p>
-            </div>
-
-            <span className="rounded-xl bg-green-500/10 border border-green-500/40 px-3 py-2 text-green-400 font-black tabular-nums text-sm">
-              {cronometroEstado.contagemRegressiva !== null
-                ? `00:00:0${cronometroEstado.contagemRegressiva}`
-                : cronometroEstado.tempoFormatado}
-            </span>
-          </button>
+        {!menuAberto && (
+          <MobileBottomNav
+            paginaAtual={pagina}
+            setPagina={navegarPara}
+          />
         )}
-
-        <MobileBottomNav
-          paginaAtual={pagina}
-          setPagina={navegarPara}
-        />
       </div>
     </div>
   );
