@@ -155,17 +155,19 @@ export default function TransferenciaModal({ aberto, onClose }) {
     });
   }
 
-  function formatarMoedaDigitada(valorTexto) {
-    return String(valorTexto)
-      .replace(/[^\d,]/g, "")
-      .replace(/,+/g, ",")
-      .replace(/^,/, "")
-      .replace(/(,\d{2}).+/, "$1");
+  function formatarMoedaDigitada(valor) {
+    const somenteDigitos = String(valor || "").replace(/\D/g, "");
+    const centavos = Number(somenteDigitos || 0);
+
+    return (centavos / 100).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   }
 
-  function moedaParaNumero(valorTexto) {
-    if (!valorTexto) return 0;
-    return Number(String(valorTexto).replace(",", "."));
+  function moedaParaNumero(valor) {
+    if (!valor) return 0;
+    return Number(String(valor).replace(/\./g, "").replace(",", "."));
   }
 
   function abrirFeedback(tipo, titulo, mensagem) {
@@ -299,7 +301,7 @@ export default function TransferenciaModal({ aberto, onClose }) {
 
               <input
                 type="text"
-                inputMode="decimal"
+                inputMode="numeric"
                 value={valor}
                 placeholder="0,00"
                 onChange={(e) => setValor(formatarMoedaDigitada(e.target.value))}

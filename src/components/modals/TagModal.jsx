@@ -343,16 +343,18 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   }
 
   function formatarMoedaDigitada(valor) {
-    return String(valor)
-      .replace(/[^\d,]/g, "")
-      .replace(/,+/g, ",")
-      .replace(/^,/, "")
-      .replace(/(,\d{2}).+/, "$1");
+    const somenteDigitos = String(valor || "").replace(/\D/g, "");
+    const centavos = Number(somenteDigitos || 0);
+
+    return (centavos / 100).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   }
 
   function moedaParaNumero(valor) {
     if (!valor) return 0;
-    return Number(String(valor).replace(",", "."));
+    return Number(String(valor).replace(/\./g, "").replace(",", "."));
   }
 
   function numeroParaMoedaInput(valor) {
@@ -1405,7 +1407,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
                                   <input
                                     type="text"
-                                    inputMode="decimal"
+                                    inputMode="numeric"
                                     value={uso.valor}
                                     placeholder="0,00"
                                     onChange={(e) =>
@@ -1569,7 +1571,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
                     <input
                       type="text"
-                      inputMode="decimal"
+                      inputMode="numeric"
                       value={valorRecarga}
                       placeholder="0,00"
                       onChange={(e) => {
@@ -1600,7 +1602,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
                       <input
                         type="text"
-                        inputMode="decimal"
+                        inputMode="numeric"
                         value={valorParcelaRecarga}
                         placeholder="0,00"
                         onChange={(e) => {

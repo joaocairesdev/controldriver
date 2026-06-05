@@ -368,16 +368,18 @@ export default function SaidaModal({
   }
 
   function formatarMoedaDigitada(valor) {
-    return String(valor)
-      .replace(/[^\d,]/g, "")
-      .replace(/,+/g, ",")
-      .replace(/^,/, "")
-      .replace(/(,\d{2}).+/, "$1");
+    const somenteDigitos = String(valor || "").replace(/\D/g, "");
+    const centavos = Number(somenteDigitos || 0);
+
+    return (centavos / 100).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
   }
 
   function moedaParaNumero(valor) {
     if (!valor) return 0;
-    return Number(String(valor).replace(",", "."));
+    return Number(String(valor).replace(/\./g, "").replace(",", "."));
   }
 
   function numeroParaMoedaInput(valor) {
@@ -1821,7 +1823,7 @@ function MoneyInput({ value, onChange, prefix, suffix, placeholder }) {
 
       <input
         type="text"
-        inputMode="decimal"
+        inputMode="numeric"
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
