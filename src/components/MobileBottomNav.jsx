@@ -24,7 +24,7 @@ export default function MobileBottomNav({ paginaAtual, setPagina }) {
   ];
 
   return (
-    <nav className="lg:hidden md:landscape:hidden fixed left-0 right-0 bottom-0 z-50 border-t border-gray-800 bg-[#111827] pb-[calc(env(safe-area-inset-bottom)+0.35rem)] pt-2 shadow-2xl">
+    <nav className="lg:hidden md:landscape:hidden fixed left-0 right-0 bottom-0 z-30 border-t border-gray-800 bg-[#111827] pb-[calc(env(safe-area-inset-bottom)+0.35rem)] pt-2 shadow-2xl">
       <div className="grid grid-cols-3 items-center">
         {itens.map((item, index) => {
           const ativo = paginaAtual === item.pagina || item.ativoExtra?.includes(paginaAtual);

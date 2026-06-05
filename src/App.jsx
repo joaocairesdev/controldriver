@@ -22,6 +22,7 @@ export default function App() {
     return localStorage.getItem("paginaAtual") || "dashboard";
   });
   const [menuAberto, setMenuAberto] = useState(false);
+  const [modalAbertoNaTela, setModalAbertoNaTela] = useState(false);
   const [jornadaParaGanhos, setJornadaParaGanhos] = useState(null);
   const [cronometroEstado, setCronometroEstado] = useState({
     status: "sem_jornada",
@@ -43,6 +44,40 @@ export default function App() {
   useEffect(() => {
     menuAbertoRef.current = menuAberto;
   }, [menuAberto]);
+
+  useEffect(() => {
+    function verificarModalAberto() {
+      const elementos = Array.from(document.querySelectorAll("body *"));
+
+      const existeModalAberto = elementos.some((elemento) => {
+        const classe = String(elemento.className || "");
+
+        const pareceOverlay =
+          classe.includes("fixed") &&
+          classe.includes("inset-0") &&
+          classe.includes("bg-black");
+
+        const ehMenuLateral =
+          classe.includes("lg:hidden") || classe.includes("md:landscape:hidden");
+
+        return pareceOverlay && !ehMenuLateral;
+      });
+
+      setModalAbertoNaTela(existeModalAberto);
+    }
+
+    verificarModalAberto();
+
+    const observador = new MutationObserver(verificarModalAberto);
+    observador.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => observador.disconnect();
+  }, []);
 
   useEffect(() => {
     window.history.replaceState({ pagina: paginaAtualRef.current }, "");
@@ -289,7 +324,7 @@ export default function App() {
           }}
         />
 
-        {!menuAberto && (
+        {!menuAberto && !modalAbertoNaTela && (
           <MobileBottomNav
             paginaAtual={pagina}
             setPagina={navegarPara}
