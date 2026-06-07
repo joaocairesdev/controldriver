@@ -1,4 +1,5 @@
 import ModalBase from "./ModalBase";
+import { FiAlertTriangle, FiCheckCircle, FiHelpCircle, FiXCircle } from "react-icons/fi";
 
 export default function ConfirmacaoModal({
   aberto,
@@ -16,33 +17,38 @@ export default function ConfirmacaoModal({
   const isPerigo = tipo === "perigo" || tipo === "erro";
   const isSucesso = tipo === "sucesso";
 
+  const Icone = isPerigo
+    ? FiXCircle
+    : isSucesso
+    ? FiCheckCircle
+    : tipo === "aviso"
+    ? FiAlertTriangle
+    : FiHelpCircle;
+
   const estilos = isPerigo
     ? {
-        icone: "!",
         iconeClasse: "text-red-400 bg-red-500/10",
         tituloClasse: "text-red-400",
         botaoClasse: "bg-red-500 hover:bg-red-600 text-white",
       }
     : isSucesso
     ? {
-        icone: "✓",
         iconeClasse: "text-green-400 bg-green-500/10",
         tituloClasse: "text-green-400",
         botaoClasse: "bg-green-500 hover:bg-green-600 text-black",
       }
     : {
-        icone: "?",
         iconeClasse: "text-yellow-400 bg-yellow-500/10",
         tituloClasse: "text-yellow-400",
         botaoClasse: "bg-yellow-500 hover:bg-yellow-600 text-black",
       };
 
   return (
-    <ModalBase aberto={aberto} titulo="" onClose={onCancelar} z="z-[80]" largura="max-w-md">
+    <ModalBase aberto={aberto} titulo="" onClose={onCancelar} z="z-[999]" largura="max-w-md" mostrarFechar={false}>
       <div
         className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black ${estilos.iconeClasse}`}
       >
-        {estilos.icone}
+        <Icone className="w-7 h-7" />
       </div>
 
       <h2 className={`text-2xl font-bold mt-5 ${estilos.tituloClasse}`}>

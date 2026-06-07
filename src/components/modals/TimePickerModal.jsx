@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Picker from "react-mobile-picker";
 
 export default function TimePickerModal({ aberto, valor, onChange, onClose }) {
@@ -9,6 +9,15 @@ export default function TimePickerModal({ aberto, valor, onChange, onClose }) {
     hora: horaInicial,
     minuto: minutoInicial,
   });
+
+  useEffect(() => {
+    if (!aberto) return;
+
+    setTempo({
+      hora: valor?.split(":")?.[0] || "12",
+      minuto: valor?.split(":")?.[1] || "30",
+    });
+  }, [aberto, valor]);
 
   if (!aberto) return null;
 
@@ -51,7 +60,7 @@ export default function TimePickerModal({ aberto, valor, onChange, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[999] p-4">
       <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-2xl p-6">
         <div className="flex items-start justify-between gap-4">
           <div>

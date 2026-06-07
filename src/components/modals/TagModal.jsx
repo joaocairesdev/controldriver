@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { FiCreditCard, FiPlus, FiTag, FiTrash2, FiTruck, FiX } from "react-icons/fi";
 import { supabase } from "../../services/supabase";
 
 import ModalBase from "./ModalBase";
@@ -15,11 +16,11 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   const hoje = new Date().toISOString().split("T")[0];
 
   const categorias = [
-    "Pedágio Trabalho",
-    "Pedágio Pessoal",
-    "Estacionamento Trabalho",
-    "Estacionamento Pessoal",
-    "Mensalidade",
+    "Pedágio de uso a trabalho",
+    "Pedágio de uso pessoal",
+    "Estacionamento de uso a trabalho",
+    "Estacionamento de uso pessoal",
+    "Mensalidade da TAG",
   ];
 
   const formasRecarga = [
@@ -31,7 +32,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   ];
 
   const usoPadrao = {
-    categoria: "Pedágio Trabalho",
+    categoria: "Pedágio de uso a trabalho",
     valor: "",
     descricao: "",
   };
@@ -84,7 +85,9 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     tipo: "sucesso",
     titulo: "",
     mensagem: "",
+    fecharDepois: false,
   });
+  const [carregando, setCarregando] = useState(false);
 
   const [confirmacaoAcao, setConfirmacaoAcao] = useState({
     aberto: false,
@@ -268,6 +271,8 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
 
   async function carregarDados() {
+    setCarregando(true);
+
     const { data: contasData } = await supabase
       .from("contas")
       .select("*")
@@ -312,6 +317,8 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
       const contaPadrao = principal || contasOrigem[0];
       if (contaPadrao) setContaOrigemRecargaId(String(contaPadrao.id));
     }
+
+    setCarregando(false);
   }
 
   async function carregarUsoDosCartoes(listaCartoes) {
@@ -350,8 +357,13 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   }
 
   function formatarMoedaDigitada(valor) {
-    const somenteDigitos = String(valor || "").replace(/\D/g, "");
-    const centavos = Number(somenteDigitos || 0);
+    const somenteDigitos = String(valor ?? "").replace(/\D/g, "");
+    if (!somenteDigitos) return "";
+
+    const digitosSemZerosNaFrente = somenteDigitos.replace(/^0+/, "");
+    if (!digitosSemZerosNaFrente) return "";
+
+    const centavos = Number(digitosSemZerosNaFrente);
 
     return (centavos / 100).toLocaleString("pt-BR", {
       minimumFractionDigits: 2,
@@ -368,17 +380,27 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     return Number(valor || 0).toFixed(2).replace(".", ",");
   }
 
-  function abrirFeedback(tipo, titulo, mensagem) {
-    setFeedback({ aberto: true, tipo, titulo, mensagem });
+  function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) {
+    setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois });
   }
 
   function fecharFeedback() {
+    const deveFechar = feedback.fecharDepois;
+
     setFeedback({
       aberto: false,
       tipo: "sucesso",
       titulo: "",
       mensagem: "",
+      fecharDepois: false,
     });
+
+    if (deveFechar) {
+      setEtapa("menu");
+      resetarFormulario();
+      limparRecarga();
+      onClose?.();
+    }
   }
 
   function resetarFormulario() {
@@ -391,25 +413,12 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
         (uso) =>
           uso.valor ||
           uso.descricao ||
-          uso.categoria !== "Pedágio Trabalho"
+          uso.categoria !== "Pedágio de uso a trabalho"
       )
     );
   }
 
   function cancelarUso() {
-    if (temDadosPreenchidos()) {
-      setConfirmacaoAcao({
-        aberto: true,
-        titulo: "Cancelar uso da TAG?",
-        mensagem: "Os dados preenchidos serão perdidos. Deseja continuar?",
-        onConfirmar: () => {
-          resetarFormulario();
-          setEtapa("menu");
-        },
-      });
-      return;
-    }
-
     resetarFormulario();
     setEtapa("menu");
   }
@@ -503,16 +512,16 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   function descricaoAutomatica(uso) {
     const nomeTag = contaTagSelecionada?.nome || "TAG";
 
-    if (uso.categoria === "Pedágio Trabalho") {
-      return `Pedágio à trabalho - ${nomeTag}`;
+    if (uso.categoria === "Pedágio de uso a trabalho") {
+      return `Pedágio de uso a trabalho - ${nomeTag}`;
     }
 
-    if (uso.categoria === "Pedágio Pessoal") {
-      return `Pedágio pessoal - ${nomeTag}`;
+    if (uso.categoria === "Pedágio de uso pessoal") {
+      return `Pedágio de uso pessoal - ${nomeTag}`;
     }
 
-    if (uso.categoria === "Mensalidade") {
-      return `Mensalidade TAG - ${nomeTag}`;
+    if (uso.categoria === "Mensalidade da TAG") {
+      return `Mensalidade da TAG - ${nomeTag}`;
     }
 
     return uso.descricao || uso.categoria;
@@ -522,7 +531,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     if (uso.categoria.includes("Pedágio")) {
       return {
         tipo_uso: "pedagio",
-        uso: uso.categoria.includes("Trabalho") ? "trabalho" : "pessoal",
+        uso: uso.categoria.includes("trabalho") ? "trabalho" : "pessoal",
         descricao_local: null,
       };
     }
@@ -530,7 +539,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     if (uso.categoria.includes("Estacionamento")) {
       return {
         tipo_uso: "estacionamento",
-        uso: uso.categoria.includes("Trabalho") ? "trabalho" : "pessoal",
+        uso: uso.categoria.includes("trabalho") ? "trabalho" : "pessoal",
         descricao_local: uso.descricao || null,
       };
     }
@@ -722,7 +731,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
     if (limite > 0 && total > disponivel) {
       return window.confirm(
-        "⚠ Esta recarga ultrapassará o limite do cartão.\n\nDeseja continuar mesmo assim?"
+        "Esta recarga ultrapassará o limite do cartão.\n\nDeseja continuar mesmo assim?"
       );
     }
 
@@ -1017,11 +1026,9 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
         registrarRecarga ? "Uso e recarga salvos" : "Uso da TAG salvo",
         registrarRecarga
           ? "O uso da TAG e a recarga necessária foram registrados com sucesso."
-          : "Os lançamentos foram registrados com sucesso."
+          : "Os lançamentos foram registrados com sucesso.",
+        true
       );
-
-      resetarFormulario();
-      onClose?.();
     } catch (error) {
       console.error(error);
       abrirFeedback(
@@ -1053,24 +1060,12 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   }
 
   function cancelarRecarga() {
-    const temDados =
-      valorRecarga || cartaoRecargaId || contaOrigemRecargaId || dataRecarga !== hoje;
-
-    if (temDados) {
-      setConfirmacaoAcao({
-        aberto: true,
-        titulo: "Cancelar recarga?",
-        mensagem: "Os dados preenchidos serão perdidos. Deseja continuar?",
-        onConfirmar: () => {
-          resetarRecarga();
-          setEtapa("menu");
-        },
-      });
-      return;
-    }
-
     resetarRecarga();
     setEtapa("menu");
+  }
+
+  function textoFormaRecarga() {
+    return formasRecarga.find((item) => item.valor === formaRecarga)?.titulo || "Selecionar forma";
   }
 
   function validarRecarga() {
@@ -1125,13 +1120,6 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
     const tagNome = tagRecargaSelecionada?.nome || "TAG";
     const descricao = `Recarga TAG - ${tagNome}`;
-
-    const resumo = isRecargaCredito
-      ? `Registrar recarga de ${formatarMoeda(valorNumero)} na ${tagNome} usando o cartão ${cartaoRecargaSelecionado?.nome || ""}?`
-      : `Transferir ${formatarMoeda(valorNumero)} de ${contaOrigemRecarga?.nome || ""} para ${tagNome}?`;
-
-    const confirmar = window.confirm(resumo);
-    if (!confirmar) return;
 
     setSalvando(true);
 
@@ -1191,10 +1179,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
         });
       }
 
-      abrirFeedback("sucesso", "Recarga salva", "A recarga da TAG foi registrada com sucesso.");
-
-      limparRecarga();
-      onClose?.();
+      abrirFeedback("sucesso", "Recarga salva", "A recarga da TAG foi registrada com sucesso.", true);
     } catch (error) {
       console.error(error);
       abrirFeedback("erro", "Erro ao salvar", error.message || "Erro ao salvar recarga da TAG.");
@@ -1231,7 +1216,14 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
           onClose={onClose}
           largura="max-w-2xl"
         >
-          {contasTag.length === 0 && (
+          {carregando && (
+            <div className="bg-[#0B1120] border border-gray-800 rounded-2xl p-5">
+              <h3 className="text-gray-300 font-bold">Carregando TAGs...</h3>
+              <p className="text-gray-500 mt-2">Aguarde enquanto buscamos as TAGs cadastradas nos veículos.</p>
+            </div>
+          )}
+
+          {!carregando && contasTag.length === 0 && (
             <div className="bg-[#0B1120] border border-yellow-500/40 rounded-2xl p-5">
               <h3 className="text-yellow-400 font-bold">
                 Nenhuma TAG cadastrada
@@ -1243,14 +1235,14 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
             </div>
           )}
 
-          {contasTag.length > 0 && (
+          {!carregando && contasTag.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <button
                 type="button"
                 onClick={() => setEtapa("uso")}
                 className="rounded-2xl border border-blue-500 bg-blue-500/10 hover:bg-blue-500/20 p-6 text-left transition"
               >
-                <div className="text-3xl">🚗</div>
+                <FiTag className="w-8 h-8 text-blue-400" />
 
                 <h3 className="text-xl font-bold text-white mt-4">
                   Registrar Uso
@@ -1267,7 +1259,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
                   onClick={() => setEtapa("recarga")}
                   className="rounded-2xl border border-green-500 bg-green-500/10 hover:bg-green-500/20 p-6 text-left transition"
                 >
-                  <div className="text-3xl">💳</div>
+                  <FiCreditCard className="w-8 h-8 text-green-400" />
 
                   <h3 className="text-xl font-bold text-white mt-4">
                     Registrar Recarga
@@ -1284,8 +1276,8 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
       )}
 
       {etapa === "uso" && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="w-full max-w-3xl max-h-[90vh] bg-[#111827] border border-gray-800 rounded-2xl flex flex-col overflow-hidden">
+        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-[100] overscroll-none">
+          <div className="w-full max-w-3xl max-h-[calc(100dvh-4rem)] sm:max-h-[90vh] bg-[#111827] border border-gray-800 rounded-t-3xl sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl">
             <div className="shrink-0 p-5 border-b border-gray-800">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -1300,9 +1292,10 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
                 <button
                   type="button"
                   onClick={cancelarUso}
-                  className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shrink-0"
+                  className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shrink-0 flex items-center justify-center"
+                  aria-label="Fechar"
                 >
-                  ×
+                  <FiX className="w-5 h-5" />
                 </button>
               </div>
 
@@ -1350,7 +1343,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
                             className="h-[46px] w-[46px] rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10"
                             title="Excluir esta data"
                           >
-                            🗑️
+                            <FiTrash2 className="w-5 h-5 mx-auto" />
                           </button>
                         )}
 
@@ -1394,7 +1387,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
                                 className="h-10 w-10 rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10 disabled:opacity-30"
                                 title="Excluir este uso"
                               >
-                                🗑️
+                                <FiTrash2 className="w-5 h-5 mx-auto" />
                               </button>
                             </div>
 
@@ -1689,7 +1682,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
                   disabled={salvando}
                   className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
                 >
-                  {salvando ? "Salvando..." : "Salvar Recarga"}
+                  {salvando ? "Salvando..." : "Salvar"}
                 </button>
               </div>
             </>
@@ -1726,7 +1719,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
             ? grupos[modalCategoria.grupoIndex]?.usos?.[
                 modalCategoria.usoIndex
               ]?.categoria
-            : "Pedágio Trabalho"
+            : "Pedágio de uso a trabalho"
         }
         onSelecionar={(categoria) =>
           atualizarUso(
@@ -1840,7 +1833,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
       />
 
       {confirmacaoRecarga.aberto && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[90] p-4">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[1000] p-4">
           <div className="w-full max-w-md bg-[#111827] border border-red-500/40 rounded-2xl p-6">
             <h2 className="text-2xl font-bold text-red-400">Recarga necessária</h2>
 

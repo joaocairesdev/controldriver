@@ -6,10 +6,14 @@ import DatePickerModal from "./DatePickerModal";
 import TimePickerModal from "./TimePickerModal";
 import PlataformaEntradaModal from "./PlataformaEntradaModal";
 import GerenciarPlataformasModal from "./GerenciarPlataformasModal";
+import FeedbackModal from "./FeedbackModal";
+import { FiSettings, FiTrash2 } from "react-icons/fi";
 import { obterConfigPlataforma } from "../../utils/plataformasIcons";
+import { formatarMoeda, moedaParaNumero } from "../../utils/moeda";
+import { hojeBrasil, formatarDataBR } from "../../utils/data";
 
 export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial = null }) {
-  const hoje = new Date().toLocaleDateString("sv-SE");
+  const hoje = hojeBrasil();
 
   const [data, setData] = useState(hoje);
   const [km, setKm] = useState("");
@@ -24,7 +28,6 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
   const [modalTempoAberto, setModalTempoAberto] = useState(false);
   const [modalGerenciarAberto, setModalGerenciarAberto] = useState(false);
   const [modalDadosPlataformaAberto, setModalDadosPlataformaAberto] = useState(false);
-  const [modalCancelarAberto, setModalCancelarAberto] = useState(false);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "", fecharDepois: false });
 
   const [plataformaEditando, setPlataformaEditando] = useState(null);
@@ -138,24 +141,6 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
     return `${String(horas).padStart(2, "0")}:${String(minutos).padStart(2, "0")}`;
   }
 
-  function formatarDataBR(dataISOTexto) {
-    if (!dataISOTexto) return "";
-    const [ano, mes, dia] = String(dataISOTexto).split("-");
-    return `${dia}/${mes}/${ano}`;
-  }
-
-  function moedaParaNumero(valor) {
-    if (!valor) return 0;
-    return Number(String(valor).replace(",", "."));
-  }
-
-  function formatarMoedaExibicao(valor) {
-    return Number(valor || 0).toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    });
-  }
-
   function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) {
     setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois });
   }
@@ -166,7 +151,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
 
     if (fecharDepois) {
       limparFormulario();
-      onClose();
+      onClose?.();
     }
   }
 
@@ -193,24 +178,20 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
     setTempoPicker({ hora: "08", minuto: "00" });
     setSelecionadas([]);
     setJornadaUsada(null);
-    setModalCancelarAberto(false);
   }
 
   function cancelarFormulario() {
-    const temDados = km || selecionadas.length > 0 || data !== hoje || tempoPicker.hora !== "08" || tempoPicker.minuto !== "00";
-
-    if (temDados) {
-      setModalCancelarAberto(true);
-      return;
-    }
-
     limparFormulario();
-    onClose();
+    onClose?.();
   }
 
   async function salvarEntrada() {
-    if (!data || !km || selecionadas.length === 0) {
-      abrirFeedback("erro", "Campos obrigatórios", "Preencha data, KM e selecione pelo menos uma plataforma.");
+    if (!data || km === "" || selecionadas.length === 0) {
+      abrirFeedback(
+        "erro",
+        "Campos obrigatórios",
+        "Preencha data, KM e selecione pelo menos uma plataforma. Use 0 km quando for apenas ajuste de valor."
+      );
       return;
     }
 
@@ -307,7 +288,6 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
         descricao="Registre ganhos de Uber, 99, iFood e outros apps."
         onClose={cancelarFormulario}
         largura="max-w-5xl"
-        z="z-[40]"
       >
         <div className="bg-[#111827] border border-gray-800 rounded-2xl p-5">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -363,9 +343,11 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
             <button
               type="button"
               onClick={() => setModalGerenciarAberto(true)}
-              className="bg-[#0B1120] hover:bg-green-500 hover:text-black border border-gray-700 hover:border-green-500 text-green-400 font-bold rounded-xl px-5 py-3 transition whitespace-nowrap"
+              className="w-12 h-12 flex items-center justify-center bg-[#0B1120] hover:bg-green-500 hover:text-black border border-gray-700 hover:border-green-500 text-green-400 rounded-xl transition shrink-0"
+              title="Gerenciar plataformas"
+              aria-label="Gerenciar plataformas"
             >
-              + Gerenciar
+              <FiSettings className="w-5 h-5" />
             </button>
           </div>
 
@@ -429,17 +411,17 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
                             className="text-gray-500 hover:text-red-400"
                             title="Remover"
                           >
-                            🗑️
+                            <FiTrash2 className="w-5 h-5" />
                           </button>
                         </div>
 
-                        <p className="text-2xl font-bold mt-3">{formatarMoedaExibicao(totalPlataforma(selecionada))}</p>
+                        <p className="text-2xl font-bold mt-3">{formatarMoeda(totalPlataforma(selecionada))}</p>
 
                         <p className="text-xs text-gray-400 mt-1">{selecionada.numero_corridas || 0} corrida(s)</p>
 
                         {selecionada.houve_pedagio && (
                           <p className="text-xs text-gray-500 mt-1">
-                            Reembolso pedágio: {formatarMoedaExibicao(moedaParaNumero(selecionada.valor_reembolso))}
+                            Reembolso pedágio: {formatarMoeda(moedaParaNumero(selecionada.valor_reembolso))}
                           </p>
                         )}
 
@@ -459,7 +441,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mt-6">
+        <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
           <button
             type="button"
             onClick={cancelarFormulario}
@@ -474,7 +456,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
             disabled={salvando}
             className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-4"
           >
-            {salvando ? "Salvando..." : "Salvar Entrada"}
+            {salvando ? "Salvando..." : "Salvar"}
           </button>
         </div>
       </ModalBase>
@@ -520,74 +502,14 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
         }}
       />
 
-      {modalCancelarAberto && (
-        <ModalConfirmacao
-          titulo="Tem certeza que deseja cancelar?"
-          mensagem="Todos os dados preenchidos serão apagados e não poderão ser recuperados."
-          textoCancelar="Não, continuar editando"
-          textoConfirmar="Sim, cancelar"
-          onCancelar={() => setModalCancelarAberto(false)}
-          onConfirmar={() => {
-            limparFormulario();
-            onClose();
-          }}
-        />
-      )}
-
-      {feedback.aberto && <FeedbackBonito feedback={feedback} onClose={fecharFeedback} />}
+      <FeedbackModal
+        aberto={feedback.aberto}
+        tipo={feedback.tipo}
+        titulo={feedback.titulo}
+        mensagem={feedback.mensagem}
+        onClose={fecharFeedback}
+      />
     </>
   );
 }
 
-function ModalConfirmacao({ titulo, mensagem, textoCancelar, textoConfirmar, onCancelar, onConfirmar }) {
-  return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4">
-      <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-2xl p-6 shadow-2xl">
-        <div className="w-14 h-14 rounded-2xl bg-yellow-500/10 text-yellow-400 flex items-center justify-center text-3xl">⚠</div>
-        <h2 className="text-2xl font-black mt-4">{titulo}</h2>
-        <p className="text-gray-300 mt-3">{mensagem}</p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
-          <button
-            type="button"
-            onClick={onCancelar}
-            className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3"
-          >
-            {textoCancelar}
-          </button>
-
-          <button
-            type="button"
-            onClick={onConfirmar}
-            className="bg-red-500 hover:bg-red-600 text-white font-black rounded-xl p-3"
-          >
-            {textoConfirmar}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function FeedbackBonito({ feedback, onClose }) {
-  const sucesso = feedback.tipo === "sucesso";
-
-  return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4">
-      <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-2xl p-6 shadow-2xl">
-        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-3xl ${sucesso ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}>
-          {sucesso ? "✓" : "!"}
-        </div>
-        <h2 className={`text-2xl font-black mt-4 ${sucesso ? "text-green-400" : "text-red-400"}`}>{feedback.titulo}</h2>
-        <p className="text-gray-300 mt-3">{feedback.mensagem}</p>
-        <button
-          type="button"
-          onClick={onClose}
-          className="mt-6 w-full bg-green-500 hover:bg-green-600 text-black font-black rounded-xl p-3"
-        >
-          Entendi
-        </button>
-      </div>
-    </div>
-  );
-}

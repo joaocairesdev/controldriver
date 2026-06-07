@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../services/supabase";
+import ModalBase from "./ModalBase";
+import { FiSearch, FiTrash2 } from "react-icons/fi";
 import { obterConfigPlataforma } from "../../utils/plataformasIcons";
 
 export default function GerenciarPlataformasModal({ aberto, onClose }) {
@@ -154,32 +156,16 @@ export default function GerenciarPlataformasModal({ aberto, onClose }) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[80]">
-        <div
-          className="w-full max-w-lg max-h-[88vh] overflow-y-auto bg-[#111827] border border-gray-800 rounded-2xl p-6 scrollbar-hide"
-          style={{ scrollbarWidth: "none" }}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold">Gerenciar plataformas</h2>
-              <p className="text-gray-400 mt-2">
-                Ative, oculte ou adicione plataformas que você trabalha no dia a dia.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold"
-            >
-              ×
-            </button>
-          </div>
-
+      <ModalBase
+        aberto={aberto}
+        titulo="Gerenciar Plataformas"
+        descricao="Ative, oculte ou adicione plataformas que você trabalha no dia a dia."
+        onClose={onClose}
+        largura="max-w-lg"
+        z="z-[300]"
+      >
           <div className="relative mt-6">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
-              🔍
-            </span>
+            <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 w-5 h-5" />
 
             <input
               type="text"
@@ -231,18 +217,20 @@ export default function GerenciarPlataformasModal({ aberto, onClose }) {
             ))}
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full mt-6 bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
-          >
-            Concluir
-          </button>
-        </div>
-      </div>
+          <div className="sticky bottom-0 z-10 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
+            >
+              Concluir
+            </button>
+          </div>
+
+      </ModalBase>
 
       {confirmarExclusao && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[90]">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[1000]">
           <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-2xl p-6">
             <h2 className="text-2xl font-bold text-red-400">Apagar plataforma</h2>
 
@@ -347,7 +335,7 @@ function PlataformaLinha({
           onClick={pedirExclusao}
           className="absolute inset-y-0 right-0 w-[76px] bg-red-500 hover:bg-red-600 flex items-center justify-center text-white text-2xl font-bold rounded-xl"
         >
-          🗑️
+          <FiTrash2 className="w-6 h-6" />
         </button>
       )}
 

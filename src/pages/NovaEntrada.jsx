@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { FiArrowLeft, FiTrash2 } from "react-icons/fi";
 import DatePickerModal from "../components/modals/DatePickerModal";
 import TimePickerModal from "../components/modals/TimePickerModal";
 import PlataformaEntradaModal from "../components/modals/PlataformaEntradaModal";
 import GerenciarPlataformasModal from "../components/modals/GerenciarPlataformasModal";
+import FeedbackModal from "../components/modals/FeedbackModal";
 import { obterConfigPlataforma } from "../utils/plataformasIcons";
+import { formatarMoeda, moedaParaNumero } from "../utils/moeda";
+import { hojeBrasil, formatarDataBR } from "../utils/data";
 
 export default function NovaEntrada({ setPagina }) {
-  const hoje = new Date().toISOString().split("T")[0];
+  const hoje = hojeBrasil();
 
   const [data, setData] = useState(hoje);
   const [km, setKm] = useState("");
@@ -16,6 +20,7 @@ export default function NovaEntrada({ setPagina }) {
   const [contaPrincipal, setContaPrincipal] = useState(null);
   const [veiculoPrincipal, setVeiculoPrincipal] = useState(null);
   const [salvando, setSalvando] = useState(false);
+  const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
 
   const [modalDataAberto, setModalDataAberto] = useState(false);
   const [modalTempoAberto, setModalTempoAberto] = useState(false);
@@ -61,22 +66,12 @@ export default function NovaEntrada({ setPagina }) {
     setVeiculoPrincipal(veiculoData);
   }
 
-  function formatarDataBR(dataISOTexto) {
-    if (!dataISOTexto) return "";
-    const [ano, mes, dia] = String(dataISOTexto).split("-");
-    return `${dia}/${mes}/${ano}`;
+  function abrirFeedback(tipo, titulo, mensagem) {
+    setFeedback({ aberto: true, tipo, titulo, mensagem });
   }
 
-  function moedaParaNumero(valor) {
-    if (!valor) return 0;
-    return Number(String(valor).replace(",", "."));
-  }
-
-  function formatarMoedaExibicao(valor) {
-    return Number(valor || 0).toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    });
+  function fecharFeedback() {
+    setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
   }
 
   function abrirDadosPlataforma(plataforma) {
@@ -103,21 +98,20 @@ export default function NovaEntrada({ setPagina }) {
   }
 
   function cancelarFormulario() {
-    const confirmar = window.confirm(
-      "Tem certeza que deseja cancelar? Todos os dados preenchidos serão apagados."
-    );
-
-    if (!confirmar) return;
-
     setData(hoje);
     setKm("");
     setTempoPicker({ hora: "08", minuto: "00" });
     setSelecionadas([]);
+    setPagina?.("novo-lancamento");
   }
 
   async function salvarEntrada() {
-    if (!data || !km || selecionadas.length === 0) {
-      alert("Preencha data, KM e selecione pelo menos uma plataforma.");
+    if (!data || km === "" || selecionadas.length === 0) {
+      abrirFeedback(
+        "erro",
+        "Campos obrigatórios",
+        "Preencha data, KM e selecione pelo menos uma plataforma. Use 0 km quando for apenas ajuste de valor."
+      );
       return;
     }
 
@@ -141,7 +135,7 @@ export default function NovaEntrada({ setPagina }) {
 
     if (erroEntrada) {
       console.error(erroEntrada);
-      alert("Erro ao salvar entrada.");
+      abrirFeedback("erro", "Erro ao salvar", "Erro ao salvar entrada.");
       setSalvando(false);
       return;
     }
@@ -161,12 +155,12 @@ export default function NovaEntrada({ setPagina }) {
 
     if (erroDetalhes) {
       console.error(erroDetalhes);
-      alert("Erro ao salvar plataformas.");
+      abrirFeedback("erro", "Erro ao salvar", "Erro ao salvar plataformas.");
       setSalvando(false);
       return;
     }
 
-    alert("Entrada salva com sucesso!");
+    abrirFeedback("sucesso", "Entrada salva", "Os ganhos de plataforma foram registrados com sucesso.");
 
     setKm("");
     setTempoPicker({ hora: "08", minuto: "00" });
@@ -199,7 +193,7 @@ export default function NovaEntrada({ setPagina }) {
           onClick={() => setPagina("novo-lancamento")}
           className="w-10 h-10 rounded-xl border border-gray-700 hover:bg-white/5 flex items-center justify-center"
         >
-          ←
+          <FiArrowLeft className="w-5 h-5" />
         </button>
 
         <h1 className="text-3xl font-bold">Nova Entrada</h1>
@@ -331,12 +325,12 @@ export default function NovaEntrada({ setPagina }) {
                           className="text-gray-500 hover:text-red-400"
                           title="Remover"
                         >
-                          🗑️
+                          <FiTrash2 className="w-5 h-5" />
                         </button>
                       </div>
 
                       <p className="text-2xl font-bold mt-3">
-                        {formatarMoedaExibicao(totalPlataforma(selecionada))}
+                        {formatarMoeda(totalPlataforma(selecionada))}
                       </p>
 
                       <p className="text-xs text-gray-400 mt-1">
@@ -345,7 +339,7 @@ export default function NovaEntrada({ setPagina }) {
 
                       {selecionada.houve_pedagio && (
                         <p className="text-xs text-gray-500 mt-1">
-                          Reembolso pedágio: {formatarMoedaExibicao(moedaParaNumero(selecionada.valor_reembolso))}
+                          Reembolso pedágio: {formatarMoeda(moedaParaNumero(selecionada.valor_reembolso))}
                         </p>
                       )}
 
@@ -380,7 +374,7 @@ export default function NovaEntrada({ setPagina }) {
           disabled={salvando}
           className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-4"
         >
-          {salvando ? "Salvando..." : "Salvar Entrada"}
+          {salvando ? "Salvando..." : "Salvar"}
         </button>
       </div>
 
@@ -420,6 +414,14 @@ export default function NovaEntrada({ setPagina }) {
           setModalGerenciarAberto(false);
           carregarDados();
         }}
+      />
+
+      <FeedbackModal
+        aberto={feedback.aberto}
+        tipo={feedback.tipo}
+        titulo={feedback.titulo}
+        mensagem={feedback.mensagem}
+        onClose={fecharFeedback}
       />
     </div>
   );

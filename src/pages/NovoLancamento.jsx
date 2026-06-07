@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { supabase } from "../services/supabase";
 
 import {
   FiTrendingUp,
@@ -31,6 +32,8 @@ export default function NovoLancamento({
   const [modalEntradaAvulsaAberto, setModalEntradaAvulsaAberto] =
     useState(false);
   const [modalGanhosAberto, setModalGanhosAberto] = useState(false);
+  const [possuiTagCadastrada, setPossuiTagCadastrada] = useState(false);
+  const [carregandoTag, setCarregandoTag] = useState(true);
 
   const [modalAbastecimentoAberto, setModalAbastecimentoAberto] = useState(false);
   const [modalManutencaoAberto, setModalManutencaoAberto] = useState(false);
@@ -44,6 +47,32 @@ export default function NovoLancamento({
     if (!jornadaParaGanhos) return;
     setModalGanhosAberto(true);
   }, [jornadaParaGanhos]);
+
+  useEffect(() => {
+    verificarTagCadastrada();
+  }, []);
+
+  async function verificarTagCadastrada() {
+    setCarregandoTag(true);
+
+    const { data, error } = await supabase
+      .from("contas")
+      .select("id, veiculo_id")
+      .eq("ativo", true)
+      .eq("tipo_conta", "tag")
+      .not("veiculo_id", "is", null)
+      .limit(1);
+
+    if (error) {
+      console.error("Erro ao verificar TAG cadastrada:", error);
+      setPossuiTagCadastrada(false);
+      setCarregandoTag(false);
+      return;
+    }
+
+    setPossuiTagCadastrada((data || []).length > 0);
+    setCarregandoTag(false);
+  }
 
   const entradas = [
     {
@@ -94,13 +123,17 @@ export default function NovoLancamento({
       cor: "yellow",
       acao: () => setModalManutencaoAberto(true),
     },
-    {
-      titulo: "Uso da Tag",
-      descricao: "Pedágio, estacionamento e recarga",
-      icon: <FiTag />,
-      cor: "blue",
-      acao: () => setModalTagAberto(true),
-    },
+    ...(!carregandoTag && possuiTagCadastrada
+      ? [
+          {
+            titulo: "Uso da TAG",
+            descricao: "Pedágio, estacionamento e recarga",
+            icon: <FiTag />,
+            cor: "blue",
+            acao: () => setModalTagAberto(true),
+          },
+        ]
+      : []),
   ];
 
   const despesas = [

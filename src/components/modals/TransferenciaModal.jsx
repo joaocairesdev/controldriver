@@ -5,10 +5,20 @@ import ModalBase from "./ModalBase";
 import DatePickerModal from "./DatePickerModal";
 import SelecionarContaModal from "./SelecionarContaModal";
 import FeedbackModal from "./FeedbackModal";
-import ConfirmacaoModal from "./ConfirmacaoModal";
+
+import {
+  formatarMoeda,
+  formatarMoedaDigitada,
+  moedaParaNumero,
+} from "../../utils/moeda";
+
+import {
+  hojeBrasil,
+  formatarDataBR,
+} from "../../utils/data";
 
 export default function TransferenciaModal({ aberto, onClose }) {
-  const hoje = new Date().toISOString().split("T")[0];
+  const hoje = hojeBrasil();
 
   const [contas, setContas] = useState([]);
   const [data, setData] = useState(hoje);
@@ -28,8 +38,8 @@ export default function TransferenciaModal({ aberto, onClose }) {
     tipo: "sucesso",
     titulo: "",
     mensagem: "",
+    fecharDepois: false,
   });
-  const [modalCancelarAberto, setModalCancelarAberto] = useState(false);
 
   useEffect(() => {
     if (aberto) carregarContas();
@@ -45,6 +55,20 @@ export default function TransferenciaModal({ aberto, onClose }) {
     [contas, contaDestinoId]
   );
 
+  const contasTransferiveis = useMemo(
+    () => contas.filter((conta) => (conta.tipo_conta || "banco") !== "tag"),
+    [contas]
+  );
+
+  const contasOrigemDisponiveis = useMemo(
+    () => contasTransferiveis.filter((conta) => String(conta.id) !== String(contaDestinoId)),
+    [contasTransferiveis, contaDestinoId]
+  );
+
+  const contasDestinoDisponiveis = useMemo(
+    () => contasTransferiveis.filter((conta) => String(conta.id) !== String(contaOrigemId)),
+    [contasTransferiveis, contaOrigemId]
+  );
 
   async function carregarContasComSaldo(contasBase) {
     return Promise.all(
@@ -144,45 +168,25 @@ export default function TransferenciaModal({ aberto, onClose }) {
     setContas(contasComSaldo);
   }
 
-  function formatarDataBR(dataISO) {
-    if (!dataISO) return "-";
-    const [ano, mes, dia] = String(dataISO).split("-");
-    return `${dia}/${mes}/${ano}`;
-  }
-
-  function formatarMoeda(valorNumero) {
-    return Number(valorNumero || 0).toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    });
-  }
-
-  function formatarMoedaDigitada(valor) {
-    const somenteDigitos = String(valor || "").replace(/\D/g, "");
-    const centavos = Number(somenteDigitos || 0);
-
-    return (centavos / 100).toLocaleString("pt-BR", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
-
-  function moedaParaNumero(valor) {
-    if (!valor) return 0;
-    return Number(String(valor).replace(/\./g, "").replace(",", "."));
-  }
-
-  function abrirFeedback(tipo, titulo, mensagem) {
-    setFeedback({ aberto: true, tipo, titulo, mensagem });
+  function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) {
+    setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois });
   }
 
   function fecharFeedback() {
+    const deveFechar = feedback.fecharDepois;
+
     setFeedback({
       aberto: false,
       tipo: "sucesso",
       titulo: "",
       mensagem: "",
+      fecharDepois: false,
     });
+
+    if (deveFechar) {
+      limparFormulario();
+      onClose?.();
+    }
   }
 
   function limparFormulario() {
@@ -194,22 +198,8 @@ export default function TransferenciaModal({ aberto, onClose }) {
   }
 
   function cancelar() {
-    const temDados =
-      contaOrigemId || contaDestinoId || valor || descricao || data !== hoje;
-
-    if (temDados) {
-      setModalCancelarAberto(true);
-      return;
-    }
-
     limparFormulario();
-    onClose();
-  }
-
-  function confirmarCancelamento() {
-    setModalCancelarAberto(false);
-    limparFormulario();
-    onClose();
+    onClose?.();
   }
 
   function validar() {
@@ -265,11 +255,9 @@ export default function TransferenciaModal({ aberto, onClose }) {
       abrirFeedback(
         "sucesso",
         "Transferência salva",
-        "A transferência foi registrada com sucesso."
+        "A transferência foi registrada com sucesso.",
+        true
       );
-
-      limparFormulario();
-      onClose();
     } catch (error) {
       console.error(error);
       abrirFeedback(
@@ -289,7 +277,7 @@ export default function TransferenciaModal({ aberto, onClose }) {
       <ModalBase
         aberto={aberto}
         titulo="Transferência"
-        descricao="Movimente valores entre contas, carteira e TAG."
+        descricao="Movimente valores entre contas e carteira."
         onClose={cancelar}
         largura="max-w-xl"
       >
@@ -315,26 +303,60 @@ export default function TransferenciaModal({ aberto, onClose }) {
             </div>
           </Campo>
 
-          <Campo label="Conta origem">
+          <Campo label="Conta de origem">
             <ButtonField onClick={() => setModalOrigemAberto(true)}>
-              {contaOrigem?.nome || "Selecionar origem"}
+              <span className="truncate">
+                {contaOrigem?.nome || "Selecionar conta de origem"}
+              </span>
+
+              {contaOrigemId && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+  e.stopPropagation();
+  setContaOrigemId("");
+  setContaDestinoId("");
+}}
+                  className="ml-3 w-7 h-7 rounded-lg bg-white/5 hover:bg-red-500/20 text-gray-400 hover:text-red-400 flex items-center justify-center shrink-0"
+                  aria-label="Limpar conta de origem"
+                >
+                  ×
+                </button>
+              )}
             </ButtonField>
           </Campo>
 
-          <Campo label="Conta destino">
+          <Campo label="Conta de destino">
             <ButtonField onClick={() => setModalDestinoAberto(true)}>
-              {contaDestino?.nome || "Selecionar destino"}
+              <span className="truncate">
+                {contaDestino?.nome || "Selecionar conta de destino"}
+              </span>
+
+              {contaDestinoId && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+  e.stopPropagation();
+  setContaOrigemId("");
+  setContaDestinoId("");
+}}
+                  className="ml-3 w-7 h-7 rounded-lg bg-white/5 hover:bg-red-500/20 text-gray-400 hover:text-red-400 flex items-center justify-center shrink-0"
+                  aria-label="Limpar conta de destino"
+                >
+                  ×
+                </button>
+              )}
             </ButtonField>
           </Campo>
         </div>
 
-        <Campo label="Descrição opcional">
+        <Campo label="Descrição (opcional)">
           <input
             type="text"
             value={descricao}
-            placeholder="Ex: Recarga Veloe, dinheiro para carteira..."
+            placeholder="Ex: Pix para conta, Saque em dinheiro..."
             onChange={(e) => setDescricao(e.target.value)}
-            className="input-base mt-2"
+            className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 outline-none focus:border-green-400"
           />
         </Campo>
 
@@ -384,7 +406,7 @@ export default function TransferenciaModal({ aberto, onClose }) {
 
       <SelecionarContaModal
         aberto={modalOrigemAberto}
-        contas={contas}
+        contas={contasOrigemDisponiveis}
         contaId={contaOrigemId}
         onSelecionar={setContaOrigemId}
         onClose={() => setModalOrigemAberto(false)}
@@ -393,22 +415,11 @@ export default function TransferenciaModal({ aberto, onClose }) {
 
       <SelecionarContaModal
         aberto={modalDestinoAberto}
-        contas={contas}
+        contas={contasDestinoDisponiveis}
         contaId={contaDestinoId}
         onSelecionar={setContaDestinoId}
         onClose={() => setModalDestinoAberto(false)}
         formatarMoeda={formatarMoeda}
-      />
-
-      <ConfirmacaoModal
-        aberto={modalCancelarAberto}
-        tipo="aviso"
-        titulo="Cancelar lançamento?"
-        mensagem="Os dados preenchidos serão perdidos. Deseja continuar?"
-        textoCancelar="Continuar editando"
-        textoConfirmar="Sim, cancelar"
-        onCancelar={() => setModalCancelarAberto(false)}
-        onConfirmar={confirmarCancelamento}
       />
 
       <FeedbackModal
@@ -436,7 +447,7 @@ function ButtonField({ children, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+      className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold flex items-center justify-between gap-2"
     >
       {children}
     </button>

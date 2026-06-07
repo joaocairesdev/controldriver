@@ -1,6 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../services/supabase";
 
+import {
+  formatarMoeda,
+  formatarMoedaDigitada,
+  moedaParaNumero,
+  numeroParaMoedaInput,
+  somenteNumeros,
+} from "../../utils/moeda";
+
+import {
+  hojeBrasil,
+  formatarDataBR,
+} from "../../utils/data";
+
 import ModalBase from "./ModalBase";
 import DatePickerModal from "./DatePickerModal";
 import SelecionarVeiculoModal from "./SelecionarVeiculoModal";
@@ -11,7 +24,7 @@ import SelecionarCombustivelModal from "./SelecionarCombustivelModal";
 import SelecionarParcelasModal from "./SelecionarParcelasModal";
 
 export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos = null }) {
-  const hoje = new Date().toISOString().split("T")[0];
+  const hoje = hojeBrasil();
 
   const formasPagamento = [
     { valor: "dinheiro", titulo: "Dinheiro", descricao: "Sai da carteira" },
@@ -53,7 +66,6 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   const [kmRodados, setKmRodados] = useState("");
   const [odometro, setOdometro] = useState("");
   const [tanqueCheio, setTanqueCheio] = useState(true);
-  const [posto, setPosto] = useState("");
 
   const [modalDataAberto, setModalDataAberto] = useState(false);
   const [modalVencimentoAberto, setModalVencimentoAberto] = useState(false);
@@ -173,25 +185,11 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
 
   function limparFormulario(limparTudo = true) {
     setDataCompra(hoje); setDataVencimento(hoje); setFormaPagamento("pix"); setValorTotal(""); setNumeroParcelas("1"); setValorParcela(""); setUltimoCampoEditado("total");
-    setValorLitro(""); setModoKm("trip"); setKmRodados(""); setOdometro(""); setTanqueCheio(true); setPosto(""); setTipoCombustivel("etanol"); setCartaoId("");
+    setValorLitro(""); setModoKm("trip"); setKmRodados(""); setOdometro(""); setTanqueCheio(true); setTipoCombustivel("etanol"); setCartaoId("");
     if (limparTudo) { setContaId(""); setVeiculoId(""); }
   }
 
-  function formatarDataBR(dataISO) { if (!dataISO) return ""; const [ano, mes, dia] = String(dataISO).split("-"); return `${dia}/${mes}/${ano}`; }
-  function formatarMoeda(valor) { return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
-  function formatarMoedaDigitada(valor) {
-    const somenteDigitos = String(valor || "").replace(/\D/g, "");
-    const centavos = Number(somenteDigitos || 0);
-
-    return (centavos / 100).toLocaleString("pt-BR", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
-  function moedaParaNumero(valor) { if (!valor) return 0; return Number(String(valor).replace(/\./g, "").replace(",", ".")); }
-  function numeroParaMoedaInput(valor) { return Number(valor || 0).toFixed(2).replace(".", ","); }
   function numeroParaDecimalInput(valor, casas = 2) { if (!Number.isFinite(Number(valor))) return ""; return Number(valor || 0).toFixed(casas).replace(".", ","); }
-  function somenteNumeros(valor) { return String(valor).replace(/\D/g, ""); }
 
   function textoFormaPagamento() { return formasPagamento.find((f) => f.valor === formaPagamento)?.titulo || "Selecionar"; }
   function textoContaCartao() {
@@ -293,7 +291,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     const kmPeriodo = Math.max(odometroFinal - odometroAnterior, 0);
     const consumoKmLitro = litros > 0 ? kmPeriodo / litros : 0;
     const custoPorKm = kmPeriodo > 0 ? moedaParaNumero(valorTotal) / kmPeriodo : 0;
-    const { error } = await supabase.from("saidas_abastecimentos").insert({ saida_id: saidaId, veiculo_id: Number(veiculoId), odometro: odometroFinal, km_rodados: Number(kmRodados || 0), km_total_periodo: kmPeriodo, tipo_combustivel: tipoCombustivel, litros, valor_litro: moedaParaNumero(valorLitro), tanque_cheio: tanqueCheio, uso: "automatico", percentual_trabalho: 0, consumo_km_l: consumoKmLitro, custo_por_km: custoPorKm, posto: posto.trim() || null });
+    const { error } = await supabase.from("saidas_abastecimentos").insert({ saida_id: saidaId, veiculo_id: Number(veiculoId), odometro: odometroFinal, km_rodados: Number(kmRodados || 0), km_total_periodo: kmPeriodo, tipo_combustivel: tipoCombustivel, litros, valor_litro: moedaParaNumero(valorLitro), tanque_cheio: tanqueCheio, uso: "automatico", percentual_trabalho: 0, consumo_km_l: consumoKmLitro, custo_por_km: custoPorKm, posto: null });
     if (error) throw error;
     let campoMedia = null;
     if (tipoCombustivel === "etanol" || tipoCombustivel === "etanol_aditivado") campoMedia = "media_etanol";
@@ -392,24 +390,12 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
                 </Campo>
               )}
 
-              <Campo label="Tanque cheio">
+              <Campo label="Completou o tanque?">
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   <Toggle ativo={tanqueCheio} onClick={() => setTanqueCheio(true)}>Sim</Toggle>
                   <Toggle ativo={!tanqueCheio} onClick={() => setTanqueCheio(false)}>Não</Toggle>
                 </div>
               </Campo>
-
-              <div className="md:col-span-2 xl:col-span-3">
-                <Campo label="Posto">
-                  <textarea
-                    rows={2}
-                    value={posto}
-                    onChange={(e) => setPosto(e.target.value)}
-                    placeholder="Ex: Shell, Ipiranga, BR, Carrefour..."
-                    className="w-full mt-2 bg-[#111827] border border-gray-700 rounded-xl p-3 resize-none outline-none focus:border-green-400"
-                  />
-                </Campo>
-              </div>
             </div>
 
             <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -422,7 +408,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
 
         <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
           <button type="button" onClick={onClose} className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3">Cancelar</button>
-          <button type="button" onClick={salvar} disabled={salvando} className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3">{salvando ? "Salvando..." : "Salvar Abastecimento"}</button>
+          <button type="button" onClick={salvar} disabled={salvando} className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3">{salvando ? "Salvando..." : "Salvar"}</button>
         </div>
       </ModalBase>
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../services/supabase";
-import { FiEdit2, FiPlus, FiTrash2, FiX } from "react-icons/fi";
+import { FiEdit2, FiPlus, FiSettings, FiTrash2, FiX } from "react-icons/fi";
 
 import ModalBase from "./ModalBase";
 import DatePickerModal from "./DatePickerModal";
@@ -10,7 +10,9 @@ import SelecionarFormaPagamentoModal from "./SelecionarFormaPagamentoModal";
 import SelecionarContaModal from "./SelecionarContaModal";
 import SelecionarCartaoModal from "./SelecionarCartaoModal";
 import SelecionarCategoriaModal from "./SelecionarCategoriaModal";
+import GerenciarCategoriasModal from "./GerenciarCategoriasModal";
 import SelecionarParcelasModal from "./SelecionarParcelasModal";
+import { CATEGORIAS_SISTEMA_FIXAS } from "../../utils/categoriasSistema";
 
 export default function SaidaModal({
   aberto,
@@ -24,6 +26,7 @@ export default function SaidaModal({
   const hoje = new Date().toISOString().split("T")[0];
 
   const categoriasPadrao = [
+    ...CATEGORIAS_SISTEMA_FIXAS.map((categoria) => categoria.nome),
     "Alimentação",
     "Lavagem",
     "Seguro",
@@ -31,8 +34,6 @@ export default function SaidaModal({
     "Impostos",
     "Multa",
     "Documentação",
-    "Pedágio",
-    "Estacionamento",
     "Outros",
   ];
 
@@ -127,14 +128,23 @@ export default function SaidaModal({
     [cartoes, cartaoId]
   );
 
-  const categoriasOcultasNaSaidaComum = ["abastecimento", "manutencao", "manutenção"];
+  const categoriasOcultasNaSaidaComum = [
+    "abastecimento",
+    "manutencao",
+    "manutenção",
+    "mensalidade da tag",
+    "mensalidade tag",
+  ];
 
   const categoriasDisponiveis = useMemo(
     () =>
       categorias
         .filter((item) => {
+          if (item.ativo === false || !item.nome) return false;
+
           const nomeNormalizado = normalizarTexto(item.nome);
-          return item.ativo !== false && item.nome && !categoriasOcultasNaSaidaComum.includes(nomeNormalizado);
+
+          return !categoriasOcultasNaSaidaComum.includes(nomeNormalizado);
         })
         .sort((a, b) =>
           String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR", {
@@ -1108,6 +1118,19 @@ export default function SaidaModal({
         }
         onClose={cancelar}
         largura={etapa === "dados" ? "max-w-3xl" : "max-w-2xl"}
+        acaoCabecalho={
+          etapa === "categoria" && !categoriaBloqueada ? (
+            <button
+              type="button"
+              onClick={abrirGerenciadorCategorias}
+              className="w-10 h-10 flex items-center justify-center bg-[#0B1120] hover:bg-green-500 hover:text-black border border-gray-700 hover:border-green-500 text-green-400 rounded-xl transition"
+              title="Gerenciar categorias"
+              aria-label="Gerenciar categorias"
+            >
+              <FiSettings className="w-5 h-5" />
+            </button>
+          ) : null
+        }
       >
         {etapa === "categoria" && (
           <div className="space-y-4">
@@ -1131,16 +1154,6 @@ export default function SaidaModal({
                 );
               })}
             </div>
-
-            {!categoriaBloqueada && (
-              <button
-                type="button"
-                onClick={abrirGerenciadorCategorias}
-                className="w-full rounded-xl border border-green-500/50 bg-green-500/10 text-green-400 hover:bg-green-500/15 p-4 font-black"
-              >
-                + Nova categoria
-              </button>
-            )}
           </div>
         )}
 
@@ -1307,32 +1320,10 @@ export default function SaidaModal({
         )}
       </ModalBase>
 
-
-      <ModalGerenciarCategoriasSaida
+      <GerenciarCategoriasModal
         aberto={modalGerenciarCategoriasAberto}
-        categorias={categorias}
-        modo={modoGerenciamentoCategorias}
-        setModo={setModoGerenciamentoCategorias}
-        buscaAdicionar={buscaAdicionarCategoria}
-        setBuscaAdicionar={setBuscaAdicionarCategoria}
-        selecionadas={categoriasSelecionadasExcluir}
-        alternarSelecionada={alternarCategoriaSelecionadaExcluir}
         onClose={fecharGerenciadorCategorias}
-        onAdicionarBusca={adicionarCategoriaPeloGerenciador}
-        onAbrirCadastro={abrirCadastroCategoriaGerenciador}
-        onEditar={abrirEdicaoCategoriaGerenciador}
-        onAlternarAtivo={alternarCategoriaAtiva}
-        onExcluirSelecionadas={excluirCategoriasSelecionadasGerenciador}
-        normalizarTexto={normalizarTexto}
-        tituloTipoUso={textoFinalidade}
-        corTextoTipoUso={corTextoTipoUso}
-        nomeCadastro={nomeCategoriaGerenciador}
-        setNomeCadastro={setNomeCategoriaGerenciador}
-        tipoUsoCadastro={tipoUsoCategoriaGerenciador}
-        setTipoUsoCadastro={setTipoUsoCategoriaGerenciador}
-        categoriaEditando={categoriaEditandoGerenciador}
-        onSalvarCadastro={salvarCategoriaGerenciador}
-        salvando={salvando}
+        onAtualizar={carregarCategorias}
       />
 
       <DatePickerModal
@@ -1342,34 +1333,6 @@ export default function SaidaModal({
         onClose={() => setModalDataAberto(false)}
         titulo="Selecionar data"
         descricao="Escolha a data da compra."
-      />
-
-
-      <ModalGerenciarCategoriasSaida
-        aberto={modalGerenciarCategoriasAberto}
-        categorias={categorias}
-        modo={modoGerenciamentoCategorias}
-        setModo={setModoGerenciamentoCategorias}
-        buscaAdicionar={buscaAdicionarCategoria}
-        setBuscaAdicionar={setBuscaAdicionarCategoria}
-        selecionadas={categoriasSelecionadasExcluir}
-        alternarSelecionada={alternarCategoriaSelecionadaExcluir}
-        onClose={fecharGerenciadorCategorias}
-        onAdicionarBusca={adicionarCategoriaPeloGerenciador}
-        onAbrirCadastro={abrirCadastroCategoriaGerenciador}
-        onEditar={abrirEdicaoCategoriaGerenciador}
-        onAlternarAtivo={alternarCategoriaAtiva}
-        onExcluirSelecionadas={excluirCategoriasSelecionadasGerenciador}
-        normalizarTexto={normalizarTexto}
-        tituloTipoUso={textoFinalidade}
-        corTextoTipoUso={corTextoTipoUso}
-        nomeCadastro={nomeCategoriaGerenciador}
-        setNomeCadastro={setNomeCategoriaGerenciador}
-        tipoUsoCadastro={tipoUsoCategoriaGerenciador}
-        setTipoUsoCadastro={setTipoUsoCategoriaGerenciador}
-        categoriaEditando={categoriaEditandoGerenciador}
-        onSalvarCadastro={salvarCategoriaGerenciador}
-        salvando={salvando}
       />
 
       <DatePickerModal
@@ -1452,9 +1415,10 @@ export default function SaidaModal({
         categoria={categoria}
         onSelecionar={selecionarCategoria}
         onClose={() => setModalCategoriaAberto(false)}
-        permitirCriar={false}
+        permitirCriar={true}
         tipoUsoPadrao={finalidade}
         onCategoriaCriada={adicionarCategoriaNaLista}
+        onAtualizarCategorias={carregarCategorias}
       />
 
       <SelecionarParcelasModal

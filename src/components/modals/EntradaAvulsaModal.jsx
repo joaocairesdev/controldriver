@@ -5,10 +5,20 @@ import ModalBase from "./ModalBase";
 import DatePickerModal from "./DatePickerModal";
 import SelecionarContaModal from "./SelecionarContaModal";
 import FeedbackModal from "./FeedbackModal";
-import ConfirmacaoModal from "./ConfirmacaoModal";
+
+import {
+  formatarMoeda,
+  formatarMoedaDigitada,
+  moedaParaNumero,
+} from "../../utils/moeda";
+
+import {
+  hojeBrasil,
+  formatarDataBR,
+} from "../../utils/data";
 
 export default function EntradaAvulsaModal({ aberto, onClose }) {
-  const hoje = new Date().toISOString().split("T")[0];
+  const hoje = hojeBrasil();
 
   const [contas, setContas] = useState([]);
   const [data, setData] = useState(hoje);
@@ -25,8 +35,8 @@ export default function EntradaAvulsaModal({ aberto, onClose }) {
     tipo: "sucesso",
     titulo: "",
     mensagem: "",
+    fecharDepois: false,
   });
-  const [modalCancelarAberto, setModalCancelarAberto] = useState(false);
 
   useEffect(() => {
     if (aberto) carregarContas();
@@ -37,6 +47,10 @@ export default function EntradaAvulsaModal({ aberto, onClose }) {
     [contas, contaId]
   );
 
+  const contasDestinoDisponiveis = useMemo(
+    () => contas.filter((conta) => (conta.tipo_conta || "banco") !== "tag"),
+    [contas]
+  );
 
   async function carregarContasComSaldo(contasBase) {
     return Promise.all(
@@ -135,36 +149,9 @@ export default function EntradaAvulsaModal({ aberto, onClose }) {
     const contasComSaldo = await carregarContasComSaldo(contasData || []);
     setContas(contasComSaldo);
 
-    const contaPrincipal = contasComSaldo.find((conta) => conta.principal);
+    const contasSemTag = contasComSaldo.filter((conta) => (conta.tipo_conta || "banco") !== "tag");
+    const contaPrincipal = contasSemTag.find((conta) => conta.principal) || contasSemTag[0];
     if (contaPrincipal && !contaId) setContaId(String(contaPrincipal.id));
-  }
-
-  function formatarDataBR(dataISO) {
-    if (!dataISO) return "-";
-    const [ano, mes, dia] = String(dataISO).split("-");
-    return `${dia}/${mes}/${ano}`;
-  }
-
-  function formatarMoeda(valorNumero) {
-    return Number(valorNumero || 0).toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    });
-  }
-
-  function formatarMoedaDigitada(valor) {
-    const somenteDigitos = String(valor || "").replace(/\D/g, "");
-    const centavos = Number(somenteDigitos || 0);
-
-    return (centavos / 100).toLocaleString("pt-BR", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  }
-
-  function moedaParaNumero(valor) {
-    if (!valor) return 0;
-    return Number(String(valor).replace(/\./g, "").replace(",", "."));
   }
 
   function limparFormulario() {
@@ -173,35 +160,30 @@ export default function EntradaAvulsaModal({ aberto, onClose }) {
     setDescricao("");
   }
 
-  function abrirFeedback(tipo, titulo, mensagem) {
-    setFeedback({ aberto: true, tipo, titulo, mensagem });
+  function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) {
+    setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois });
   }
 
   function fecharFeedback() {
+    const deveFechar = feedback.fecharDepois;
+
     setFeedback({
       aberto: false,
       tipo: "sucesso",
       titulo: "",
       mensagem: "",
+      fecharDepois: false,
     });
+
+    if (deveFechar) {
+      limparFormulario();
+      onClose?.();
+    }
   }
 
   function cancelar() {
-    const temDados = valor || descricao || data !== hoje;
-
-    if (temDados) {
-      setModalCancelarAberto(true);
-      return;
-    }
-
     limparFormulario();
-    onClose();
-  }
-
-  function confirmarCancelamento() {
-    setModalCancelarAberto(false);
-    limparFormulario();
-    onClose();
+    onClose?.();
   }
 
   function validar() {
@@ -246,11 +228,9 @@ export default function EntradaAvulsaModal({ aberto, onClose }) {
       abrirFeedback(
         "sucesso",
         "Entrada salva",
-        "A entrada avulsa foi registrada com sucesso."
+        "A entrada avulsa foi registrada com sucesso.",
+        true
       );
-
-      limparFormulario();
-      onClose();
     } catch (error) {
       console.error(error);
       abrirFeedback(
@@ -359,22 +339,11 @@ export default function EntradaAvulsaModal({ aberto, onClose }) {
 
       <SelecionarContaModal
         aberto={modalContaAberto}
-        contas={contas}
+        contas={contasDestinoDisponiveis}
         contaId={contaId}
         onSelecionar={setContaId}
         onClose={() => setModalContaAberto(false)}
         formatarMoeda={formatarMoeda}
-      />
-
-      <ConfirmacaoModal
-        aberto={modalCancelarAberto}
-        tipo="aviso"
-        titulo="Cancelar lançamento?"
-        mensagem="Os dados preenchidos serão perdidos. Deseja continuar?"
-        textoCancelar="Continuar editando"
-        textoConfirmar="Sim, cancelar"
-        onCancelar={() => setModalCancelarAberto(false)}
-        onConfirmar={confirmarCancelamento}
       />
 
       <FeedbackModal
