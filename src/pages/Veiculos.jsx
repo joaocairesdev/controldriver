@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import TagModal from "../components/modals/TagModal";
+import VeiculoModal from "../components/modals/VeiculoModal";
 
 import SelecionarFormaPagamentoModal from "../components/modals/SelecionarFormaPagamentoModal";
 import SelecionarContaModal from "../components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../components/modals/SelecionarCartaoModal";
+import { FiArrowDown, FiArrowLeft, FiArrowUp, FiEdit2, FiStar, FiTag, FiTrash2, FiX } from "react-icons/fi";
 
 export default function Veiculos() {
   const [veiculos, setVeiculos] = useState([]);
@@ -889,100 +891,108 @@ export default function Veiculos() {
             <div
               key={veiculo.id}
               onClick={() => abrirDetalhes(veiculo)}
-              className={`relative rounded-2xl border p-6 transition cursor-pointer hover:border-green-400/60 ${
+              className={`rounded-2xl border p-5 sm:p-6 transition cursor-pointer hover:border-green-400/60 ${
                 veiculo.principal ? "border-green-400 bg-green-500/10" : "border-gray-800 bg-[#111827]"
               }`}
             >
-              <div className="absolute top-4 right-4 flex items-center gap-3 z-10">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    solicitarVeiculoPrincipal(veiculo);
-                  }}
-                  className={`text-2xl transition ${
-                    veiculo.principal ? "text-yellow-400" : "text-gray-600 hover:text-yellow-400"
-                  }`}
-                  title="Definir como principal"
-                >
-                  {veiculo.principal ? "★" : "☆"}
-                </button>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-gray-400">Veículo</p>
+                  <h2 className="text-xl font-bold mt-1 leading-snug break-words">
+                    {[veiculo.marca, veiculo.modelo, veiculo.ano].filter(Boolean).join(" ")}
+                  </h2>
+                </div>
 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    abrirEditarVeiculo(veiculo);
-                  }}
-                  className="text-gray-500 hover:text-white"
-                  title="Editar veículo"
-                >
-                  ✏️
-                </button>
+                <div className="shrink-0 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      solicitarVeiculoPrincipal(veiculo);
+                    }}
+                    className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${
+                      veiculo.principal
+                        ? "border-yellow-400/30 bg-yellow-400/10 text-yellow-400"
+                        : "border-gray-700 text-gray-500 hover:text-yellow-400 hover:border-yellow-400/40"
+                    }`}
+                    title="Definir como principal"
+                  >
+                    <FiStar className="w-4 h-4" />
+                  </button>
 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    solicitarExclusaoVeiculo(veiculo);
-                  }}
-                  className="text-gray-500 hover:text-red-400"
-                  title="Excluir veículo"
-                >
-                  🗑️
-                </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      abrirEditarVeiculo(veiculo);
+                    }}
+                    className="w-9 h-9 rounded-xl border border-gray-700 text-gray-500 hover:text-white hover:border-gray-500 flex items-center justify-center transition"
+                    title="Editar veículo"
+                  >
+                    <FiEdit2 className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      solicitarExclusaoVeiculo(veiculo);
+                    }}
+                    className="w-9 h-9 rounded-xl border border-gray-700 text-gray-500 hover:text-red-400 hover:border-red-400/40 flex items-center justify-center transition"
+                    title="Excluir veículo"
+                  >
+                    <FiTrash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <p className="text-xs text-gray-400">Veículo</p>
-                <h2 className="text-xl font-bold mt-1 pr-28">
-                  {[veiculo.marca, veiculo.modelo, veiculo.ano].filter(Boolean).join(" ")}
-                </h2>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {veiculo.principal && (
+                  <div className="inline-flex items-center rounded-full bg-green-500/20 text-green-400 text-xs font-bold px-3 py-1">
+                    Veículo Principal
+                  </div>
+                )}
 
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {veiculo.principal && (
-                    <div className="inline-flex items-center rounded-full bg-green-500/20 text-green-400 text-xs font-bold px-3 py-1">
-                      Veículo Principal
-                    </div>
-                  )}
+                {veiculo.tag && (
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/20 text-blue-300 text-xs font-bold px-3 py-1">
+                    <FiTag className="w-3 h-3" />
+                    <span>TAG {veiculo.tag.nome}</span>
+                  </div>
+                )}
+              </div>
 
-                  {veiculo.tag && (
-                    <div className="inline-flex items-center rounded-full bg-blue-500/20 text-blue-300 text-xs font-bold px-3 py-1">
-                      🚗 TAG {veiculo.tag.nome}
-                    </div>
-                  )}
+              <div className="mt-7 grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-gray-400">Placa</p>
+                  <p className="text-lg font-semibold mt-1 break-words">{veiculo.placa || "-"}</p>
                 </div>
 
-                <div className="mt-10 flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-gray-400">Placa</p>
-                    <p className="text-lg font-semibold mt-1">{veiculo.placa || "-"}</p>
-                  </div>
-
-                  <div className="text-right">
-                    <p className="text-sm text-gray-400">Categoria</p>
-                    <p className="text-lg font-semibold mt-1">{nomeCategoria(veiculo.categoria_veiculo)}</p>
-                  </div>
+                <div className="text-right">
+                  <p className="text-sm text-gray-400">Categoria</p>
+                  <p className="text-lg font-semibold mt-1 break-words">{nomeCategoria(veiculo.categoria_veiculo)}</p>
                 </div>
+              </div>
 
-                <div className="mt-8 grid grid-cols-2 gap-4 items-stretch">
-                  <div className="space-y-4">
-                    <ResumoCard titulo="KM inicial" valor={`${kmInicial.toLocaleString("pt-BR")} km`} pequeno />
-                    <ResumoCard titulo="KM atual" valor={`${kmAtual.toLocaleString("pt-BR")} km`} pequeno />
-                  </div>
+              <div className="mt-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <ResumoCard titulo="KM inicial" valor={`${kmInicial.toLocaleString("pt-BR")} km`} pequeno />
+                <ResumoCard titulo="KM atual" valor={`${kmAtual.toLocaleString("pt-BR")} km`} pequeno />
 
-                  <div className="bg-[#0B1120] border border-gray-800 rounded-2xl p-4 flex flex-col justify-between">
+                <div className="sm:col-span-2 bg-[#0B1120] border border-gray-800 rounded-2xl p-4 sm:p-5">
+                  <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-sm text-gray-400">Total de KM rodados</p>
-                      <p className="text-xl font-bold mt-1">{totalRodado.toLocaleString("pt-BR")} km</p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 mt-5">
-                      <MiniCard titulo="Uso pessoal" valor={`${kmPessoal.toLocaleString("pt-BR")} km`} />
-                      <MiniCard titulo="Uso trabalho" valor={`${kmTrabalho.toLocaleString("pt-BR")} km`} />
+                      <p className="text-2xl font-bold mt-1">{totalRodado.toLocaleString("pt-BR")} km</p>
                     </div>
                   </div>
-                </div>
 
-                <p className="text-xs text-gray-500 mt-6">Clique para ver o histórico do carro.</p>
+                  <div className="grid grid-cols-2 gap-3 mt-5">
+                    <MiniCard titulo="Uso pessoal" valor={`${kmPessoal.toLocaleString("pt-BR")} km`} />
+                    <MiniCard titulo="Uso trabalho" valor={`${kmTrabalho.toLocaleString("pt-BR")} km`} />
+                  </div>
+                </div>
               </div>
+
+              <p className="text-xs text-gray-500 mt-6">Clique para ver o histórico do carro.</p>
             </div>
           );
         })}
@@ -994,287 +1004,56 @@ export default function Veiculos() {
         </div>
       )}
 
-      {modalAberto && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div
-            className="w-full max-w-2xl max-h-[88vh] overflow-y-auto bg-[#111827] border border-gray-800 rounded-2xl p-6"
-            style={{ scrollbarWidth: "none" }}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-bold">{veiculoEditando ? "Editar Veículo" : "Novo Veículo"}</h2>
-                <p className="text-gray-400 mt-2">
-                  {veiculoEditando
-                    ? "Altere os dados do veículo cadastrado"
-                    : "Cadastre um veículo para controlar km, consumo, histórico e TAG"}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={fecharModal}
-                className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
-              <InputTexto label="Marca" value={marca} placeholder="Ex: Nissan" onChange={setMarca} />
-              <InputTexto label="Modelo" value={modelo} placeholder="Ex: Versa" onChange={setModelo} />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-              <InputTexto label="Ano" value={ano} placeholder="Ex: 2019" onChange={(valor) => setAno(somenteNumeros(valor).slice(0, 4))} />
-              <InputTexto label="Placa" value={placa} placeholder="Ex: ABC1D23" onChange={(valor) => setPlaca(valor.toUpperCase().slice(0, 8))} />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-              <div>
-                <label className="text-sm text-gray-300">KM Inicial</label>
-                <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={odometroInicial}
-                    placeholder="Ex: 125000"
-                    onChange={(e) => setOdometroInicial(somenteNumeros(e.target.value))}
-                    className="w-full bg-transparent p-3 outline-none"
-                  />
-                  <span className="px-3 text-gray-400">km</span>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-sm text-gray-300">Categoria do veículo</label>
-                <button
-                  type="button"
-                  onClick={() => setModalCategoriaAberto(true)}
-                  className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
-                >
-                  {nomeCategoria(categoriaVeiculo)}
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-5 bg-[#0B1120] border border-gray-700 rounded-2xl p-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-bold text-white">Este veículo possui TAG?</p>
-                  <p className="text-xs text-gray-400 mt-1">A TAG fica vinculada à placa deste veículo.</p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setPossuiTag(!possuiTag)}
-                  className={`relative w-14 h-8 rounded-full transition ${possuiTag ? "bg-green-500" : "bg-gray-700"}`}
-                >
-                  <span
-                    className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition ${
-                      possuiTag ? "translate-x-6" : "translate-x-0"
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {possuiTag && (
-                <div className="mt-5 space-y-4">
-                  <InputTexto label="Nome da TAG" value={nomeTag} placeholder="Ex: Veloe" onChange={setNomeTag} />
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setTipoTag("pre_paga")}
-                      className={`rounded-xl border p-3 font-bold ${
-                        tipoTag === "pre_paga"
-                          ? "border-green-400 bg-green-500/10 text-green-400"
-                          : "border-gray-700 text-gray-300 hover:bg-white/5"
-                      }`}
-                    >
-                      Pré-paga
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTipoTag("pos_paga");
-                        setRecargaAutomaticaTag(false);
-                      }}
-                      className={`rounded-xl border p-3 font-bold ${
-                        tipoTag === "pos_paga"
-                          ? "border-green-400 bg-green-500/10 text-green-400"
-                          : "border-gray-700 text-gray-300 hover:bg-white/5"
-                      }`}
-                    >
-                      Pós-paga
-                    </button>
-                  </div>
-
-                  <CampoMoeda
-                    label="Saldo inicial da TAG"
-                    value={saldoInicialTag}
-                    placeholder="0,00 ou -15,00"
-                    onChange={(valor) => setSaldoInicialTag(formatarMoedaDigitada(valor, true))}
-                  />
-
-                  {tipoTag === "pre_paga" && (
-                    <div className="border border-gray-700 rounded-2xl p-4">
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
-                          <p className="font-bold text-white">Recarga automática</p>
-                          <p className="text-xs text-gray-400 mt-1">O app vai sugerir a recarga quando o uso atingir o gatilho.</p>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => setRecargaAutomaticaTag(!recargaAutomaticaTag)}
-                          className={`relative w-14 h-8 rounded-full transition ${recargaAutomaticaTag ? "bg-green-500" : "bg-gray-700"}`}
-                        >
-                          <span
-                            className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition ${
-                              recargaAutomaticaTag ? "translate-x-6" : "translate-x-0"
-                            }`}
-                          />
-                        </button>
-                      </div>
-
-                      {recargaAutomaticaTag && (
-                        <div className="mt-4 space-y-4">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <CampoMoeda label="Valor da recarga" value={valorRecargaTag} placeholder="30,00" onChange={(valor) => setValorRecargaTag(formatarMoedaDigitada(valor))} />
-
-                            <div>
-                              <label className="text-sm text-gray-300">Gatilho (%)</label>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={percentualGatilhoTag}
-                                placeholder="30"
-                                onChange={(e) => setPercentualGatilhoTag(somenteNumeros(e.target.value).slice(0, 3))}
-                                className="w-full mt-2 bg-[#111827] border border-gray-700 rounded-xl p-3 outline-none"
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="text-sm text-gray-300">Recarga automática em:</label>
-                            <button
-                              type="button"
-                              onClick={() => setModalFormaRecargaTagAberto(true)}
-                              className="w-full mt-2 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
-                            >
-                              {textoFormaRecargaTag(formaRecargaTag)}
-                            </button>
-                          </div>
-
-                          {formaRecargaTag === "credito_avista" ? (
-                            <div>
-                              <label className="text-sm text-gray-300">Cartão vinculado</label>
-                              <button
-                                type="button"
-                                onClick={() => setModalCartaoRecargaTagAberto(true)}
-                                className="w-full mt-2 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
-                              >
-                                {textoCartaoRecargaTag(cartaoRecargaTagId)}
-                              </button>
-                            </div>
-                          ) : (
-                            <div>
-                              <label className="text-sm text-gray-300">Conta vinculada</label>
-                              <button
-                                type="button"
-                                onClick={() => setModalContaRecargaTagAberto(true)}
-                                className="w-full mt-2 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
-                              >
-                                {textoContaRecargaTag(contaRecargaTagId)}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 mt-6">
-              <button onClick={fecharModal} className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3">
-                Cancelar
-              </button>
-
-              <button onClick={salvarVeiculo} className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3">
-                {veiculoEditando ? "Salvar Alterações" : "Salvar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <SelecionarFormaPagamentoModal
-        aberto={modalFormaRecargaTagAberto}
-        formasPagamento={formasRecargaTag}
-        formaPagamento={formaRecargaTag}
-        onSelecionar={(valor) => {
-          setFormaRecargaTag(valor);
-          if (valor === "credito_avista") setContaRecargaTagId("");
-          else setCartaoRecargaTagId("");
-        }}
-        onClose={() => setModalFormaRecargaTagAberto(false)}
-      />
-
-      <SelecionarContaModal
-        aberto={modalContaRecargaTagAberto}
-        contas={contasBanco}
-        contaId={contaRecargaTagId}
-        onSelecionar={setContaRecargaTagId}
-        onClose={() => setModalContaRecargaTagAberto(false)}
-        formatarMoeda={formatarMoeda}
-      />
-
-      <SelecionarCartaoModal
-        aberto={modalCartaoRecargaTagAberto}
+      <VeiculoModal
+        aberto={modalAberto}
+        veiculoEditando={veiculoEditando}
+        categoriasVeiculo={categoriasVeiculo}
+        categoriaVeiculo={categoriaVeiculo}
+        nomeCategoria={nomeCategoria}
+        onSelecionarCategoria={selecionarCategoria}
+        onClose={fecharModal}
+        onSalvar={salvarVeiculo}
+        marca={marca}
+        setMarca={setMarca}
+        modelo={modelo}
+        setModelo={setModelo}
+        ano={ano}
+        setAno={setAno}
+        placa={placa}
+        setPlaca={setPlaca}
+        odometroInicial={odometroInicial}
+        setOdometroInicial={setOdometroInicial}
+        possuiTag={possuiTag}
+        setPossuiTag={setPossuiTag}
+        nomeTag={nomeTag}
+        setNomeTag={setNomeTag}
+        tipoTag={tipoTag}
+        setTipoTag={setTipoTag}
+        saldoInicialTag={saldoInicialTag}
+        setSaldoInicialTag={setSaldoInicialTag}
+        recargaAutomaticaTag={recargaAutomaticaTag}
+        setRecargaAutomaticaTag={setRecargaAutomaticaTag}
+        valorRecargaTag={valorRecargaTag}
+        setValorRecargaTag={setValorRecargaTag}
+        percentualGatilhoTag={percentualGatilhoTag}
+        setPercentualGatilhoTag={setPercentualGatilhoTag}
+        formaRecargaTag={formaRecargaTag}
+        setFormaRecargaTag={setFormaRecargaTag}
+        contaRecargaTagId={contaRecargaTagId}
+        setContaRecargaTagId={setContaRecargaTagId}
+        cartaoRecargaTagId={cartaoRecargaTagId}
+        setCartaoRecargaTagId={setCartaoRecargaTagId}
+        contasBanco={contasBanco}
         cartoes={cartoes}
-        cartaoId={cartaoRecargaTagId}
-        onSelecionar={setCartaoRecargaTagId}
-        onClose={() => setModalCartaoRecargaTagAberto(false)}
+        formasRecargaTag={formasRecargaTag}
+        textoFormaRecargaTag={textoFormaRecargaTag}
+        textoContaRecargaTag={textoContaRecargaTag}
+        textoCartaoRecargaTag={textoCartaoRecargaTag}
         formatarMoeda={formatarMoeda}
+        formatarMoedaDigitada={formatarMoedaDigitada}
+        moedaParaNumero={moedaParaNumero}
+        somenteNumeros={somenteNumeros}
       />
-
-      {modalCategoriaAberto && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4">
-          <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-2xl p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-2xl font-bold">Categoria do veículo</h2>
-                <p className="text-gray-400 mt-2">Isso define automaticamente combustíveis e recarga elétrica.</p>
-              </div>
-
-              <button type="button" onClick={() => setModalCategoriaAberto(false)} className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold">
-                ×
-              </button>
-            </div>
-
-            <div className="space-y-3 mt-6">
-              {categoriasVeiculo.map((item) => (
-                <button
-                  key={item.valor}
-                  type="button"
-                  onClick={() => selecionarCategoria(item.valor)}
-                  className={`w-full text-left rounded-xl border p-4 ${
-                    categoriaVeiculo === item.valor
-                      ? "border-green-400 bg-green-500/10 text-green-400"
-                      : "border-gray-700 bg-[#0B1120] text-white hover:bg-white/5"
-                  }`}
-                >
-                  <p className="font-bold">{item.nome}</p>
-                  <p className="text-xs text-gray-400 mt-1">{item.descricao}</p>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {modalKmInicialAberto && (
         <ModalConfirmacao
@@ -1369,7 +1148,7 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
             onClick={voltar}
             className="w-10 h-10 rounded-xl border border-gray-700 hover:bg-white/5 flex items-center justify-center shrink-0"
           >
-            ←
+            <FiArrowLeft className="w-5 h-5" />
           </button>
 
           <div className="min-w-0">
@@ -1453,8 +1232,8 @@ function TagVidroCard({ tag, formatarMoeda, onClick }) {
       <div className="flex items-center justify-between gap-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-full bg-blue-500/20 text-blue-300 text-[11px] font-bold px-3 py-1">
-              🚗 TAG no vidro • {prePaga ? "Pré-paga" : "Pós-paga"}
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/20 text-blue-300 text-[11px] font-bold px-3 py-1">
+              <FiTag className="w-3 h-3" /> TAG no vidro • {prePaga ? "Pré-paga" : "Pós-paga"}
             </span>
 
             {precisaRecarga && (
@@ -1586,15 +1365,15 @@ function ModalDetalhesTag({ tag, formatarMoeda, fechar, configurar, recarregar }
             onClick={fechar}
             className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold"
           >
-            ×
+            <FiX className="w-5 h-5 mx-auto" />
           </button>
         </div>
 
         <div className="mt-6 bg-[#0B1120] border border-gray-800 rounded-2xl p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <span className="inline-flex rounded-full bg-blue-500/20 text-blue-300 text-[11px] font-bold px-3 py-1">
-                🚗 TAG no vidro • {prePaga ? "Pré-paga" : "Pós-paga"}
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/20 text-blue-300 text-[11px] font-bold px-3 py-1">
+                <FiTag className="w-3 h-3" /> TAG no vidro • {prePaga ? "Pré-paga" : "Pós-paga"}
               </span>
               <h3 className="text-xl font-black text-white mt-3">{tag.nome}</h3>
             </div>
@@ -1662,7 +1441,7 @@ function ModalDetalhesTag({ tag, formatarMoeda, fechar, configurar, recarregar }
                   <div className="min-w-0">
                     <p className="text-xs text-gray-500">{formatarDataBR(movimento.data)}</p>
                     <p className="font-bold text-white truncate">
-                      {recarga ? "↑ " : "↓ "}{movimento.titulo}
+                      {recarga ? <FiArrowUp className="inline w-3 h-3 mr-1" /> : <FiArrowDown className="inline w-3 h-3 mr-1" />}{movimento.titulo}
                     </p>
                     <p className="text-xs text-gray-400 truncate">{movimento.descricao}</p>
                   </div>
@@ -1799,7 +1578,7 @@ function ConfigurarTagModal({
               onClick={onClose}
               className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shrink-0"
             >
-              ×
+              <FiX className="w-5 h-5 mx-auto" />
             </button>
           </div>
 
@@ -2004,18 +1783,18 @@ function ConfigurarTagModal({
 
 function ResumoCard({ titulo, valor, pequeno }) {
   return (
-    <div className="bg-[#0B1120] border border-gray-800 rounded-2xl p-5">
+    <div className="bg-[#0B1120] border border-gray-800 rounded-2xl p-4 sm:p-5 min-w-0">
       <p className="text-sm text-gray-400">{titulo}</p>
-      <p className={`${pequeno ? "text-lg" : "text-2xl"} font-bold mt-2`}>{valor}</p>
+      <p className={`${pequeno ? "text-lg sm:text-xl" : "text-2xl"} font-bold mt-2 leading-tight break-words`}>{valor}</p>
     </div>
   );
 }
 
 function MiniCard({ titulo, valor }) {
   return (
-    <div className="border border-gray-800 rounded-xl p-3">
-      <p className="text-xs text-gray-500">{titulo}</p>
-      <p className="text-sm font-bold mt-1">{valor}</p>
+    <div className="border border-gray-800 rounded-xl p-3 min-w-0">
+      <p className="text-xs text-gray-500 leading-snug">{titulo}</p>
+      <p className="text-sm font-bold mt-1 leading-tight break-words">{valor}</p>
     </div>
   );
 }
