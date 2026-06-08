@@ -4,6 +4,7 @@ import { supabase } from "../services/supabase";
 export default function ContasPagar() {
   const [contas, setContas] = useState([]);
   const [faturas, setFaturas] = useState([]);
+  const [contasPagar, setContasPagar] = useState([]);
   const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
@@ -34,6 +35,15 @@ export default function ContasPagar() {
       Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0),
       0
     );
+  }
+
+  function textoFormaPagamento(valor) {
+    const nomes = {
+      boleto: "Boleto",
+      boleto_parcelado: "Boleto Parcelado",
+    };
+
+    return nomes[valor] || valor || "Conta a pagar";
   }
 
   async function carregarDados() {
@@ -143,8 +153,16 @@ export default function ContasPagar() {
       .in("status", ["aberta", "fechada", "parcial"])
       .order("data_vencimento", { ascending: true });
 
+    const { data: contasPagarData } = await supabase
+      .from("saidas")
+      .select("*")
+      .eq("tipo_movimentacao", "conta_pagar")
+      .in("status", ["aberto", "pendente", "parcial"])
+      .order("data_vencimento", { ascending: true });
+
     setContas(contasComSaldo);
     setFaturas(faturasData || []);
+    setContasPagar(contasPagarData || []);
     setCarregando(false);
   }
 
@@ -165,14 +183,19 @@ export default function ContasPagar() {
     0
   );
 
-  const faturasAtrasadas = faturas.filter((fatura) => estaAtrasada(fatura));
-
-  const totalAtrasado = faturasAtrasadas.reduce(
-    (total, fatura) => total + saldoFatura(fatura),
+  const totalContasPagar = contasPagar.reduce(
+    (total, conta) => total + Number(conta.valor_total || 0),
     0
   );
 
-  const totalGeral = totalChequeEspecial + totalFaturas;
+  const faturasAtrasadas = faturas.filter((fatura) => estaAtrasada(fatura));
+  const contasAtrasadas = contasPagar.filter((conta) => estaAtrasada(conta));
+
+  const totalAtrasado =
+    faturasAtrasadas.reduce((total, fatura) => total + saldoFatura(fatura), 0) +
+    contasAtrasadas.reduce((total, conta) => total + Number(conta.valor_total || 0), 0);
+
+  const totalGeral = totalChequeEspecial + totalFaturas + totalContasPagar;
 
   return (
     <div>
@@ -191,7 +214,7 @@ export default function ContasPagar() {
 
       {!carregando && (
         <>
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
             <ResumoCard
               titulo="Total a Pagar"
               valor={formatarMoeda(totalGeral)}
@@ -202,6 +225,12 @@ export default function ContasPagar() {
               titulo="Faturas em aberto"
               valor={formatarMoeda(totalFaturas)}
               destaque="yellow"
+            />
+
+            <ResumoCard
+              titulo="Contas/boletos"
+              valor={formatarMoeda(totalContasPagar)}
+              destaque="blue"
             />
 
             <ResumoCard
@@ -286,6 +315,60 @@ export default function ContasPagar() {
           </section>
 
           <section className="mt-8">
+            <h2 className="text-xl font-bold">Contas e boletos</h2>
+
+            <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+              {contasPagar.map((conta) => {
+                const atrasada = estaAtrasada(conta);
+
+                return (
+                  <div
+                    key={conta.id}
+                    className={`bg-[#111827] border rounded-2xl p-5 ${
+                      atrasada ? "border-red-500/40" : "border-gray-800"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="font-bold truncate">{conta.descricao || conta.categoria}</h3>
+                        <p className="text-sm text-gray-400 mt-1">{conta.categoria}</p>
+                      </div>
+
+                      <span
+                        className={`text-xs rounded-full px-3 py-1 font-bold whitespace-nowrap ${
+                          atrasada ? "bg-red-500/10 text-red-400" : "bg-blue-500/10 text-blue-400"
+                        }`}
+                      >
+                        {atrasada ? "Em atraso" : textoFormaPagamento(conta.forma_pagamento)}
+                      </span>
+                    </div>
+
+                    <div className="mt-5">
+                      <p className="text-xs text-gray-500">Valor em aberto</p>
+                      <p className={`text-2xl font-black mt-1 ${atrasada ? "text-red-400" : "text-white"}`}>
+                        {formatarMoeda(conta.valor_total)}
+                      </p>
+                    </div>
+
+                    <p className="text-sm text-gray-400 mt-4">
+                      Vencimento:{" "}
+                      <span className="font-bold text-white">
+                        {formatarDataBR(conta.data_vencimento)}
+                      </span>
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {contasPagar.length === 0 && (
+              <div className="mt-4 bg-[#111827] border border-gray-800 rounded-2xl p-6">
+                <p className="text-gray-400">Nenhuma conta ou boleto em aberto.</p>
+              </div>
+            )}
+          </section>
+
+          <section className="mt-8">
             <h2 className="text-xl font-bold">Contas negativas</h2>
 
             <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -334,6 +417,7 @@ function ResumoCard({ titulo, valor, destaque }) {
     red: "text-red-400 border-red-500/40 bg-red-500/10",
     yellow: "text-yellow-400 border-yellow-500/40 bg-yellow-500/10",
     green: "text-green-400 border-green-500/40 bg-green-500/10",
+    blue: "text-blue-400 border-blue-500/40 bg-blue-500/10",
   };
 
   return (

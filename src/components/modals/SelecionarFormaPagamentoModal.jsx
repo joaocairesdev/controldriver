@@ -11,8 +11,9 @@ export default function SelecionarFormaPagamentoModal({
     <ModalBase
       aberto={aberto}
       titulo="Forma de pagamento"
-      descricao="Escolha como essa saída foi paga."
+      descricao="Escolha como essa saída foi paga ou será cobrada."
       onClose={onClose}
+      z="z-[300]"
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {formasPagamento.map((item) => {
@@ -33,6 +34,9 @@ export default function SelecionarFormaPagamentoModal({
               }`}
             >
               <p className="font-bold">{item.titulo}</p>
+              {item.descricao ? (
+                <p className="text-xs text-gray-400 mt-1">{item.descricao}</p>
+              ) : null}
             </button>
           );
         })}

@@ -51,8 +51,14 @@ export default function SaidaModal({
       titulo: "Crédito Parcelado",
       descricao: "Divide em 2x ou mais no cartão",
     },
-    { valor: "boleto", titulo: "Boleto", descricao: "Registra conta a pagar" },
+    { valor: "boleto", titulo: "Boleto", descricao: "Registra uma conta a pagar" },
+    { valor: "boleto_parcelado", titulo: "Boleto Parcelado", descricao: "Gera várias contas a pagar por vencimento" },
   ];
+
+  const formasPagamentoDisponiveis =
+    modo === "futura"
+      ? formasPagamento.filter((item) => ["boleto", "boleto_parcelado"].includes(item.valor))
+      : formasPagamento;
 
   const [contas, setContas] = useState([]);
   const [cartoes, setCartoes] = useState([]);
@@ -106,6 +112,9 @@ export default function SaidaModal({
     formaPagamento === "credito_avista" || formaPagamento === "credito_parcelado";
   const isCreditoParcelado = formaPagamento === "credito_parcelado";
   const isBoleto = formaPagamento === "boleto";
+  const isBoletoParcelado = formaPagamento === "boleto_parcelado";
+  const isContaPagar = isBoleto || isBoletoParcelado;
+  const isParcelado = isCreditoParcelado || isBoletoParcelado;
   const isDinheiro = formaPagamento === "dinheiro";
 
   const carteiraSelecionada = useMemo(
@@ -182,7 +191,7 @@ export default function SaidaModal({
   }, [isDinheiro, carteiraSelecionada]);
 
   useEffect(() => {
-    if (!isCreditoParcelado) return;
+    if (!isParcelado) return;
 
     const total = moedaParaNumero(valorTotal);
     const parcelas = Number(numeroParcelas || 1);
@@ -190,10 +199,10 @@ export default function SaidaModal({
     if (ultimoCampoEditado === "total" && total > 0 && parcelas > 0) {
       setValorParcela(numeroParaMoedaInput(total / parcelas));
     }
-  }, [valorTotal, numeroParcelas, isCreditoParcelado, ultimoCampoEditado]);
+  }, [valorTotal, numeroParcelas, isParcelado, ultimoCampoEditado]);
 
   useEffect(() => {
-    if (!isCreditoParcelado) return;
+    if (!isParcelado) return;
 
     const parcela = moedaParaNumero(valorParcela);
     const parcelas = Number(numeroParcelas || 1);
@@ -201,7 +210,7 @@ export default function SaidaModal({
     if (ultimoCampoEditado === "parcela" && parcela > 0 && parcelas > 0) {
       setValorTotal(numeroParaMoedaInput(parcela * parcelas));
     }
-  }, [valorParcela, numeroParcelas, isCreditoParcelado, ultimoCampoEditado]);
+  }, [valorParcela, numeroParcelas, isParcelado, ultimoCampoEditado]);
 
   async function carregarCategorias() {
     const fallback = categoriasPadrao.map((nome) => ({ id: null, nome, ativo: true }));
@@ -793,13 +802,13 @@ export default function SaidaModal({
   }
 
   function definirStatus() {
-    if (isBoleto) return "aberto";
+    if (isContaPagar) return "aberto";
     if (isCredito) return "fatura";
     return "pago";
   }
 
   function definirTipoMovimentacao() {
-    if (isBoleto) return "conta_pagar";
+    if (isContaPagar) return "conta_pagar";
     return "saida";
   }
 
@@ -833,6 +842,16 @@ export default function SaidaModal({
     const data = new Date(`${dataBase}T00:00:00`);
     data.setMonth(data.getMonth() + mesesParaSomar);
     return data;
+  }
+
+  function somarMesesISO(dataBase, mesesParaSomar) {
+    const data = somarMeses(dataBase, mesesParaSomar);
+    return data.toISOString().split("T")[0];
+  }
+
+  function descricaoParcelaBoleto(index, parcelas) {
+    const base = descricao.trim();
+    return `${base} (${index + 1}/${parcelas})`;
   }
 
   function calcularCompetenciaFatura(dataBase, cartao) {
@@ -987,8 +1006,8 @@ export default function SaidaModal({
   }
 
   function validarCampos() {
-    if ((!isBoleto && !dataCompra) || !categoria || !valorTotal) {
-      abrirFeedback("erro", "Campos obrigatórios", isBoleto ? "Preencha categoria e valor." : "Preencha data, categoria e valor.");
+    if ((!isContaPagar && !dataCompra) || !categoria || !valorTotal) {
+      abrirFeedback("erro", "Campos obrigatórios", isContaPagar ? "Preencha categoria e valor." : "Preencha data, categoria e valor.");
       return false;
     }
 
@@ -1011,18 +1030,23 @@ export default function SaidaModal({
       return false;
     }
 
-    if (!isCredito && !isBoleto && !contaId) {
+    if (!isCredito && !isContaPagar && !contaId) {
       abrirFeedback("erro", "Conta obrigatória", "Selecione uma conta.");
       return false;
     }
 
-    if (isBoleto && !dataVencimento) {
-      abrirFeedback("erro", "Vencimento obrigatório", "Informe a data de vencimento.");
+    if (isContaPagar && !dataVencimento) {
+      abrirFeedback("erro", "Vencimento obrigatório", isBoletoParcelado ? "Informe o primeiro vencimento." : "Informe a data de vencimento.");
       return false;
     }
 
     if (isCreditoParcelado && Number(numeroParcelas || 0) < 2) {
       abrirFeedback("erro", "Parcelamento inválido", "Crédito parcelado precisa começar em 2x.");
+      return false;
+    }
+
+    if (isBoletoParcelado && Number(numeroParcelas || 0) < 2) {
+      abrirFeedback("erro", "Parcelamento inválido", "Boleto parcelado precisa começar em 2x.");
       return false;
     }
 
@@ -1038,8 +1062,8 @@ export default function SaidaModal({
     if (!validarCampos()) return;
 
     const total = moedaParaNumero(valorTotal);
-    const parcelas = isCreditoParcelado ? Number(numeroParcelas || 2) : 1;
-    const parcelaValor = isCreditoParcelado ? moedaParaNumero(valorParcela) : total;
+    const parcelas = isParcelado ? Number(numeroParcelas || 2) : 1;
+    const parcelaValor = isParcelado ? moedaParaNumero(valorParcela) : total;
 
     if (isCredito) {
       const limiteOk = await verificarLimiteCartao(total);
@@ -1049,20 +1073,61 @@ export default function SaidaModal({
     setSalvando(true);
 
     try {
+      if (isBoletoParcelado) {
+        const parcelasPayload = Array.from({ length: parcelas }, (_, index) => {
+          const vencimento = somarMesesISO(dataVencimento, index);
+
+          return {
+            data_compra: vencimento,
+            forma_pagamento: "boleto_parcelado",
+            tipo_movimentacao: "conta_pagar",
+            conta_id: null,
+            cartao_id: null,
+            tipo_credito: null,
+            numero_parcelas: parcelas,
+            valor_total: parcelaValor,
+            valor_parcela: parcelaValor,
+            data_efetivacao: null,
+            data_vencimento: vencimento,
+            categoria,
+            categoria_id: categoriaId ? Number(categoriaId) : null,
+            finalidade,
+            descricao: descricaoParcelaBoleto(index, parcelas),
+            status: "aberto",
+          };
+        });
+
+        const { error: erroParcelasBoleto } = await supabase
+          .from("saidas")
+          .insert(parcelasPayload);
+
+        if (erroParcelasBoleto) throw erroParcelasBoleto;
+
+        abrirFeedback(
+          "sucesso",
+          "Boletos parcelados criados",
+          `${parcelas} contas a pagar foram geradas com sucesso.`,
+          true
+        );
+
+        resetarFormulario();
+        return;
+      }
+
       const { data: saidaCriada, error: erroSaida } = await supabase
         .from("saidas")
         .insert({
-          data_compra: isBoleto ? dataVencimento : dataCompra,
+          data_compra: isContaPagar ? dataVencimento : dataCompra,
           forma_pagamento: formaPagamento,
           tipo_movimentacao: definirTipoMovimentacao(),
-          conta_id: isCredito || isBoleto ? null : Number(contaId),
+          conta_id: isCredito || isContaPagar ? null : Number(contaId),
           cartao_id: isCredito ? Number(cartaoId) : null,
           tipo_credito: isCredito ? (isCreditoParcelado ? "parcelado" : "avista") : null,
           numero_parcelas: parcelas,
           valor_total: total,
           valor_parcela: parcelaValor,
-          data_efetivacao: isBoleto ? null : dataCompra,
-          data_vencimento: isBoleto ? dataVencimento : null,
+          data_efetivacao: isContaPagar ? null : dataCompra,
+          data_vencimento: isContaPagar ? dataVencimento : null,
           categoria,
           categoria_id: categoriaId ? Number(categoriaId) : null,
           finalidade,
@@ -1080,8 +1145,8 @@ export default function SaidaModal({
 
       abrirFeedback(
         "sucesso",
-        isBoleto ? "Despesa futura registrada" : "Despesa salva",
-        isBoleto
+        isContaPagar ? "Despesa futura registrada" : "Despesa salva",
+        isContaPagar
           ? "Conta a pagar registrada com sucesso. Ela ainda não alterou o saldo."
           : "Lançamento salvo com sucesso.",
         true
@@ -1186,7 +1251,7 @@ export default function SaidaModal({
         {etapa === "dados" && (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {!isBoleto && (
+              {!isContaPagar && (
                 <Campo label="Data da compra">
                   <ButtonField onClick={() => setModalDataAberto(true)}>
                     {formatarDataBR(dataCompra)}
@@ -1194,8 +1259,8 @@ export default function SaidaModal({
                 </Campo>
               )}
 
-              {isBoleto && (
-                <Campo label="Vencimento">
+              {isContaPagar && (
+                <Campo label={isBoletoParcelado ? "Primeiro vencimento" : "Vencimento"}>
                   <ButtonField onClick={() => setModalVencimentoAberto(true)}>
                     {formatarDataBR(dataVencimento)}
                   </ButtonField>
@@ -1203,15 +1268,9 @@ export default function SaidaModal({
               )}
 
               <Campo label="Forma de pagamento">
-                {modo === "futura" ? (
-                  <div className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 font-semibold">
-                    Boleto / Conta a pagar
-                  </div>
-                ) : (
-                  <ButtonField onClick={() => setModalPagamentoAberto(true)}>
-                    {textoFormaPagamento()}
-                  </ButtonField>
-                )}
+                <ButtonField onClick={() => setModalPagamentoAberto(true)}>
+                  {textoFormaPagamento()}
+                </ButtonField>
               </Campo>
 
               {!categoriaBloqueada && (
@@ -1230,7 +1289,7 @@ export default function SaidaModal({
                 </Campo>
               )}
 
-              {!isBoleto && (
+              {!isContaPagar && (
                 <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"}>
                   <ButtonField
                     onClick={() => {
@@ -1247,7 +1306,7 @@ export default function SaidaModal({
                 <input
                   type="text"
                   value={descricao}
-                  placeholder={isBoleto ? "Ex: conta de luz, condomínio, internet..." : "Ex: almoço, lavagem, seguro, IPVA..."}
+                  placeholder={isContaPagar ? "Ex: conta de luz, condomínio, internet..." : "Ex: almoço, lavagem, seguro, IPVA..."}
                   onChange={(e) => setDescricao(e.target.value)}
                   className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
                 />
@@ -1263,9 +1322,9 @@ export default function SaidaModal({
               </Campo>
             </div>
 
-            {isCreditoParcelado && (
+            {isParcelado && (
               <div className="mt-5 bg-[#0B1120] border border-gray-800 rounded-2xl p-4">
-                <p className="text-sm text-gray-300 font-semibold">Parcelamento</p>
+                <p className="text-sm text-gray-300 font-semibold">{isBoletoParcelado ? "Parcelamento do boleto" : "Parcelamento"}</p>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                   <Campo label="Quantidade de parcelas">
@@ -1289,11 +1348,13 @@ export default function SaidaModal({
               </div>
             )}
 
-            {isBoleto && (
+            {isContaPagar && (
               <div className="mt-5 bg-blue-500/10 border border-blue-500/30 rounded-2xl p-4">
-                <p className="text-sm text-blue-300 font-bold">Despesa futura</p>
+                <p className="text-sm text-blue-300 font-bold">{isBoletoParcelado ? "Boleto parcelado" : "Despesa futura"}</p>
                 <p className="text-xs text-gray-400 mt-2">
-                  Para contas futuras, o app usa apenas a data de vencimento. Ela aparece como conta a pagar e não altera o saldo até ser paga.
+                  {isBoletoParcelado
+                    ? "O app criará uma conta a pagar para cada parcela, usando o primeiro vencimento como base mensal."
+                    : "Para contas futuras, o app usa apenas a data de vencimento. Ela aparece como conta a pagar e não altera o saldo até ser paga."}
                 </p>
               </div>
             )}
@@ -1346,7 +1407,7 @@ export default function SaidaModal({
 
       <SelecionarFormaPagamentoModal
         aberto={modalPagamentoAberto}
-        formasPagamento={formasPagamento}
+        formasPagamento={formasPagamentoDisponiveis}
         formaPagamento={formaPagamento}
         onSelecionar={(valor) => {
           setFormaPagamento(valor);
@@ -1369,6 +1430,12 @@ export default function SaidaModal({
             setValorParcela("");
           }
 
+          if (valor === "boleto_parcelado") {
+            setContaId("");
+            setCartaoId("");
+            setNumeroParcelas((atual) => (Number(atual || 0) < 2 ? "2" : atual));
+          }
+
           if (valor === "dinheiro") {
             setCartaoId("");
             setNumeroParcelas("1");
@@ -1376,7 +1443,7 @@ export default function SaidaModal({
             if (carteiraSelecionada) setContaId(String(carteiraSelecionada.id));
           }
 
-          if (!["credito_avista", "credito_parcelado", "boleto"].includes(valor)) {
+          if (!["credito_avista", "credito_parcelado", "boleto", "boleto_parcelado"].includes(valor)) {
             setCartaoId("");
             setNumeroParcelas("1");
             setValorParcela("");

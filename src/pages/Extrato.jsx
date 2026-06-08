@@ -91,6 +91,7 @@ export default function Extrato() {
     debito: "Débito",
     dinheiro: "Dinheiro",
     boleto: "Boleto",
+    boleto_parcelado: "Boleto Parcelado",
     tag: "TAG",
   };
 
@@ -340,6 +341,7 @@ export default function Extrato() {
       debito: "Débito",
       dinheiro: "Dinheiro",
       boleto: "Boleto",
+      boleto_parcelado: "Boleto Parcelado",
       tag: "TAG",
       credito: "Cartão de crédito",
       credito_avista: "Crédito à Vista",
@@ -555,7 +557,7 @@ export default function Extrato() {
       if (erroTransferencia) throw erroTransferencia;
     }
 
-    if (lancamentoAlvo.tipo === "saida") {
+    if (["saida", "conta_pagar"].includes(lancamentoAlvo.tipo)) {
       const { data: saidaPagamento } = await supabase
         .from("saidas")
         .select("id, categoria, valor_total, fatura_pagamento_id")
