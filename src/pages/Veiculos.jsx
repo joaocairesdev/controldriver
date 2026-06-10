@@ -6,7 +6,7 @@ import VeiculoModal from "../components/modals/VeiculoModal";
 import SelecionarFormaPagamentoModal from "../components/modals/SelecionarFormaPagamentoModal";
 import SelecionarContaModal from "../components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../components/modals/SelecionarCartaoModal";
-import { FiArrowDown, FiArrowLeft, FiArrowUp, FiEdit2, FiStar, FiTag, FiTrash2, FiX } from "react-icons/fi";
+import { FiArrowDown, FiArrowLeft, FiArrowUp, FiEdit2, FiShield, FiStar, FiTag, FiTrash2, FiX } from "react-icons/fi";
 
 export default function Veiculos() {
   const [veiculos, setVeiculos] = useState([]);
@@ -58,6 +58,19 @@ export default function Veiculos() {
   const [modalContaRecargaTagAberto, setModalContaRecargaTagAberto] = useState(false);
   const [modalCartaoRecargaTagAberto, setModalCartaoRecargaTagAberto] = useState(false);
 
+  const [protecaoId, setProtecaoId] = useState(null);
+  const [tipoProtecaoVeiculo, setTipoProtecaoVeiculo] = useState("nenhuma");
+  const [nomeProtecaoVeiculo, setNomeProtecaoVeiculo] = useState("");
+  const [inicioVigenciaProtecao, setInicioVigenciaProtecao] = useState("");
+  const [fimVigenciaProtecao, setFimVigenciaProtecao] = useState("");
+  const [formaPagamentoProtecao, setFormaPagamentoProtecao] = useState("boleto_parcelado");
+  const [valorProtecao, setValorProtecao] = useState("");
+  const [numeroParcelasProtecao, setNumeroParcelasProtecao] = useState("12");
+  const [parcelasPagasProtecao, setParcelasPagasProtecao] = useState("0");
+  const [primeiroVencimentoProtecao, setPrimeiroVencimentoProtecao] = useState("");
+  const [contaProtecaoId, setContaProtecaoId] = useState("");
+  const [cartaoProtecaoId, setCartaoProtecaoId] = useState("");
+
   useEffect(() => {
     carregarTudo();
   }, []);
@@ -100,6 +113,16 @@ export default function Veiculos() {
     { valor: "pix", titulo: "Pix", descricao: "Recarga paga via Pix por uma conta bancária" },
   ];
 
+  const formasPagamentoProtecao = [
+    { valor: "pix", titulo: "Pix", descricao: "Lança como saída paga em conta" },
+    { valor: "debito", titulo: "Débito", descricao: "Lança como saída paga em conta" },
+    { valor: "dinheiro", titulo: "Dinheiro", descricao: "Lança como saída paga na carteira/conta escolhida" },
+    { valor: "credito_avista", titulo: "Crédito à vista", descricao: "Entra na próxima fatura do cartão" },
+    { valor: "credito_parcelado", titulo: "Crédito parcelado", descricao: "Gera as próximas parcelas nas faturas" },
+    { valor: "boleto", titulo: "Boleto", descricao: "Gera uma conta a pagar" },
+    { valor: "boleto_parcelado", titulo: "Boleto parcelado", descricao: "Gera parcelas em Contas a Pagar" },
+  ];
+
   function textoFormaRecargaTag(valor) {
     return formasRecargaTag.find((item) => item.valor === valor)?.titulo || "Selecionar forma";
   }
@@ -109,6 +132,20 @@ export default function Veiculos() {
   }
 
   function textoCartaoRecargaTag(id) {
+    const cartao = cartoes.find((item) => String(item.id) === String(id));
+    if (!cartao) return "Selecionar cartão";
+    return `${cartao.nome} final ${cartao.final_cartao || "-"}`;
+  }
+
+  function textoFormaPagamentoProtecao(valor) {
+    return formasPagamentoProtecao.find((item) => item.valor === valor)?.titulo || "Selecionar forma";
+  }
+
+  function textoContaProtecao(id) {
+    return contasBanco.find((conta) => String(conta.id) === String(id))?.nome || "Selecionar conta";
+  }
+
+  function textoCartaoProtecao(id) {
     const cartao = cartoes.find((item) => String(item.id) === String(id));
     if (!cartao) return "Selecionar cartão";
     return `${cartao.nome} final ${cartao.final_cartao || "-"}`;
@@ -288,6 +325,15 @@ export default function Veiculos() {
       }))
     );
 
+    const { data: protecoesData } = idsVeiculos.length
+      ? await supabase
+          .from("veiculos_protecoes")
+          .select("*")
+          .eq("ativo", true)
+          .in("veiculo_id", idsVeiculos)
+      : { data: [] };
+
+
     const veiculosComKm = await Promise.all(
       (veiculosData || []).map(async (veiculo) => {
         const { data: entradasData } = await supabase
@@ -305,10 +351,12 @@ export default function Veiculos() {
         const totalRodado = Math.max(kmAtual - kmInicial, 0);
         const kmPessoal = Math.max(totalRodado - kmTrabalho, 0);
         const tag = tagsComSaldo.find((item) => Number(item.veiculo_id) === Number(veiculo.id));
+        const protecao = (protecoesData || []).find((item) => Number(item.veiculo_id) === Number(veiculo.id));
 
         return {
           ...veiculo,
           tag,
+          protecao,
           km_trabalho_calculado: kmTrabalho,
           km_pessoal_calculado: kmPessoal,
           total_rodado_calculado: totalRodado,
@@ -347,9 +395,24 @@ export default function Veiculos() {
     setRecargaAutomaticaTag(false);
     setValorRecargaTag("");
     setPercentualGatilhoTag("30");
-    setFormaRecargaTag("credito");
+    setFormaRecargaTag("credito_avista");
     setContaRecargaTagId("");
     setCartaoRecargaTagId("");
+  }
+
+  function resetProtecao() {
+    setProtecaoId(null);
+    setTipoProtecaoVeiculo("nenhuma");
+    setNomeProtecaoVeiculo("");
+    setInicioVigenciaProtecao("");
+    setFimVigenciaProtecao("");
+    setFormaPagamentoProtecao("boleto_parcelado");
+    setValorProtecao("");
+    setNumeroParcelasProtecao("12");
+    setParcelasPagasProtecao("0");
+    setPrimeiroVencimentoProtecao("");
+    setContaProtecaoId("");
+    setCartaoProtecaoId("");
   }
 
   function abrirNovoVeiculo() {
@@ -361,6 +424,7 @@ export default function Veiculos() {
     setOdometroInicial("");
     setCategoriaVeiculo("flex");
     resetTag();
+    resetProtecao();
     setModalAberto(true);
   }
 
@@ -393,6 +457,23 @@ export default function Veiculos() {
       resetTag();
     }
 
+    if (veiculo.protecao) {
+      setProtecaoId(veiculo.protecao.id);
+      setTipoProtecaoVeiculo(veiculo.protecao.tipo_protecao || "seguro");
+      setNomeProtecaoVeiculo(veiculo.protecao.nome_protecao || "");
+      setInicioVigenciaProtecao(veiculo.protecao.inicio_vigencia || "");
+      setFimVigenciaProtecao(veiculo.protecao.fim_vigencia || "");
+      setFormaPagamentoProtecao(veiculo.protecao.forma_pagamento || "boleto_parcelado");
+      setValorProtecao(numeroParaMoedaInput(veiculo.protecao.valor_total || veiculo.protecao.valor_parcela || 0));
+      setNumeroParcelasProtecao(String(veiculo.protecao.numero_parcelas || 12));
+      setParcelasPagasProtecao(String(veiculo.protecao.parcelas_pagas || 0));
+      setPrimeiroVencimentoProtecao(veiculo.protecao.primeiro_vencimento_pendente || "");
+      setContaProtecaoId(veiculo.protecao.conta_id ? String(veiculo.protecao.conta_id) : "");
+      setCartaoProtecaoId(veiculo.protecao.cartao_id ? String(veiculo.protecao.cartao_id) : "");
+    } else {
+      resetProtecao();
+    }
+
     setModalAberto(true);
   }
 
@@ -406,6 +487,7 @@ export default function Veiculos() {
     setOdometroInicial("");
     setCategoriaVeiculo("flex");
     resetTag();
+    resetProtecao();
   }
 
   function nomeCategoria(valor) {
@@ -460,6 +542,67 @@ export default function Veiculos() {
           return;
         }
       }
+
+      if (tipoTag === "pos_paga") {
+        if (formaRecargaTag === "credito_avista" && !cartaoRecargaTagId) {
+          abrirAviso("Cartão da TAG", "Escolha o cartão onde a TAG pós-paga será cobrada.", "erro");
+          return;
+        }
+
+        if (["debito", "pix"].includes(formaRecargaTag) && !contaRecargaTagId) {
+          abrirAviso("Conta da TAG", "Escolha a conta onde a TAG pós-paga será cobrada.", "erro");
+          return;
+        }
+      }
+    }
+
+    if (tipoProtecaoVeiculo !== "nenhuma") {
+      if (!nomeProtecaoVeiculo.trim()) {
+        abrirAviso("Proteção do veículo", "Digite o nome da proteção.", "erro");
+        return;
+      }
+
+      if (!inicioVigenciaProtecao || !fimVigenciaProtecao) {
+        abrirAviso("Vigência da proteção", "Informe o início e o fim da vigência.", "erro");
+        return;
+      }
+
+      if (new Date(`${fimVigenciaProtecao}T00:00:00`) < new Date(`${inicioVigenciaProtecao}T00:00:00`)) {
+        abrirAviso("Vigência inválida", "O fim da vigência não pode ser anterior ao início.", "erro");
+        return;
+      }
+
+      if (moedaParaNumero(valorProtecao) <= 0) {
+        abrirAviso("Valor da proteção", "Informe o valor da proteção.", "erro");
+        return;
+      }
+
+      if (["credito_parcelado", "boleto_parcelado"].includes(formaPagamentoProtecao)) {
+        if (Number(numeroParcelasProtecao || 0) < 2) {
+          abrirAviso("Parcelamento inválido", "Informe pelo menos 2 parcelas.", "erro");
+          return;
+        }
+
+        if (Number(parcelasPagasProtecao || 0) > Number(numeroParcelasProtecao || 0)) {
+          abrirAviso("Parcelas pagas", "As parcelas pagas não podem ser maiores que o total de parcelas.", "erro");
+          return;
+        }
+      }
+
+      if (!primeiroVencimentoProtecao && Number(parcelasPagasProtecao || 0) < Number(numeroParcelasProtecao || 1)) {
+        abrirAviso("Próximo vencimento", "Informe o vencimento da próxima parcela em aberto.", "erro");
+        return;
+      }
+
+      if (["credito_avista", "credito_parcelado"].includes(formaPagamentoProtecao) && !cartaoProtecaoId) {
+        abrirAviso("Cartão obrigatório", "Escolha o cartão usado na proteção.", "erro");
+        return;
+      }
+
+      if (["pix", "debito", "dinheiro"].includes(formaPagamentoProtecao) && !contaProtecaoId) {
+        abrirAviso("Conta obrigatória", "Escolha a conta usada na proteção.", "erro");
+        return;
+      }
     }
 
     if (veiculoEditando) {
@@ -478,6 +621,372 @@ export default function Veiculos() {
     salvarVeiculoConfirmado();
   }
 
+
+  function ultimoDiaMesProtecao(ano, mes) {
+    return new Date(ano, mes, 0).getDate();
+  }
+
+  function dataComDiaSeguroProtecao(ano, mes, dia) {
+    const diaSeguro = Math.min(Number(dia || 1), ultimoDiaMesProtecao(ano, mes));
+    return `${ano}-${String(mes).padStart(2, "0")}-${String(diaSeguro).padStart(2, "0")}`;
+  }
+
+  function adicionarMesProtecao(ano, mes, quantidade) {
+    let novoMes = mes + quantidade;
+    let novoAno = ano;
+
+    while (novoMes > 12) {
+      novoMes -= 12;
+      novoAno += 1;
+    }
+
+    while (novoMes < 1) {
+      novoMes += 12;
+      novoAno -= 1;
+    }
+
+    return { mes: novoMes, ano: novoAno };
+  }
+
+  function somarMesesISO(dataISO, meses) {
+    const data = new Date(`${dataISO}T00:00:00`);
+    data.setMonth(data.getMonth() + meses);
+    return data.toISOString().split("T")[0];
+  }
+
+  function calcularCompetenciaFaturaProtecao(dataBase, cartao) {
+    const data = new Date(`${dataBase}T00:00:00`);
+    const diaCompra = data.getDate();
+    const diaFechamento = Number(cartao?.dia_fechamento || 1);
+    const diaVencimento = Number(cartao?.dia_vencimento || 1);
+
+    let mesFechamento = data.getMonth() + 1;
+    let anoFechamento = data.getFullYear();
+
+    if (diaCompra > diaFechamento) {
+      ({ mes: mesFechamento, ano: anoFechamento } = adicionarMesProtecao(
+        anoFechamento,
+        mesFechamento,
+        1
+      ));
+    }
+
+    let mes = mesFechamento;
+    let ano = anoFechamento;
+
+    if (diaVencimento < diaFechamento) {
+      ({ mes, ano } = adicionarMesProtecao(ano, mes, 1));
+    }
+
+    return { mes, ano, mesFechamento, anoFechamento };
+  }
+
+  async function buscarOuCriarFaturaProtecao({ cartao, dataBase }) {
+    const competencia = calcularCompetenciaFaturaProtecao(dataBase, cartao);
+    const dataFechamento = dataComDiaSeguroProtecao(
+      competencia.anoFechamento,
+      competencia.mesFechamento,
+      cartao.dia_fechamento
+    );
+    const dataVencimento = dataComDiaSeguroProtecao(
+      competencia.ano,
+      competencia.mes,
+      cartao.dia_vencimento
+    );
+
+    const { data: existente, error: erroBusca } = await supabase
+      .from("faturas_cartao")
+      .select("*")
+      .eq("cartao_id", Number(cartao.id))
+      .eq("mes", competencia.mes)
+      .eq("ano", competencia.ano)
+      .maybeSingle();
+
+    if (erroBusca) throw erroBusca;
+    if (existente) return existente;
+
+    const { data, error } = await supabase
+      .from("faturas_cartao")
+      .insert({
+        cartao_id: Number(cartao.id),
+        mes: competencia.mes,
+        ano: competencia.ano,
+        data_fechamento: dataFechamento,
+        data_vencimento: dataVencimento,
+        valor_total: 0,
+        valor_pago: 0,
+        status: "aberta",
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async function atualizarValorFaturaProtecao(faturaId, valorSomar) {
+    const { data, error } = await supabase
+      .from("faturas_cartao")
+      .select("valor_total")
+      .eq("id", faturaId)
+      .single();
+
+    if (error) throw error;
+
+    const { error: erroUpdate } = await supabase
+      .from("faturas_cartao")
+      .update({ valor_total: Number(data.valor_total || 0) + Number(valorSomar || 0) })
+      .eq("id", faturaId);
+
+    if (erroUpdate) throw erroUpdate;
+  }
+
+  async function buscarCategoriaSeguroId() {
+    const { data } = await supabase
+      .from("categorias")
+      .select("id")
+      .eq("nome", "Seguro")
+      .maybeSingle();
+
+    return data?.id || null;
+  }
+
+  async function gerarLancamentosProtecao(veiculoId, protecao, nomeVeiculo) {
+    if (protecao.lancamentos_gerados) return;
+
+    const categoriaId = await buscarCategoriaSeguroId();
+    const forma = protecao.forma_pagamento;
+    const totalParcelas = Number(protecao.numero_parcelas || 1);
+    const pagas = Math.min(Number(protecao.parcelas_pagas || 0), totalParcelas);
+    const restantes = Math.max(totalParcelas - pagas, 0);
+
+    if (restantes <= 0) {
+      await supabase
+        .from("veiculos_protecoes")
+        .update({ lancamentos_gerados: true })
+        .eq("id", protecao.id);
+      return;
+    }
+
+    const valorTotal = Number(protecao.valor_total || 0);
+    const valorParcela = Number(protecao.valor_parcela || valorTotal / Math.max(totalParcelas, 1));
+    const descricaoBase = `${protecao.tipo_protecao === "protecao_veicular" ? "Proteção veicular" : "Seguro"} - ${protecao.nome_protecao} - ${nomeVeiculo}`;
+
+    if (forma === "boleto_parcelado") {
+      for (let i = 0; i < restantes; i++) {
+        const numeroParcela = pagas + i + 1;
+        const vencimento = somarMesesISO(protecao.primeiro_vencimento_pendente, i);
+
+        await supabase.from("saidas").insert({
+          data_compra: protecao.inicio_vigencia,
+          forma_pagamento: "boleto_parcelado",
+          tipo_movimentacao: "conta_pagar",
+          conta_id: null,
+          cartao_id: null,
+          tipo_credito: null,
+          numero_parcelas: totalParcelas,
+          valor_total: valorParcela,
+          valor_parcela: valorParcela,
+          data_efetivacao: null,
+          data_vencimento: vencimento,
+          categoria: "Seguro",
+          categoria_id: categoriaId,
+          finalidade: "trabalho",
+          descricao: `${descricaoBase} (${numeroParcela}/${totalParcelas})`,
+          status: "aberto",
+        });
+      }
+    }
+
+    if (forma === "boleto") {
+      await supabase.from("saidas").insert({
+        data_compra: protecao.inicio_vigencia,
+        forma_pagamento: "boleto",
+        tipo_movimentacao: "conta_pagar",
+        conta_id: null,
+        cartao_id: null,
+        tipo_credito: null,
+        numero_parcelas: 1,
+        valor_total: valorParcela * restantes,
+        valor_parcela: valorParcela * restantes,
+        data_efetivacao: null,
+        data_vencimento: protecao.primeiro_vencimento_pendente,
+        categoria: "Seguro",
+        categoria_id: categoriaId,
+        finalidade: "trabalho",
+        descricao: `${descricaoBase} - saldo em aberto`,
+        status: "aberto",
+      });
+    }
+
+    if (forma === "credito_parcelado" || forma === "credito_avista") {
+      const cartao = cartoes.find((item) => String(item.id) === String(protecao.cartao_id));
+      if (!cartao) throw new Error("Cartão da proteção não encontrado.");
+
+      const parcelasCredito = forma === "credito_avista" ? 1 : restantes;
+      const valorCredito = forma === "credito_avista" ? valorParcela * restantes : valorParcela;
+
+      const { data: saidaCriada, error: erroSaida } = await supabase
+        .from("saidas")
+        .insert({
+          data_compra: protecao.primeiro_vencimento_pendente || protecao.inicio_vigencia,
+          forma_pagamento: forma,
+          tipo_movimentacao: "saida",
+          conta_id: null,
+          cartao_id: Number(protecao.cartao_id),
+          tipo_credito: forma === "credito_parcelado" ? "parcelado" : "avista",
+          numero_parcelas: parcelasCredito,
+          valor_total: forma === "credito_avista" ? valorCredito : valorCredito * parcelasCredito,
+          valor_parcela: valorCredito,
+          data_efetivacao: null,
+          data_vencimento: null,
+          categoria: "Seguro",
+          categoria_id: categoriaId,
+          finalidade: "trabalho",
+          descricao: forma === "credito_avista" ? `${descricaoBase} - crédito à vista` : descricaoBase,
+          status: "fatura",
+        })
+        .select()
+        .single();
+
+      if (erroSaida) throw erroSaida;
+
+      const parcelasPayload = [];
+
+      for (let i = 0; i < parcelasCredito; i++) {
+        const dataBase = somarMesesISO(protecao.primeiro_vencimento_pendente || protecao.inicio_vigencia, i);
+        const fatura = await buscarOuCriarFaturaProtecao({ cartao, dataBase });
+        await atualizarValorFaturaProtecao(fatura.id, valorCredito);
+
+        parcelasPayload.push({
+          saida_id: saidaCriada.id,
+          cartao_id: Number(protecao.cartao_id),
+          fatura_id: fatura.id,
+          numero_parcela: forma === "credito_avista" ? 1 : pagas + i + 1,
+          total_parcelas: totalParcelas,
+          valor_parcela: valorCredito,
+          data_vencimento: fatura.data_vencimento,
+          status: "pendente",
+        });
+      }
+
+      if (parcelasPayload.length) {
+        const { error: erroParcelas } = await supabase
+          .from("saidas_parcelas")
+          .insert(parcelasPayload);
+
+        if (erroParcelas) throw erroParcelas;
+      }
+    }
+
+    if (["pix", "debito", "dinheiro"].includes(forma)) {
+      await supabase.from("saidas").insert({
+        data_compra: protecao.primeiro_vencimento_pendente || new Date().toISOString().split("T")[0],
+        forma_pagamento: forma,
+        tipo_movimentacao: "saida",
+        conta_id: Number(protecao.conta_id),
+        cartao_id: null,
+        tipo_credito: null,
+        numero_parcelas: 1,
+        valor_total: valorParcela * restantes,
+        valor_parcela: valorParcela * restantes,
+        data_efetivacao: protecao.primeiro_vencimento_pendente || new Date().toISOString().split("T")[0],
+        data_vencimento: null,
+        categoria: "Seguro",
+        categoria_id: categoriaId,
+        finalidade: "trabalho",
+        descricao: `${descricaoBase} - pagamento lançado`,
+        status: "pago",
+      });
+    }
+
+    await supabase
+      .from("veiculos_protecoes")
+      .update({ lancamentos_gerados: true })
+      .eq("id", protecao.id);
+  }
+
+  async function salvarProtecaoDoVeiculo(veiculoId, nomeVeiculo) {
+    if (tipoProtecaoVeiculo === "nenhuma") {
+      if (protecaoId) {
+        await supabase
+          .from("veiculos_protecoes")
+          .update({ ativo: false })
+          .eq("id", protecaoId);
+      }
+      return;
+    }
+
+    const totalParcelas = ["credito_parcelado", "boleto_parcelado"].includes(formaPagamentoProtecao)
+      ? Number(numeroParcelasProtecao || 1)
+      : 1;
+    const parcelasPagas = Math.min(Number(parcelasPagasProtecao || 0), totalParcelas);
+    const valorInformado = moedaParaNumero(valorProtecao);
+    const valorParcela = ["credito_parcelado", "boleto_parcelado"].includes(formaPagamentoProtecao)
+      ? valorInformado
+      : valorInformado;
+    const valorTotal = ["credito_parcelado", "boleto_parcelado"].includes(formaPagamentoProtecao)
+      ? valorParcela * totalParcelas
+      : valorInformado;
+
+    const payload = {
+      veiculo_id: Number(veiculoId),
+      tipo_protecao: "protecao_veicular",
+      nome_protecao: nomeProtecaoVeiculo.trim(),
+      inicio_vigencia: inicioVigenciaProtecao,
+      fim_vigencia: fimVigenciaProtecao,
+      forma_pagamento: formaPagamentoProtecao,
+      valor_total: valorTotal,
+      valor_parcela: valorParcela,
+      numero_parcelas: totalParcelas,
+      parcelas_pagas: parcelasPagas,
+      primeiro_vencimento_pendente: parcelasPagas < totalParcelas ? primeiroVencimentoProtecao : null,
+      conta_id: ["pix", "debito", "dinheiro"].includes(formaPagamentoProtecao) ? Number(contaProtecaoId) : null,
+      cartao_id: ["credito_avista", "credito_parcelado"].includes(formaPagamentoProtecao) ? Number(cartaoProtecaoId) : null,
+      ativo: true,
+    };
+
+    if (protecaoId) {
+      const { error } = await supabase
+        .from("veiculos_protecoes")
+        .update(payload)
+        .eq("id", protecaoId);
+
+      if (error) throw error;
+      return;
+    }
+
+    const { data: existente } = await supabase
+      .from("veiculos_protecoes")
+      .select("*")
+      .eq("veiculo_id", veiculoId)
+      .eq("ativo", true)
+      .maybeSingle();
+
+    if (existente) {
+      const { data, error } = await supabase
+        .from("veiculos_protecoes")
+        .update(payload)
+        .eq("id", existente.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      await gerarLancamentosProtecao(veiculoId, data, nomeVeiculo);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("veiculos_protecoes")
+      .insert(payload)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    await gerarLancamentosProtecao(veiculoId, data, nomeVeiculo);
+  }
+
   async function salvarTagDoVeiculo(veiculoId, nomeVeiculo) {
     if (!possuiTag) {
       if (tagId) {
@@ -492,7 +1001,7 @@ export default function Veiculos() {
       veiculo_id: Number(veiculoId),
       tipo_tag: tipoTag,
       saldo_inicial: moedaParaNumero(saldoInicialTag),
-      permitir_saldo_negativo: tipoTag === "pre_paga",
+      permitir_saldo_negativo: true,
       limite_cheque_especial: 0,
       recarga_automatica: tipoTag === "pre_paga" ? recargaAutomaticaTag : false,
       valor_recarga_automatica:
@@ -500,13 +1009,17 @@ export default function Veiculos() {
       percentual_alerta_recarga:
         tipoTag === "pre_paga" && recargaAutomaticaTag ? Number(percentualGatilhoTag || 30) : 30,
       tag_forma_recarga:
-        tipoTag === "pre_paga" && recargaAutomaticaTag ? formaRecargaTag : null,
+        tipoTag === "pos_paga" || (tipoTag === "pre_paga" && recargaAutomaticaTag)
+          ? formaRecargaTag
+          : null,
       tag_conta_recarga_id:
-        tipoTag === "pre_paga" && recargaAutomaticaTag && ["debito", "pix"].includes(formaRecargaTag)
+        (tipoTag === "pos_paga" || (tipoTag === "pre_paga" && recargaAutomaticaTag)) &&
+        ["debito", "pix"].includes(formaRecargaTag)
           ? Number(contaRecargaTagId)
           : null,
       tag_cartao_recarga_id:
-        tipoTag === "pre_paga" && recargaAutomaticaTag && formaRecargaTag === "credito_avista"
+        (tipoTag === "pos_paga" || (tipoTag === "pre_paga" && recargaAutomaticaTag)) &&
+        formaRecargaTag === "credito_avista"
           ? Number(cartaoRecargaTagId)
           : null,
       ativo: true,
@@ -595,6 +1108,7 @@ export default function Veiculos() {
 
       try {
         await salvarTagDoVeiculo(veiculoEditando.id, nomeGerado);
+        await salvarProtecaoDoVeiculo(veiculoEditando.id, nomeGerado);
       } catch (errorTag) {
         console.error(errorTag);
         abrirAviso("Erro", "Veículo salvo, mas houve erro ao salvar a TAG.", "erro");
@@ -628,6 +1142,7 @@ export default function Veiculos() {
 
       try {
         await salvarTagDoVeiculo(veiculoReativado.id, nomeGerado);
+        await salvarProtecaoDoVeiculo(veiculoReativado.id, nomeGerado);
       } catch (errorTag) {
         console.error(errorTag);
         abrirAviso("Erro", "Veículo reativado, mas houve erro ao salvar a TAG.", "erro");
@@ -660,6 +1175,7 @@ export default function Veiculos() {
 
     try {
       await salvarTagDoVeiculo(novoVeiculo.id, nomeGerado);
+      await salvarProtecaoDoVeiculo(novoVeiculo.id, nomeGerado);
     } catch (errorTag) {
       console.error(errorTag);
       abrirAviso("Erro", "Veículo criado, mas houve erro ao salvar a TAG.", "erro");
@@ -959,6 +1475,13 @@ export default function Veiculos() {
                     <span>TAG {veiculo.tag.nome}</span>
                   </div>
                 )}
+
+                {veiculo.protecao && (
+                  <div className="inline-flex items-center gap-1.5 rounded-full bg-purple-500/20 text-purple-300 text-xs font-bold px-3 py-1">
+                    <FiShield className="w-3 h-3" />
+                    <span>Proteção ativa</span>
+                  </div>
+                )}
               </div>
 
               <div className="mt-7 grid grid-cols-2 gap-4">
@@ -1053,6 +1576,32 @@ export default function Veiculos() {
         formatarMoedaDigitada={formatarMoedaDigitada}
         moedaParaNumero={moedaParaNumero}
         somenteNumeros={somenteNumeros}
+        tipoProtecaoVeiculo={tipoProtecaoVeiculo}
+        setTipoProtecaoVeiculo={setTipoProtecaoVeiculo}
+        nomeProtecaoVeiculo={nomeProtecaoVeiculo}
+        setNomeProtecaoVeiculo={setNomeProtecaoVeiculo}
+        inicioVigenciaProtecao={inicioVigenciaProtecao}
+        setInicioVigenciaProtecao={setInicioVigenciaProtecao}
+        fimVigenciaProtecao={fimVigenciaProtecao}
+        setFimVigenciaProtecao={setFimVigenciaProtecao}
+        formaPagamentoProtecao={formaPagamentoProtecao}
+        setFormaPagamentoProtecao={setFormaPagamentoProtecao}
+        valorProtecao={valorProtecao}
+        setValorProtecao={setValorProtecao}
+        numeroParcelasProtecao={numeroParcelasProtecao}
+        setNumeroParcelasProtecao={setNumeroParcelasProtecao}
+        parcelasPagasProtecao={parcelasPagasProtecao}
+        setParcelasPagasProtecao={setParcelasPagasProtecao}
+        primeiroVencimentoProtecao={primeiroVencimentoProtecao}
+        setPrimeiroVencimentoProtecao={setPrimeiroVencimentoProtecao}
+        contaProtecaoId={contaProtecaoId}
+        setContaProtecaoId={setContaProtecaoId}
+        cartaoProtecaoId={cartaoProtecaoId}
+        setCartaoProtecaoId={setCartaoProtecaoId}
+        formasPagamentoProtecao={formasPagamentoProtecao}
+        textoFormaPagamentoProtecao={textoFormaPagamentoProtecao}
+        textoContaProtecao={textoContaProtecao}
+        textoCartaoProtecao={textoCartaoProtecao}
       />
 
       {modalKmInicialAberto && (
@@ -1183,6 +1732,10 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
           <ResumoCard titulo="Uso pessoal" valor={`${kmPessoal.toLocaleString("pt-BR")} km`} />
         </div>
       </div>
+
+      {veiculo.protecao && (
+        <ProtecaoVeiculoCard protecao={veiculo.protecao} formatarMoeda={formatarMoeda} />
+      )}
 
       {tag && modalTagAberto && (
         <ModalDetalhesTag
@@ -1475,6 +2028,70 @@ function ModalDetalhesTag({ tag, formatarMoeda, fechar, configurar, recarregar }
       </div>
     </div>
   );
+}
+
+
+function ProtecaoVeiculoCard({ protecao, formatarMoeda }) {
+  const inicio = formatarDataBRLocal(protecao.inicio_vigencia);
+  const fim = formatarDataBRLocal(protecao.fim_vigencia);
+  const pagas = Number(protecao.parcelas_pagas || 0);
+  const total = Number(protecao.numero_parcelas || 1);
+  const restantes = Math.max(total - pagas, 0);
+  const nomeTipo = protecao.tipo_protecao === "protecao_veicular" ? "Proteção veicular" : "Seguro";
+
+  return (
+    <div className="mt-8 bg-[#111827] border border-purple-500/30 rounded-2xl p-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full bg-purple-500/20 text-purple-300 text-xs font-bold px-3 py-1">
+            <FiShield className="w-3 h-3" />
+            {nomeTipo}
+          </div>
+
+          <h2 className="text-xl font-bold mt-3">{protecao.nome_protecao}</h2>
+          <p className="text-sm text-gray-400 mt-1">
+            Vigência: {inicio} até {fim}
+          </p>
+        </div>
+
+        <div className="sm:text-right">
+          <p className="text-xs text-gray-500">Parcelas</p>
+          <p className="text-lg font-black text-white">
+            {pagas}/{total} pagas
+          </p>
+          <p className="text-xs text-gray-400">
+            {restantes} em aberto
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <MiniInfoTag titulo="Valor da parcela" valor={formatarMoeda(protecao.valor_parcela || protecao.valor_total)} />
+        <MiniInfoTag titulo="Forma de pagamento" valor={textoFormaProtecaoLocal(protecao.forma_pagamento)} />
+        <MiniInfoTag titulo="Próximo vencimento" valor={formatarDataBRLocal(protecao.primeiro_vencimento_pendente)} />
+      </div>
+    </div>
+  );
+}
+
+function formatarDataBRLocal(dataISO) {
+  if (!dataISO) return "-";
+  const [ano, mes, dia] = String(dataISO).split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+
+function textoFormaProtecaoLocal(valor) {
+  const nomes = {
+    pix: "Pix",
+    debito: "Débito",
+    dinheiro: "Dinheiro",
+    credito_avista: "Crédito à vista",
+    credito_parcelado: "Crédito parcelado",
+    boleto: "Boleto",
+    boleto_parcelado: "Boleto parcelado",
+  };
+
+  return nomes[valor] || valor || "-";
 }
 
 function MiniInfoTag({ titulo, valor }) {

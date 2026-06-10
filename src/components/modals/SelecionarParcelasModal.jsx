@@ -1,5 +1,6 @@
 import { useState } from "react";
 import ModalBase from "./ModalBase";
+import FeedbackModal from "./FeedbackModal";
 
 export default function SelecionarParcelasModal({
   aberto,
@@ -9,6 +10,12 @@ export default function SelecionarParcelasModal({
 }) {
   const [mostrarOutra, setMostrarOutra] = useState(false);
   const [valorManual, setValorManual] = useState("");
+  const [feedback, setFeedback] = useState({
+    aberto: false,
+    tipo: "erro",
+    titulo: "",
+    mensagem: "",
+  });
 
   const parcelas = Array.from({ length: 11 }, (_, index) => index + 2);
 
@@ -16,7 +23,12 @@ export default function SelecionarParcelasModal({
     const numero = Number(valorManual);
 
     if (!numero || numero < 2) {
-      alert("Informe uma quantidade válida de parcelas.");
+      setFeedback({
+        aberto: true,
+        tipo: "erro",
+        titulo: "Parcelas inválidas",
+        mensagem: "Informe uma quantidade válida de parcelas.",
+      });
       return;
     }
 
@@ -27,7 +39,8 @@ export default function SelecionarParcelasModal({
   }
 
   return (
-    <ModalBase
+    <>
+      <ModalBase
       aberto={aberto}
       titulo="Quantidade de parcelas"
       descricao="Escolha em quantas vezes foi feita a compra."
@@ -106,6 +119,17 @@ export default function SelecionarParcelasModal({
           </div>
         </div>
       )}
-    </ModalBase>
+      </ModalBase>
+
+      <FeedbackModal
+        aberto={feedback.aberto}
+        tipo={feedback.tipo}
+        titulo={feedback.titulo}
+        mensagem={feedback.mensagem}
+        onClose={() =>
+          setFeedback({ aberto: false, tipo: "erro", titulo: "", mensagem: "" })
+        }
+      />
+    </>
   );
 }

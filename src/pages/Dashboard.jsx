@@ -304,7 +304,7 @@ export default function Dashboard() {
     }, criarMetricasVazias());
 
 
-    const metaPeriodo = calcularMetaPeriodo(metaAtiva, periodo, {
+    const metaPeriodo = await calcularMetaPeriodo(metaAtiva, periodo, {
       dataSelecionada,
       semanaSelecionada,
       mesSelecionado,
@@ -762,101 +762,305 @@ function dataISO(date) {
   return date.toISOString().split("T")[0];
 }
 
-function calcularMetaPeriodo(meta, periodo, filtros) {
+
+async function calcularMetaPeriodo(meta, periodo, filtros) {
   if (!meta) return 0;
 
-  const metas = calcularMetas(meta);
+  const hojeTexto = dataISO(new Date());
 
-  if (periodo === "dia") return metas.diaria;
-  if (periodo === "semana") return metas.semanal;
-  if (periodo === "mes") return metas.mensal;
-  if (periodo === "ano") return metas.anual;
+  if (periodo === "dia") {
+    const dataRef = filtros?.dataSelecionada || hojeTexto;
+    if (dataRef === hojeTexto) {
+      return calcularMetaNecessariaHoje(meta, dataRef);
+    }
+  }
+
+  const { inicio, fim } = intervaloPorFiltros(periodo, filtros);
+  return calcularMetaPlanejadaPeriodo(meta, inicio, fim);
+}
+
+function intervaloPorFiltros(periodo, filtros) {
+  const hoje = new Date();
+  const ano = Number(filtros?.anoSelecionado || hoje.getFullYear());
+
+  if (periodo === "dia") {
+    return { inicio: filtros.dataSelecionada, fim: filtros.dataSelecionada };
+  }
+
+  if (periodo === "semana") {
+    return pegarSemanaPorNumero(ano, Number(filtros?.semanaSelecionada || getSemanaDoAno(hoje)));
+  }
+
+  if (periodo === "mes") {
+    const mes = Number(filtros?.mesSelecionado || hoje.getMonth() + 1);
+    return {
+      inicio: `${ano}-${String(mes).padStart(2, "0")}-01`,
+      fim: dataISO(new Date(ano, mes, 0)),
+    };
+  }
+
+  return { inicio: `${ano}-01-01`, fim: `${ano}-12-31` };
+}
+
+async function calcularMetaNecessariaHoje(meta, hojeTexto) {
+  if (!meta) return 0;
+
+  const valor = Number(meta.valor_base || 0);
+  if (valor <= 0) return 0;
+
+  if (meta.tipo === "diaria") return valor;
+
+  const periodo = periodoBaseMeta(meta, hojeTexto);
+  if (!periodo) return 0;
+
+  const inicioCalculo = maiorData(periodo.inicio, meta.data_inicio || periodo.inicio);
+  const ontem = adicionarDiasISO(hojeTexto, -1);
+  const realizadoAntesHoje = inicioCalculo <= ontem ? await buscarTotalEntradasDashboard(inicioCalculo, ontem) : 0;
+  const metaPeriodo = metaValorPeriodoBase(meta, periodo.inicio, periodo.fim);
+  const restante = Math.max(metaPeriodo - realizadoAntesHoje, 0);
+  const diasRestantes = diasTrabalhoNoPeriodo(meta, hojeTexto, periodo.fim);
+
+  return diasRestantes.length > 0 ? restante / diasRestantes.length : restante;
+}
+
+function calcularMetaPlanejadaPeriodo(meta, inicio, fim) {
+  if (!meta || !inicio || !fim || inicio > fim) return 0;
+
+  const valor = Number(meta.valor_base || 0);
+  if (valor <= 0) return 0;
+
+  const inicioConsiderado = maiorData(inicio, meta.data_inicio || inicio);
+  if (inicioConsiderado > fim) return 0;
+
+  if (meta.tipo === "diaria") {
+    return valor * contarDiasCalendario(inicioConsiderado, fim);
+  }
+
+  if (meta.tipo === "semanal") {
+    return somarMetaSemanalNoIntervalo(meta, inicioConsiderado, fim);
+  }
+
+  if (meta.tipo === "mensal") {
+    return somarMetaMensalNoIntervalo(meta, inicioConsiderado, fim);
+  }
+
+  if (meta.tipo === "anual") {
+    return somarMetaAnualNoIntervalo(meta, inicioConsiderado, fim);
+  }
 
   return 0;
 }
 
-function calcularMetas(meta) {
-  if (!meta) return { diaria: 0, semanal: 0, mensal: 0, anual: 0 };
-
-  const inicio = dataInicioMeta(meta);
-  const fimMes = dataFimMesDaMeta(meta);
-  const diasTrabalho = diasTrabalhoValidos(meta).length || 1;
-  const diasPeriodoMes = Math.max(diferencaDias(inicio, fimMes), 1);
-  const semanasPeriodoMes = Math.max(diasPeriodoMes / 7, 1);
-  const mediaDiasPorSemana = Math.max(diasTrabalho / semanasPeriodoMes, 1);
-  const valor = Number(meta.valor_base || 0);
-  const mesesAno = mesesRestantesAno(meta);
-
-  if (meta.tipo === "diaria") {
-    const diaria = valor;
-    return {
-      diaria,
-      semanal: diaria * mediaDiasPorSemana,
-      mensal: diaria * diasTrabalho,
-      anual: diaria * diasTrabalho * mesesAno,
-    };
-  }
+function periodoBaseMeta(meta, dataRef) {
+  const data = new Date(`${dataRef}T00:00:00`);
 
   if (meta.tipo === "semanal") {
-    const semanal = valor;
-    const diaria = semanal / mediaDiasPorSemana;
-    const mensal = diaria * diasTrabalho;
-    return { diaria, semanal, mensal, anual: mensal * mesesAno };
+    const inicio = inicioSemanaISOGlobal(dataRef);
+    return { inicio, fim: adicionarDiasISO(inicio, 6) };
+  }
+
+  if (meta.tipo === "mensal") {
+    const ano = data.getFullYear();
+    const mes = data.getMonth() + 1;
+    return {
+      inicio: `${ano}-${String(mes).padStart(2, "0")}-01`,
+      fim: dataISO(new Date(ano, mes, 0)),
+    };
   }
 
   if (meta.tipo === "anual") {
-    const anual = valor;
-    const mensal = anual / mesesAno;
-    return {
-      diaria: mensal / diasTrabalho,
-      semanal: mensal / semanasPeriodoMes,
-      mensal,
-      anual,
-    };
+    const ano = data.getFullYear();
+    return { inicio: `${ano}-01-01`, fim: `${ano}-12-31` };
   }
 
-  const mensal = valor;
-  return {
-    diaria: mensal / diasTrabalho,
-    semanal: mensal / semanasPeriodoMes,
-    mensal,
-    anual: mensal * mesesAno,
-  };
+  return { inicio: dataRef, fim: dataRef };
 }
 
-function dataInicioMeta(meta) {
-  if (meta?.data_inicio) return meta.data_inicio;
-  const ano = Number(meta?.ano || new Date().getFullYear());
-  const mes = Number(meta?.mes || new Date().getMonth() + 1);
-  return `${ano}-${String(mes).padStart(2, "0")}-01`;
+function metaValorPeriodoBase(meta, inicio, fim) {
+  if (meta.tipo === "semanal") return Number(meta.valor_base || 0);
+  if (meta.tipo === "mensal") return Number(meta.valor_base || 0);
+  if (meta.tipo === "anual") return Number(meta.valor_base || 0);
+  return calcularMetaPlanejadaPeriodo(meta, inicio, fim);
 }
 
-function dataFimMesDaMeta(meta) {
-  const ano = Number(meta?.ano || new Date().getFullYear());
-  const mes = Number(meta?.mes || new Date().getMonth() + 1);
-  const ultimoDia = new Date(ano, mes, 0).getDate();
-  return `${ano}-${String(mes).padStart(2, "0")}-${String(ultimoDia).padStart(2, "0")}`;
+function somarMetaSemanalNoIntervalo(meta, inicio, fim) {
+  const semanas = semanasEntre(inicio, fim);
+  return semanas.reduce((total, semana) => {
+    const diasSemanaCheia = diasTrabalhoNoPeriodo(meta, semana.inicio, semana.fim).length || 1;
+    const inicioCorte = maiorData(inicio, semana.inicio);
+    const fimCorte = menorData(fim, semana.fim);
+    const diasNoCorte = diasTrabalhoNoPeriodo(meta, inicioCorte, fimCorte).length;
+    return total + Number(meta.valor_base || 0) * (diasNoCorte / diasSemanaCheia);
+  }, 0);
 }
 
-function diferencaDias(inicioISO, fimISO) {
-  const inicio = new Date(`${inicioISO}T00:00:00`);
-  const fim = new Date(`${fimISO}T00:00:00`);
-  return Math.max(Math.floor((fim - inicio) / 86400000) + 1, 0);
+function somarMetaMensalNoIntervalo(meta, inicio, fim) {
+  const meses = mesesEntre(inicio, fim);
+  return meses.reduce((total, mesRef) => {
+    const inicioMes = `${mesRef.ano}-${String(mesRef.mes).padStart(2, "0")}-01`;
+    const fimMes = dataISO(new Date(mesRef.ano, mesRef.mes, 0));
+    const diasMesCheio = diasTrabalhoNoPeriodo(meta, inicioMes, fimMes).length || 1;
+    const inicioCorte = maiorData(inicio, inicioMes);
+    const fimCorte = menorData(fim, fimMes);
+    const diasNoCorte = diasTrabalhoNoPeriodo(meta, inicioCorte, fimCorte).length;
+    return total + Number(meta.valor_base || 0) * (diasNoCorte / diasMesCheio);
+  }, 0);
 }
 
-function mesesRestantesAno(meta) {
-  const inicio = new Date(`${dataInicioMeta(meta)}T00:00:00`);
-  return Math.max(12 - inicio.getMonth(), 1);
+function somarMetaAnualNoIntervalo(meta, inicio, fim) {
+  const anos = anosEntre(inicio, fim);
+  return anos.reduce((total, ano) => {
+    const inicioAno = `${ano}-01-01`;
+    const fimAno = `${ano}-12-31`;
+    const diasAnoCheio = diasTrabalhoNoPeriodo(meta, inicioAno, fimAno).length || 1;
+    const inicioCorte = maiorData(inicio, inicioAno);
+    const fimCorte = menorData(fim, fimAno);
+    const diasNoCorte = diasTrabalhoNoPeriodo(meta, inicioCorte, fimCorte).length;
+    return total + Number(meta.valor_base || 0) * (diasNoCorte / diasAnoCheio);
+  }, 0);
 }
 
-function diasTrabalhoValidos(meta) {
-  const dias = meta?.dias_trabalho || [];
-  const inicio = new Date(`${dataInicioMeta(meta)}T00:00:00`);
-  const mesInicio = inicio.getMonth() + 1;
-  const anoInicio = inicio.getFullYear();
+function diasTrabalhoNoPeriodo(meta, inicio, fim) {
+  if (!inicio || !fim || inicio > fim) return [];
 
-  if (Number(meta?.mes) !== mesInicio || Number(meta?.ano) !== anoInicio) return dias;
-  return dias.filter((dia) => Number(dia) >= inicio.getDate());
+  const dias = [];
+  const data = new Date(`${inicio}T00:00:00`);
+  const fimData = new Date(`${fim}T00:00:00`);
+  const diasSemana = normalizarDiasSemana(meta.dias_semana);
+  const diasMes = normalizarArrayNumerico(meta.dias_mes || meta.dias_trabalho);
+
+  while (data <= fimData) {
+    const iso = dataISO(data);
+    const diaSemana = data.getDay();
+    const diaMes = data.getDate();
+
+    let trabalha = true;
+
+    if (meta.tipo === "semanal" || meta.tipo === "anual") {
+      trabalha = diasSemana.length ? diasSemana.includes(diaSemana) : diaSemana >= 1 && diaSemana <= 6;
+    }
+
+    if (meta.tipo === "mensal") {
+      trabalha = diasMes.length ? diasMes.includes(diaMes) : diaSemana >= 1 && diaSemana <= 6;
+    }
+
+    if (meta.tipo === "diaria") trabalha = true;
+
+    if (trabalha) dias.push(iso);
+    data.setDate(data.getDate() + 1);
+  }
+
+  return dias;
+}
+
+async function buscarTotalEntradasDashboard(inicio, fim) {
+  if (!inicio || !fim || inicio > fim) return 0;
+
+  const { data, error } = await supabase
+    .from("entradas")
+    .select(`
+      id,
+      data,
+      entrada_plataformas (
+        faturamento,
+        valor_reembolso
+      )
+    `)
+    .gte("data", inicio)
+    .lte("data", fim);
+
+  if (error) {
+    console.error("Erro ao calcular realizado da meta:", error);
+    return 0;
+  }
+
+  return (data || []).reduce((total, entrada) => {
+    const totalPlataformas = (entrada.entrada_plataformas || []).reduce(
+      (soma, item) => soma + Number(item.faturamento || 0) + Number(item.valor_reembolso || 0),
+      0
+    );
+    return total + totalPlataformas;
+  }, 0);
+}
+
+function normalizarArrayNumerico(valor) {
+  if (Array.isArray(valor)) return valor.map(Number).filter((item) => !Number.isNaN(item));
+  if (typeof valor === "string") {
+    try {
+      const convertido = JSON.parse(valor);
+      return Array.isArray(convertido) ? convertido.map(Number).filter((item) => !Number.isNaN(item)) : [];
+    } catch (_) {
+      return [];
+    }
+  }
+  return [];
+}
+
+function normalizarDiasSemana(valor) {
+  const dias = normalizarArrayNumerico(valor);
+  return dias.filter((dia) => dia >= 0 && dia <= 6);
+}
+
+function contarDiasCalendario(inicio, fim) {
+  if (!inicio || !fim || inicio > fim) return 0;
+  const a = new Date(`${inicio}T00:00:00`);
+  const b = new Date(`${fim}T00:00:00`);
+  return Math.max(Math.floor((b - a) / 86400000) + 1, 0);
+}
+
+function adicionarDiasISO(dataISOTexto, quantidade) {
+  const data = new Date(`${dataISOTexto}T00:00:00`);
+  data.setDate(data.getDate() + quantidade);
+  return dataISO(data);
+}
+
+function maiorData(a, b) {
+  return String(a) > String(b) ? a : b;
+}
+
+function menorData(a, b) {
+  return String(a) < String(b) ? a : b;
+}
+
+function inicioSemanaISOGlobal(dataISOTexto) {
+  const data = new Date(`${dataISOTexto}T00:00:00`);
+  const diaSemana = data.getDay();
+  const diferenca = diaSemana === 0 ? -6 : 1 - diaSemana;
+  data.setDate(data.getDate() + diferenca);
+  return dataISO(data);
+}
+
+function semanasEntre(inicio, fim) {
+  const semanas = [];
+  let inicioSemana = inicioSemanaISOGlobal(inicio);
+
+  while (inicioSemana <= fim) {
+    semanas.push({ inicio: inicioSemana, fim: adicionarDiasISO(inicioSemana, 6) });
+    inicioSemana = adicionarDiasISO(inicioSemana, 7);
+  }
+
+  return semanas;
+}
+
+function mesesEntre(inicio, fim) {
+  const meses = [];
+  const data = new Date(`${inicio.slice(0, 7)}-01T00:00:00`);
+  const fimMes = new Date(`${fim.slice(0, 7)}-01T00:00:00`);
+
+  while (data <= fimMes) {
+    meses.push({ ano: data.getFullYear(), mes: data.getMonth() + 1 });
+    data.setMonth(data.getMonth() + 1);
+  }
+
+  return meses;
+}
+
+function anosEntre(inicio, fim) {
+  const anoInicio = Number(inicio.slice(0, 4));
+  const anoFim = Number(fim.slice(0, 4));
+  const anos = [];
+  for (let ano = anoInicio; ano <= anoFim; ano++) anos.push(ano);
+  return anos;
 }
 
 function SaldoGeralCard({ saldoGeral, contas, abrirConfiguracao, formatarMoeda }) {
