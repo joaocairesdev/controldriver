@@ -19,6 +19,7 @@ export default function NovaEntrada({ setPagina }) {
   const [selecionadas, setSelecionadas] = useState([]);
   const [contaPrincipal, setContaPrincipal] = useState(null);
   const [veiculoPrincipal, setVeiculoPrincipal] = useState(null);
+  const [lancamentosDoDia, setLancamentosDoDia] = useState({});
   const [salvando, setSalvando] = useState(false);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
 
@@ -64,6 +65,59 @@ export default function NovaEntrada({ setPagina }) {
     setPlataformas(plataformasData || []);
     setContaPrincipal(contaData);
     setVeiculoPrincipal(veiculoData);
+    await carregarLancamentosDoDia(data || hoje);
+  }
+
+  async function carregarLancamentosDoDia(dataISO) {
+    if (!dataISO) {
+      setLancamentosDoDia({});
+      return;
+    }
+
+    const { data: entradasData, error: erroEntradas } = await supabase
+      .from("entradas")
+      .select("id")
+      .eq("data", dataISO);
+
+    if (erroEntradas) {
+      console.error("Erro ao carregar lançamentos do dia:", erroEntradas);
+      setLancamentosDoDia({});
+      return;
+    }
+
+    const entradaIds = (entradasData || []).map((entrada) => entrada.id);
+
+    if (!entradaIds.length) {
+      setLancamentosDoDia({});
+      return;
+    }
+
+    const { data: plataformasData, error: erroPlataformas } = await supabase
+      .from("entrada_plataformas")
+      .select("plataforma_id, faturamento, numero_corridas, valor_reembolso")
+      .in("entrada_id", entradaIds);
+
+    if (erroPlataformas) {
+      console.error("Erro ao carregar plataformas já lançadas:", erroPlataformas);
+      setLancamentosDoDia({});
+      return;
+    }
+
+    const resumo = (plataformasData || []).reduce((acc, item) => {
+      const id = String(item.plataforma_id);
+
+      if (!acc[id]) {
+        acc[id] = { faturamento: 0, corridas: 0, reembolso: 0 };
+      }
+
+      acc[id].faturamento += Number(item.faturamento || 0);
+      acc[id].corridas += Number(item.numero_corridas || 0);
+      acc[id].reembolso += Number(item.valor_reembolso || 0);
+
+      return acc;
+    }, {});
+
+    setLancamentosDoDia(resumo);
   }
 
   function abrirFeedback(tipo, titulo, mensagem) {
@@ -102,6 +156,7 @@ export default function NovaEntrada({ setPagina }) {
     setKm("");
     setTempoPicker({ hora: "08", minuto: "00" });
     setSelecionadas([]);
+    setLancamentosDoDia({});
     setPagina?.("novo-lancamento");
   }
 
@@ -337,6 +392,12 @@ export default function NovaEntrada({ setPagina }) {
                         {selecionada.numero_corridas || 0} corrida(s)
                       </p>
 
+                      {lancamentosDoDia[String(selecionada.id)] && (
+                        <p className="text-xs text-blue-300 mt-1">
+                          Já lançado hoje: {formatarMoeda(lancamentosDoDia[String(selecionada.id)].faturamento)} • {lancamentosDoDia[String(selecionada.id)].corridas} corridas
+                        </p>
+                      )}
+
                       {selecionada.houve_pedagio && (
                         <p className="text-xs text-gray-500 mt-1">
                           Reembolso pedágio: {formatarMoeda(moedaParaNumero(selecionada.valor_reembolso))}
@@ -381,7 +442,11 @@ export default function NovaEntrada({ setPagina }) {
       <DatePickerModal
         aberto={modalDataAberto}
         valor={data}
-        onChange={setData}
+        onChange={async (novaData) => {
+          setData(novaData);
+          setSelecionadas([]);
+          await carregarLancamentosDoDia(novaData);
+        }}
         onClose={() => setModalDataAberto(false)}
       />
 
@@ -400,6 +465,9 @@ export default function NovaEntrada({ setPagina }) {
         plataforma={plataformaEditando}
         dadosIniciais={
           plataformaEditando ? dadosDaPlataforma(plataformaEditando.id) : null
+        }
+        lancamentoAnterior={
+          plataformaEditando ? lancamentosDoDia[String(plataformaEditando.id)] || null : null
         }
         onClose={() => {
           setModalDadosPlataformaAberto(false);
