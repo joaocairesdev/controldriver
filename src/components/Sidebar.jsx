@@ -10,7 +10,8 @@ import {
   FiSettings,
 } from "react-icons/fi";
 
-const APP_VERSION = "v0.3.0";
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.0.0";
+const APP_BUILD = import.meta.env.VITE_APP_BUILD || "local";
 
 export default function Sidebar({ setPagina, paginaAtual }) {
   const menuPrincipal = [
@@ -102,7 +103,8 @@ export default function Sidebar({ setPagina, paginaAtual }) {
         <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wide">
           ControlDriver
         </p>
-        <p className="text-xs text-gray-400 mt-1">{APP_VERSION}</p>
+        <p className="text-xs text-gray-400 mt-1">v{APP_VERSION}</p>
+        <p className="text-[10px] text-gray-600 mt-0.5">Build {APP_BUILD}</p>
       </div>
     </aside>
   );

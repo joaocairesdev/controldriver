@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FiSettings } from "react-icons/fi";
+import { FiChevronDown, FiChevronRight, FiEye, FiEyeOff, FiSettings } from "react-icons/fi";
 import { supabase } from "../services/supabase";
 
 import uberIcon from "../assets/plataformas/uber.png";
@@ -13,6 +13,7 @@ import shopeeIcon from "../assets/plataformas/shopee.svg";
 
 const CONTAS_DASHBOARD_KEY = "controldriver_dashboard_contas_ativas_v1";
 const CONTAS_PAGAR_DIAS_KEY = "controldriver_dashboard_contas_pagar_dias_v1";
+const CONTAS_ATRASADAS_CONFIG_KEY = "controldriver_dashboard_contas_atrasadas_config_v1";
 
 export default function Dashboard() {
   const hoje = new Date();
@@ -24,7 +25,14 @@ export default function Dashboard() {
   const [mesSelecionado, setMesSelecionado] = useState(String(hoje.getMonth() + 1));
   const [anoSelecionado, setAnoSelecionado] = useState(hoje.getFullYear());
 
+  const [periodoPessoal, setPeriodoPessoal] = useState("mes");
+  const [dataPessoalSelecionada, setDataPessoalSelecionada] = useState(hojeISO);
+  const [semanaPessoalSelecionada, setSemanaPessoalSelecionada] = useState(getSemanaDoAno(hoje));
+  const [mesPessoalSelecionado, setMesPessoalSelecionado] = useState(String(hoje.getMonth() + 1));
+  const [anoPessoalSelecionado, setAnoPessoalSelecionado] = useState(hoje.getFullYear());
+
   const [modalPeriodoAberto, setModalPeriodoAberto] = useState(false);
+  const [modalPeriodoPessoalAberto, setModalPeriodoPessoalAberto] = useState(false);
   const [modalContasAberto, setModalContasAberto] = useState(false);
   const [modalContasPagarAberto, setModalContasPagarAberto] = useState(false);
   const [modalAnoAberto, setModalAnoAberto] = useState(false);
@@ -37,8 +45,17 @@ export default function Dashboard() {
   const [datasComMovimento, setDatasComMovimento] = useState([]);
   const [metaAtiva, setMetaAtiva] = useState(null);
   const [metricas, setMetricas] = useState(criarMetricasVazias());
+  const [metricasPessoais, setMetricasPessoais] = useState(criarMetricasPessoaisVazias());
   const [proximasContas, setProximasContas] = useState([]);
+  const [contasAtrasadas, setContasAtrasadas] = useState([]);
   const [diasContasPagar, setDiasContasPagar] = useState(carregarDiasContasPagarLocalStorage());
+  const [configContasAtrasadas, setConfigContasAtrasadas] = useState(carregarConfigContasAtrasadasLocalStorage());
+  const [modalContasAtrasadasAberto, setModalContasAtrasadasAberto] = useState(false);
+
+  const [financeiroAberto, setFinanceiroAberto] = useState(true);
+  const [performanceAberto, setPerformanceAberto] = useState(true);
+  const [pessoalAberto, setPessoalAberto] = useState(true);
+  const [valoresFinanceirosVisiveis, setValoresFinanceirosVisiveis] = useState(true);
 
   const meses = [
     "Janeiro",
@@ -66,7 +83,14 @@ export default function Dashboard() {
   }, [periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado, metaAtiva]);
 
   useEffect(() => {
-    if (!carregando) carregarProximasContas();
+    carregarFinancasPessoais();
+  }, [periodoPessoal, dataPessoalSelecionada, semanaPessoalSelecionada, mesPessoalSelecionado, anoPessoalSelecionado]);
+
+  useEffect(() => {
+    if (!carregando) {
+      carregarProximasContas();
+      carregarContasAtrasadas();
+    }
   }, [diasContasPagar]);
 
   async function carregarTudo() {
@@ -76,6 +100,7 @@ export default function Dashboard() {
       carregarDatasComMovimento(),
       carregarMetaAtiva(),
       carregarProximasContas(),
+      carregarContasAtrasadas(),
     ]);
     setCarregando(false);
   }
@@ -166,10 +191,12 @@ export default function Dashboard() {
 
   async function carregarDatasComMovimento() {
     const { data: entradasData } = await supabase.from("entradas").select("data");
+    const { data: entradasAvulsasData } = await supabase.from("entradas_avulsas").select("data");
     const { data: saidasData } = await supabase.from("saidas").select("data_compra");
 
     const datas = [
       ...(entradasData || []).map((item) => item.data),
+      ...(entradasAvulsasData || []).map((item) => item.data),
       ...(saidasData || []).map((item) => item.data_compra),
     ].filter(Boolean);
 
@@ -249,27 +276,103 @@ export default function Dashboard() {
     setProximasContas(lista);
   }
 
-  async function carregarPerformance() {
-    const { inicio, fim } = intervaloDatas();
+  async function carregarContasAtrasadas() {
+    const hojeTexto = dataISO(new Date());
 
-    const { data: entradasData = [] } = await supabase
-      .from("entradas")
+    const { data: faturasData } = await supabase
+      .from("faturas_cartao")
       .select(`
         id,
-        data,
-        km_rodados,
-        horas_trabalhadas,
-        entrada_plataformas (
-          faturamento,
-          numero_corridas,
-          valor_reembolso,
-          plataformas ( nome )
+        data_vencimento,
+        valor_total,
+        valor_pago,
+        status,
+        cartoes (
+          nome,
+          final_cartao
         )
       `)
-      .gte("data", inicio)
-      .lte("data", fim);
+      .in("status", ["aberta", "fechada", "parcial"])
+      .lt("data_vencimento", hojeTexto)
+      .order("data_vencimento", { ascending: true })
+      .limit(10);
 
-    const resumo = entradasData.reduce((acc, entrada) => {
+    const { data: contasPagarData } = await supabase
+      .from("saidas")
+      .select("id, data_vencimento, data_compra, categoria, descricao, valor_total, status, tipo_movimentacao")
+      .eq("tipo_movimentacao", "conta_pagar")
+      .neq("status", "pago")
+      .lt("data_vencimento", hojeTexto)
+      .order("data_vencimento", { ascending: true })
+      .limit(10);
+
+    const faturas = (faturasData || []).map((fatura) => ({
+      id: `fatura-atrasada-${fatura.id}`,
+      tipo: "Fatura",
+      titulo: fatura.cartoes?.nome || "Cartão",
+      subtitulo: fatura.cartoes?.final_cartao ? `Final ${fatura.cartoes.final_cartao}` : "Cartão de crédito",
+      data: fatura.data_vencimento,
+      valor: Math.max(Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0), 0),
+    }));
+
+    const contas = (contasPagarData || []).map((conta) => ({
+      id: `conta-atrasada-${conta.id}`,
+      tipo: "Conta",
+      titulo: conta.descricao || conta.categoria || "Conta a pagar",
+      subtitulo: conta.categoria || "Boleto",
+      data: conta.data_vencimento || conta.data_compra,
+      valor: Number(conta.valor_total || 0),
+    }));
+
+    const lista = [...faturas, ...contas]
+      .filter((item) => item.valor > 0)
+      .sort((a, b) => String(a.data).localeCompare(String(b.data)))
+      .slice(0, 8);
+
+    setContasAtrasadas(lista);
+  }
+
+  async function buscarDadosOperacao(inicio, fim) {
+    const [entradasRes, saidasRes, categoriasRes] = await Promise.all([
+      supabase
+        .from("entradas")
+        .select(`
+          id,
+          data,
+          km_rodados,
+          horas_trabalhadas,
+          entrada_plataformas (
+            faturamento,
+            numero_corridas,
+            valor_reembolso,
+            plataformas ( nome )
+          )
+        `)
+        .gte("data", inicio)
+        .lte("data", fim),
+      supabase
+        .from("saidas")
+        .select("id, data_compra, categoria, categoria_id, valor_total, finalidade, tipo_movimentacao, status, forma_pagamento, fatura_pagamento_id")
+        .gte("data_compra", inicio)
+        .lte("data_compra", fim),
+      supabase
+        .from("categorias")
+        .select("id, nome, tipo_uso, uso, operacional, cor"),
+    ]);
+
+    const entradasData = entradasRes.data || [];
+    const saidasData = saidasRes.data || [];
+    const categoriasData = categoriasRes.data || [];
+    const saidaIds = saidasData.map((saida) => saida.id).filter(Boolean);
+
+    const { data: abastecimentosData = [] } = saidaIds.length
+      ? await supabase
+          .from("saidas_abastecimentos")
+          .select("saida_id, km_rodados, km_total_periodo")
+          .in("saida_id", saidaIds)
+      : { data: [] };
+
+    const resumoBase = entradasData.reduce((acc, entrada) => {
       const plataformas = entrada.entrada_plataformas || [];
 
       const totalEntrada = plataformas.reduce(
@@ -286,6 +389,7 @@ export default function Dashboard() {
       acc.km += Number(entrada.km_rodados || 0);
       acc.corridas += totalCorridas;
       acc.minutosTrabalhados += intervalParaMinutos(entrada.horas_trabalhadas);
+      if (entrada.data) acc.datasTrabalhadas.add(entrada.data);
 
       plataformas.forEach((item) => {
         const nome = item.plataformas?.nome || "Sem plataforma";
@@ -303,6 +407,27 @@ export default function Dashboard() {
       return acc;
     }, criarMetricasVazias());
 
+    resumoBase.diasTrabalhados = resumoBase.datasTrabalhadas.size;
+    delete resumoBase.datasTrabalhadas;
+
+    const kmTotalVeiculoPeriodo = (abastecimentosData || []).reduce(
+      (total, item) => total + Number(item.km_rodados || 0),
+      0
+    );
+    resumoBase.rateioUsoVeiculo = calcularRateioUsoVeiculo(kmTotalVeiculoPeriodo, resumoBase.km);
+    resumoBase.custos = calcularCustosPorFinalidade(
+      saidasData,
+      categoriasData,
+      resumoBase.faturamento,
+      resumoBase.rateioUsoVeiculo
+    );
+
+    return { resumoBase, saidasData, categoriasData };
+  }
+
+  async function carregarPerformance() {
+    const { inicio, fim } = intervaloDatas();
+    const { resumoBase } = await buscarDadosOperacao(inicio, fim);
 
     const metaPeriodo = await calcularMetaPeriodo(metaAtiva, periodo, {
       dataSelecionada,
@@ -311,11 +436,37 @@ export default function Dashboard() {
       anoSelecionado,
     });
 
-    resumo.meta = metaPeriodo;
-    resumo.percentualMeta = metaPeriodo > 0 ? Math.min((resumo.faturamento / metaPeriodo) * 100, 999) : 0;
-    resumo.faltaMeta = Math.max(metaPeriodo - resumo.faturamento, 0);
+    resumoBase.meta = metaPeriodo;
+    resumoBase.percentualMeta = metaPeriodo > 0 ? Math.min((resumoBase.faturamento / metaPeriodo) * 100, 999) : 0;
+    resumoBase.faltaMeta = Math.max(metaPeriodo - resumoBase.faturamento, 0);
 
-    setMetricas(resumo);
+    setMetricas(resumoBase);
+  }
+
+  async function carregarFinancasPessoais() {
+    const { inicio, fim } = intervaloDatasPessoais();
+    const { resumoBase } = await buscarDadosOperacao(inicio, fim);
+
+    const { data: entradasAvulsasData = [] } = await supabase
+      .from("entradas_avulsas")
+      .select("id, data, valor, descricao, conta_id")
+      .gte("data", inicio)
+      .lte("data", fim);
+
+    const entradasPessoais = (entradasAvulsasData || [])
+      .filter((entrada) => entradaAvulsaPessoal(entrada))
+      .reduce((total, entrada) => total + Number(entrada.valor || 0), 0);
+
+    const custosPessoais = resumoBase.custos.pessoal || { total: 0, categorias: [] };
+    const resultado = entradasPessoais - Number(custosPessoais.total || 0);
+
+    setMetricasPessoais({
+      entradas: entradasPessoais,
+      custos: custosPessoais,
+      resultado,
+      periodo: { inicio, fim },
+      rateioUsoVeiculo: resumoBase.rateioUsoVeiculo,
+    });
   }
 
   function carregarContasSelecionadasLocalStorage() {
@@ -335,6 +486,24 @@ export default function Dashboard() {
     return [7, 15, 30, 60].includes(valor) ? valor : 7;
   }
 
+  function carregarConfigContasAtrasadasLocalStorage() {
+    try {
+      const config = JSON.parse(localStorage.getItem(CONTAS_ATRASADAS_CONFIG_KEY) || "{}");
+      return {
+        mostrarAtrasadas: config.mostrarAtrasadas !== false,
+        mostrarNegativas: config.mostrarNegativas === true,
+      };
+    } catch (_) {
+      return { mostrarAtrasadas: true, mostrarNegativas: false };
+    }
+  }
+
+  function alterarConfigContasAtrasadas(novaConfig) {
+    const config = { ...configContasAtrasadas, ...novaConfig };
+    setConfigContasAtrasadas(config);
+    localStorage.setItem(CONTAS_ATRASADAS_CONFIG_KEY, JSON.stringify(config));
+  }
+
   function alterarDiasContasPagar(dias) {
     const novoValor = Number(dias || 7);
     setDiasContasPagar(novoValor);
@@ -347,7 +516,6 @@ export default function Dashboard() {
       const novaLista = listaAtual.includes(id)
         ? listaAtual.filter((item) => item !== id)
         : [...listaAtual, id];
-
       salvarContasSelecionadasLocalStorage(novaLista);
       return novaLista;
     });
@@ -388,32 +556,48 @@ export default function Dashboard() {
   }
 
   function intervaloDatas() {
-    if (periodo === "dia") return { inicio: dataSelecionada, fim: dataSelecionada };
+    return intervaloPorSelecao(periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado);
+  }
 
-    if (periodo === "semana") {
-      return pegarSemanaPorNumero(Number(anoSelecionado), Number(semanaSelecionada));
+  function intervaloDatasPessoais() {
+    return intervaloPorSelecao(periodoPessoal, dataPessoalSelecionada, semanaPessoalSelecionada, mesPessoalSelecionado, anoPessoalSelecionado);
+  }
+
+  function intervaloPorSelecao(periodoAtual, dataAtual, semanaAtual, mesAtual, anoAtual) {
+    if (periodoAtual === "dia") return { inicio: dataAtual, fim: dataAtual };
+
+    if (periodoAtual === "semana") {
+      return pegarSemanaPorNumero(Number(anoAtual), Number(semanaAtual));
     }
 
-    if (periodo === "mes") {
-      const inicio = new Date(Number(anoSelecionado), Number(mesSelecionado) - 1, 1);
-      const fim = new Date(Number(anoSelecionado), Number(mesSelecionado), 0);
+    if (periodoAtual === "mes") {
+      const inicio = new Date(Number(anoAtual), Number(mesAtual) - 1, 1);
+      const fim = new Date(Number(anoAtual), Number(mesAtual), 0);
       return { inicio: dataISO(inicio), fim: dataISO(fim) };
     }
 
-    return { inicio: `${anoSelecionado}-01-01`, fim: `${anoSelecionado}-12-31` };
+    return { inicio: `${anoAtual}-01-01`, fim: `${anoAtual}-12-31` };
   }
 
   function textoPeriodoSelecionado() {
-    if (periodo === "dia") return formatarDataBR(dataSelecionada);
+    return textoPeriodo(periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado);
+  }
 
-    if (periodo === "semana") {
-      const semana = pegarSemanaPorNumero(Number(anoSelecionado), Number(semanaSelecionada));
-      return `${semanaSelecionada}ª Semana • ${formatarDataBR(semana.inicio)} à ${formatarDataBR(semana.fim)}`;
+  function textoPeriodoPessoalSelecionado() {
+    return textoPeriodo(periodoPessoal, dataPessoalSelecionada, semanaPessoalSelecionada, mesPessoalSelecionado, anoPessoalSelecionado);
+  }
+
+  function textoPeriodo(periodoAtual, dataAtual, semanaAtual, mesAtual, anoAtual) {
+    if (periodoAtual === "dia") return formatarDataBR(dataAtual);
+
+    if (periodoAtual === "semana") {
+      const semana = pegarSemanaPorNumero(Number(anoAtual), Number(semanaAtual));
+      return `${semanaAtual}ª Semana • ${formatarDataBR(semana.inicio)} à ${formatarDataBR(semana.fim)}`;
     }
 
-    if (periodo === "mes") return `${meses[Number(mesSelecionado) - 1]} / ${anoSelecionado}`;
+    if (periodoAtual === "mes") return `${meses[Number(mesAtual) - 1]} / ${anoAtual}`;
 
-    return String(anoSelecionado);
+    return String(anoAtual);
   }
 
   function rotuloPeriodo() {
@@ -543,6 +727,27 @@ export default function Dashboard() {
   const plataformas = Object.values(metricas.plataformas || {}).sort((a, b) => b.valor - a.valor);
   const periodoTexto = rotuloPeriodo();
   const metaTexto = rotuloMeta();
+  const mostrarMetricasPorDia = periodo !== "dia";
+  const mediaPorDiaTrabalhado = metricas.diasTrabalhados > 0 ? metricas.faturamento / metricas.diasTrabalhados : 0;
+  const totalProximasContas = proximasContas.reduce((soma, item) => soma + Number(item.valor || 0), 0);
+  const contasNegativas = contasAtivasDashboard
+    .filter((conta) => Number(conta.saldo_atual || 0) < 0)
+    .map((conta) => ({
+      id: `negativa-${conta.id}`,
+      tipo: "Conta negativa",
+      titulo: conta.nome,
+      subtitulo: conta.tipo_conta === "tag" ? "TAG" : conta.tipo_conta || "Conta",
+      data: hojeISO,
+      valor: Math.abs(Number(conta.saldo_atual || 0)),
+    }));
+  const itensContasAtrasadasCard = [
+    ...(configContasAtrasadas.mostrarAtrasadas ? contasAtrasadas : []),
+    ...(configContasAtrasadas.mostrarNegativas ? contasNegativas : []),
+  ];
+  const totalContasAtrasadas = itensContasAtrasadasCard.reduce((soma, item) => soma + Number(item.valor || 0), 0);
+  const custoTrabalho = metricas.custos?.trabalho || { total: 0, categorias: [] };
+  const resultadoOperacional = metricas.faturamento - Number(custoTrabalho.total || 0);
+  const formatarValorFinanceiro = (valor) => valoresFinanceirosVisiveis ? formatarMoeda(valor) : "••••";
 
   return (
     <div className="space-y-8 pb-10">
@@ -557,62 +762,69 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          <section className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <SaldoGeralCard
-              saldoGeral={saldoGeral}
-              contas={contasAtivasDashboard}
-              abrirConfiguracao={() => setModalContasAberto(true)}
-              formatarMoeda={formatarMoeda}
-            />
+          <BlocoDashboard
+            titulo="Financeiro"
+            descricao="Saldos, objetivos, contas atrasadas e contas a pagar."
+            aberto={financeiroAberto}
+            onToggle={() => setFinanceiroAberto(!financeiroAberto)}
+            acaoExtra={
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setValoresFinanceirosVisiveis((valor) => !valor);
+                }}
+                className="w-10 h-10 rounded-xl border border-gray-700 hover:border-green-400 hover:bg-white/5 flex items-center justify-center text-gray-300 hover:text-green-400 transition"
+                title={valoresFinanceirosVisiveis ? "Ocultar valores" : "Mostrar valores"}
+                aria-label={valoresFinanceirosVisiveis ? "Ocultar valores" : "Mostrar valores"}
+              >
+                {valoresFinanceirosVisiveis ? <FiEyeOff /> : <FiEye />}
+              </button>
+            }
+          >
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <SaldoGeralCard
+                saldoGeral={saldoGeral}
+                contas={contasAtivasDashboard}
+                abrirConfiguracao={() => setModalContasAberto(true)}
+                formatarMoeda={formatarValorFinanceiro}
+              />
 
-            <ProximasContasCard
-              contas={proximasContas}
-              dias={diasContasPagar}
-              abrirConfiguracao={() => setModalContasPagarAberto(true)}
-              formatarMoeda={formatarMoeda}
-              formatarDataBR={formatarDataBR}
-            />
-          </section>
+              <InvestimentosObjetivosCard formatarMoeda={formatarValorFinanceiro} />
 
-          <section>
-            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold">Performance</h2>
-                <p className="text-gray-400 text-sm mt-1">Filtros aplicados em faturamento, meta, plataformas e gastos.</p>
-              </div>
+              <ContasAtrasadasCard
+                contas={itensContasAtrasadasCard}
+                total={totalContasAtrasadas}
+                abrirConfiguracao={() => setModalContasAtrasadasAberto(true)}
+                formatarMoeda={formatarValorFinanceiro}
+                formatarDataBR={formatarDataBR}
+              />
 
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    ["dia", "Dia"],
-                    ["semana", "Semana"],
-                    ["mes", "Mês"],
-                    ["ano", "Ano"],
-                  ].map(([valor, label]) => (
-                    <button
-                      key={valor}
-                      type="button"
-                      onClick={() => setPeriodo(valor)}
-                      className={`px-3 py-2 rounded-xl border text-sm font-black transition ${
-                        periodo === valor
-                          ? "border-green-400 bg-green-500/10 text-green-400"
-                          : "border-gray-700 text-gray-300 hover:bg-white/5"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setModalPeriodoAberto(true)}
-                  className="w-full sm:w-auto bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl px-4 py-3 text-gray-200 font-semibold text-center sm:text-left"
-                >
-                  {textoPeriodoSelecionado()}
-                </button>
-              </div>
+              <ProximasContasCard
+                contas={proximasContas}
+                dias={diasContasPagar}
+                abrirConfiguracao={() => setModalContasPagarAberto(true)}
+                formatarMoeda={formatarValorFinanceiro}
+                formatarDataBR={formatarDataBR}
+                total={totalProximasContas}
+              />
             </div>
+          </BlocoDashboard>
+
+          <BlocoDashboard
+            titulo="Performance"
+            descricao="Faturamento, meta, produtividade, custos de trabalho e resultado operacional."
+            aberto={performanceAberto}
+            onToggle={() => setPerformanceAberto(!performanceAberto)}
+          >
+            <PeriodoControle
+              titulo="Performance"
+              descricao="Filtros aplicados em faturamento, meta, plataformas e custos de trabalho."
+              periodo={periodo}
+              setPeriodo={setPeriodo}
+              textoPeriodo={textoPeriodoSelecionado()}
+              abrirPeriodo={() => setModalPeriodoAberto(true)}
+            />
 
             <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
               <FaturamentoMetaCard
@@ -632,13 +844,69 @@ export default function Dashboard() {
                 <MetricCard titulo={`Ganho/KM ${periodoTexto}`} valor={formatarMoeda(ganhoPorKm)} />
                 <MetricCard titulo={`Ganho/Hora ${periodoTexto}`} valor={formatarMoeda(ganhoPorHora)} />
                 <MetricCard titulo={`Ganho/Corrida ${periodoTexto}`} valor={formatarMoeda(ganhoPorCorrida)} />
+                {mostrarMetricasPorDia && (
+                  <>
+                    <MetricCard titulo={`Dias trabalhados ${periodoTexto}`} valor={formatarNumero(metricas.diasTrabalhados)} />
+                    <MetricCard titulo={`Média por dia trabalhado ${periodoTexto}`} valor={formatarMoeda(mediaPorDiaTrabalhado)} />
+                  </>
+                )}
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-4">
+            <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
               <PlataformasCard plataformas={plataformas} total={metricas.faturamento} formatarMoeda={formatarMoeda} />
+              <CustosCategoriaCard
+                titulo="Custos de trabalho"
+                descricao="Somente a parte de trabalho, incluindo categorias rateadas pelo uso do veículo."
+                dados={custoTrabalho}
+                baseComparacao={metricas.faturamento}
+                labelBase="do faturamento"
+                rateio={metricas.rateioUsoVeiculo}
+                formatarMoeda={formatarMoeda}
+              />
             </div>
-          </section>
+
+            <ResultadoOperacionalCard
+              faturamento={metricas.faturamento}
+              custos={custoTrabalho.total}
+              resultado={resultadoOperacional}
+              formatarMoeda={formatarMoeda}
+            />
+          </BlocoDashboard>
+
+          <BlocoDashboard
+            titulo="Finanças Pessoais"
+            descricao="Entradas pessoais, custos pessoais e resultado do período."
+            aberto={pessoalAberto}
+            onToggle={() => setPessoalAberto(!pessoalAberto)}
+          >
+            <PeriodoControle
+              titulo="Finanças Pessoais"
+              descricao="Filtro independente da performance para enxergar vida pessoal separada da operação."
+              periodo={periodoPessoal}
+              setPeriodo={setPeriodoPessoal}
+              textoPeriodo={textoPeriodoPessoalSelecionado()}
+              abrirPeriodo={() => setModalPeriodoPessoalAberto(true)}
+            />
+
+            <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <ResumoFinanceiroCard titulo="Entradas pessoais" valor={metricasPessoais.entradas} destaque="green" formatarMoeda={formatarMoeda} />
+              <ResumoFinanceiroCard titulo="Custos pessoais" valor={metricasPessoais.custos.total} destaque="red" formatarMoeda={formatarMoeda} />
+              <ResumoFinanceiroCard titulo="Resultado pessoal" valor={metricasPessoais.resultado} destaque={metricasPessoais.resultado >= 0 ? "green" : "red"} formatarMoeda={formatarMoeda} />
+            </div>
+
+            <div className="mt-4">
+              <CustosCategoriaCard
+                titulo="Custos pessoais"
+                descricao="Categorias pessoais diretas e parte pessoal das categorias rateadas."
+                dados={metricasPessoais.custos}
+                baseComparacao={metricasPessoais.entradas}
+                labelBase="das entradas pessoais"
+                rateio={metricasPessoais.rateioUsoVeiculo}
+                formatarMoeda={formatarMoeda}
+              />
+            </div>
+          </BlocoDashboard>
         </>
       )}
 
@@ -658,6 +926,14 @@ export default function Dashboard() {
           diasSelecionados={diasContasPagar}
           alterarDias={alterarDiasContasPagar}
           fechar={() => setModalContasPagarAberto(false)}
+        />
+      )}
+
+      {modalContasAtrasadasAberto && (
+        <ModalContasAtrasadasDashboard
+          config={configContasAtrasadas}
+          alterarConfig={alterarConfigContasAtrasadas}
+          fechar={() => setModalContasAtrasadasAberto(false)}
         />
       )}
 
@@ -695,6 +971,69 @@ export default function Dashboard() {
         />
       )}
 
+      {modalPeriodoPessoalAberto && (
+        <ModalPeriodo
+          periodo={periodoPessoal}
+          setPeriodo={setPeriodoPessoal}
+          meses={meses}
+          diasSemana={diasSemana}
+          dataSelecionada={dataPessoalSelecionada}
+          mesSelecionado={mesPessoalSelecionado}
+          anoSelecionado={anoPessoalSelecionado}
+          semanaSelecionada={semanaPessoalSelecionada}
+          setMesSelecionado={setMesPessoalSelecionado}
+          setAnoSelecionado={setAnoPessoalSelecionado}
+          setSemanaSelecionada={setSemanaPessoalSelecionada}
+          alterarMes={(delta) => {
+            let novoMes = Number(mesPessoalSelecionado) + delta;
+            let novoAno = Number(anoPessoalSelecionado);
+            if (novoMes < 1) {
+              novoMes = 12;
+              novoAno -= 1;
+            }
+            if (novoMes > 12) {
+              novoMes = 1;
+              novoAno += 1;
+            }
+            setMesPessoalSelecionado(String(novoMes));
+            setAnoPessoalSelecionado(novoAno);
+          }}
+          selecionarHoje={() => {
+            const agora = new Date();
+            setDataPessoalSelecionada(dataISO(agora));
+            setMesPessoalSelecionado(String(agora.getMonth() + 1));
+            setAnoPessoalSelecionado(agora.getFullYear());
+          }}
+          selecionarSemanaAtual={() => {
+            const agora = new Date();
+            setSemanaPessoalSelecionada(getSemanaDoAno(agora));
+            setAnoPessoalSelecionado(agora.getFullYear());
+          }}
+          selecionarMesAtual={() => {
+            const agora = new Date();
+            setMesPessoalSelecionado(String(agora.getMonth() + 1));
+            setAnoPessoalSelecionado(agora.getFullYear());
+          }}
+          selecionarAnoAtual={() => setAnoPessoalSelecionado(new Date().getFullYear())}
+          diasDoMesCalendario={() => diasDoMesCalendarioGenerico(anoPessoalSelecionado, mesPessoalSelecionado)}
+          diaTemMovimento={diaTemMovimento}
+          semanaTemMovimento={semanaTemMovimento}
+          mesTemMovimento={mesTemMovimento}
+          anoTemMovimento={anoTemMovimento}
+          selecionarDia={(dia) => {
+            const data = `${anoPessoalSelecionado}-${String(mesPessoalSelecionado).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+            setDataPessoalSelecionada(data);
+          }}
+          anosComDados={anosComDados}
+          pegarSemanaPorNumero={pegarSemanaPorNumero}
+          formatarDataBR={formatarDataBR}
+          setModalAnoAberto={setModalAnoAberto}
+          setModalMesAnoAberto={setModalMesAnoAberto}
+          setEtapaMesAno={setEtapaMesAno}
+          fechar={() => setModalPeriodoPessoalAberto(false)}
+        />
+      )}
+
       {modalAnoAberto && (
         <ModalAno
           anos={anosComDados()}
@@ -722,17 +1061,437 @@ export default function Dashboard() {
   );
 }
 
+function criarMetricasPessoaisVazias() {
+  return {
+    entradas: 0,
+    custos: { total: 0, categorias: [] },
+    resultado: 0,
+    periodo: null,
+    rateioUsoVeiculo: null,
+  };
+}
+
+function diasDoMesCalendarioGenerico(anoSelecionado, mesSelecionado) {
+  const ano = Number(anoSelecionado);
+  const mes = Number(mesSelecionado);
+  const primeiroDia = new Date(ano, mes - 1, 1);
+  const ultimoDia = new Date(ano, mes, 0);
+  const totalDias = ultimoDia.getDate();
+  const diaSemanaInicio = primeiroDia.getDay();
+  const dias = [];
+
+  for (let i = 0; i < diaSemanaInicio; i++) dias.push(null);
+  for (let dia = 1; dia <= totalDias; dia++) dias.push(dia);
+  while (dias.length < 42) dias.push(null);
+
+  return dias;
+}
+
+function entradaAvulsaPessoal(entrada) {
+  const descricao = normalizarTexto(entrada?.descricao);
+  if (descricao.includes("recargatag") || descricao.includes("recargadetag")) return false;
+  return true;
+}
+
+function PeriodoControle({ titulo, descricao, periodo, setPeriodo, textoPeriodo, abrirPeriodo }) {
+  return (
+    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+      <div>
+        <h2 className="text-xl font-bold">{titulo}</h2>
+        <p className="text-gray-400 text-sm mt-1">{descricao}</p>
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            ["dia", "Dia"],
+            ["semana", "Semana"],
+            ["mes", "Mês"],
+            ["ano", "Ano"],
+          ].map(([valor, label]) => (
+            <button
+              key={valor}
+              type="button"
+              onClick={() => setPeriodo(valor)}
+              className={`px-3 py-2 rounded-xl border text-sm font-black transition ${
+                periodo === valor
+                  ? "border-green-400 bg-green-500/10 text-green-400"
+                  : "border-gray-700 text-gray-300 hover:bg-white/5"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={abrirPeriodo}
+          className="w-full sm:w-auto bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl px-4 py-3 text-gray-200 font-semibold text-center sm:text-left"
+        >
+          {textoPeriodo}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ResumoFinanceiroCard({ titulo, valor, destaque, formatarMoeda }) {
+  const classe = destaque === "green" ? "text-green-400" : destaque === "red" ? "text-red-400" : "text-white";
+
+  return (
+    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
+      <p className="text-sm text-gray-400">{titulo}</p>
+      <h3 className={`text-3xl font-black mt-2 ${classe}`}>{formatarMoeda(valor)}</h3>
+    </div>
+  );
+}
+
+function ResultadoOperacionalCard({ faturamento, custos, resultado, formatarMoeda }) {
+  const positivo = Number(resultado || 0) >= 0;
+
+  return (
+    <div className="mt-4 bg-[#111827] border border-gray-800 rounded-3xl p-5">
+      <p className="text-sm text-gray-400">Resultado operacional</p>
+      <h3 className={`text-4xl sm:text-5xl font-black mt-2 ${positivo ? "text-green-400" : "text-red-400"}`}>
+        {formatarMoeda(resultado)}
+      </h3>
+      <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5 text-sm text-gray-400">
+        <span>Faturamento: <strong className="text-green-400">{formatarMoeda(faturamento)}</strong></span>
+        <span>Custos: <strong className="text-red-400">{formatarMoeda(custos)}</strong></span>
+      </div>
+    </div>
+  );
+}
+
+function CustosCategoriaCard({ titulo, descricao, dados, baseComparacao, labelBase, rateio, formatarMoeda }) {
+  const categorias = dados?.categorias || [];
+  const total = Number(dados?.total || 0);
+  const percentualBase = Number(baseComparacao || 0) > 0 ? (total / Number(baseComparacao || 0)) * 100 : 0;
+
+  return (
+    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
+      <div>
+        <h3 className="text-xl font-bold">{titulo}</h3>
+        <p className="text-gray-400 text-sm mt-1">{descricao}</p>
+      </div>
+
+      {rateio && (
+        <div className="mt-4 bg-[#0B1120] border border-gray-800 rounded-2xl p-3 grid grid-cols-3 gap-3 text-center">
+          <div>
+            <p className="text-[11px] text-gray-500">KM total</p>
+            <p className="font-black text-white mt-1">{Number(rateio?.kmTotal || 0).toLocaleString("pt-BR")}</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500">Trabalho</p>
+            <p className="font-black text-green-400 mt-1">{Math.round(rateio?.percentualTrabalho || 0)}%</p>
+          </div>
+          <div>
+            <p className="text-[11px] text-gray-500">Pessoal</p>
+            <p className="font-black text-blue-400 mt-1">{Math.round(rateio?.percentualPessoal || 0)}%</p>
+          </div>
+        </div>
+      )}
+
+      {rateio && !rateio?.calculado && (
+        <p className="text-xs text-yellow-400 mt-2">
+          Sem KM total de abastecimento no período. Categorias rateadas foram consideradas como trabalho até existir abastecimento no período.
+        </p>
+      )}
+
+      <div className="mt-5 grid grid-cols-1 md:grid-cols-[180px_1fr] gap-5 items-center">
+        <div className="flex flex-col items-center justify-center">
+          <GraficoAnelCategorias categorias={categorias} />
+          <p className="text-sm text-gray-400 mt-3">Total</p>
+          <p className="text-2xl font-black text-white">{formatarMoeda(total)}</p>
+          <p className="text-xs text-gray-500 mt-1">{Math.round(percentualBase)}% {labelBase}</p>
+        </div>
+
+        <div className="space-y-4 min-w-0">
+          {categorias.length === 0 ? (
+            <p className="text-sm text-gray-500">Nenhum custo encontrado neste período.</p>
+          ) : (
+            categorias.map((categoria) => (
+              <div key={categoria.nome}>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: categoria.cor }} />
+                    <span className="font-bold truncate" style={{ color: categoria.cor }}>{categoria.nome}</span>
+                    {categoria.rateado && (
+                      <span className="text-[10px] rounded-full px-2 py-0.5 bg-blue-500/10 text-blue-300 border border-blue-500/30 shrink-0">
+                        rateado
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-black whitespace-nowrap">{formatarMoeda(categoria.valor)}</span>
+                </div>
+
+                <div className="mt-2 h-3 bg-[#0B1120] rounded-full overflow-hidden border border-gray-800">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${Math.min(categoria.percentualDoCusto, 100)}%`,
+                      backgroundColor: categoria.cor,
+                    }}
+                  />
+                </div>
+
+                <p className="text-xs text-gray-500 mt-1">
+                  {Math.round(categoria.percentualDoCusto)}% dos custos • {Math.round(categoria.percentualDoFaturamento || 0)}% do faturamento
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function criarMetricasVazias() {
   return {
     faturamento: 0,
     km: 0,
     corridas: 0,
     minutosTrabalhados: 0,
+    diasTrabalhados: 0,
+    datasTrabalhadas: new Set(),
     plataformas: {},
+    custos: criarCustosVazios(),
+    rateioUsoVeiculo: {
+      kmTotal: 0,
+      kmTrabalho: 0,
+      kmPessoal: 0,
+      percentualTrabalho: 100,
+      percentualPessoal: 0,
+      calculado: false,
+    },
     meta: 0,
     percentualMeta: 0,
     faltaMeta: 0,
   };
+}
+
+
+function criarCustosVazios() {
+  return {
+    trabalho: { total: 0, categorias: [] },
+    pessoal: { total: 0, categorias: [] },
+  };
+}
+
+
+function calcularRateioUsoVeiculo(kmTotalVeiculoPeriodo, kmTrabalhoPeriodo) {
+  const kmTotal = Math.max(Number(kmTotalVeiculoPeriodo || 0), 0);
+  const kmTrabalho = Math.max(Number(kmTrabalhoPeriodo || 0), 0);
+
+  if (kmTotal <= 0) {
+    return {
+      kmTotal: 0,
+      kmTrabalho,
+      kmPessoal: 0,
+      percentualTrabalho: 100,
+      percentualPessoal: 0,
+      calculado: false,
+    };
+  }
+
+  const kmTrabalhoSeguro = Math.min(kmTrabalho, kmTotal);
+  const kmPessoal = Math.max(kmTotal - kmTrabalhoSeguro, 0);
+  const percentualTrabalho = (kmTrabalhoSeguro / kmTotal) * 100;
+  const percentualPessoal = 100 - percentualTrabalho;
+
+  return {
+    kmTotal,
+    kmTrabalho: kmTrabalhoSeguro,
+    kmPessoal,
+    percentualTrabalho,
+    percentualPessoal,
+    calculado: true,
+  };
+}
+
+function calcularCustosPorFinalidade(saidas, categorias, faturamentoPeriodo = 0, rateioUsoVeiculo = null) {
+  const resumo = criarCustosVazios();
+  const categoriasPorId = new Map((categorias || []).map((categoria) => [String(categoria.id), categoria]));
+  const categoriasPorNome = new Map((categorias || []).map((categoria) => [normalizarTexto(categoria.nome), categoria]));
+  const rateio = rateioUsoVeiculo || {
+    percentualTrabalho: 100,
+    percentualPessoal: 0,
+  };
+
+  (saidas || [])
+    .filter((saida) => custoRealParaDashboard(saida))
+    .forEach((saida) => {
+      const categoria = obterCategoriaDaSaida(saida, categoriasPorId, categoriasPorNome);
+      const nomeCategoria = categoria?.nome || saida.categoria || "Outros";
+      const tipoUso = normalizarTipoUsoCategoria(categoria?.tipo_uso || saida.finalidade);
+      const valor = Number(saida.valor_total || 0);
+
+      if (valor <= 0) return;
+
+      if (tipoUso === "rateada") {
+        const valorTrabalho = valor * (Number(rateio.percentualTrabalho || 0) / 100);
+        const valorPessoal = valor * (Number(rateio.percentualPessoal || 0) / 100);
+
+        adicionarCustoCategoria(resumo, "trabalho", nomeCategoria, valorTrabalho, categoria, true);
+        adicionarCustoCategoria(resumo, "pessoal", nomeCategoria, valorPessoal, categoria, true);
+        return;
+      }
+
+      if (tipoUso === "pessoal") {
+        adicionarCustoCategoria(resumo, "pessoal", nomeCategoria, valor, categoria, false);
+        return;
+      }
+
+      if (tipoUso === "trabalho") {
+        adicionarCustoCategoria(resumo, "trabalho", nomeCategoria, valor, categoria, false);
+        return;
+      }
+
+      const finalidadeLancamento = String(saida.finalidade || "trabalho").toLowerCase() === "pessoal" ? "pessoal" : "trabalho";
+      adicionarCustoCategoria(resumo, finalidadeLancamento, nomeCategoria, valor, categoria, false);
+    });
+
+  ["trabalho", "pessoal"].forEach((finalidade) => {
+    const total = resumo[finalidade].total;
+    resumo[finalidade].categorias = resumo[finalidade].categorias
+      .map((item) => ({
+        ...item,
+        percentualDoCusto: total > 0 ? (item.valor / total) * 100 : 0,
+        percentualDoFaturamento: Number(faturamentoPeriodo || 0) > 0 ? (item.valor / Number(faturamentoPeriodo || 0)) * 100 : 0,
+      }))
+      .sort((a, b) => b.valor - a.valor);
+  });
+
+  return resumo;
+}
+
+function adicionarCustoCategoria(resumo, finalidade, nome, valor, categoria, rateado) {
+  if (!valor || valor <= 0) return;
+
+  resumo[finalidade].total += valor;
+  const existente = resumo[finalidade].categorias.find((item) => item.nome === nome);
+  const cor = corCategoria(nome, categoria?.cor);
+
+  if (existente) {
+    existente.valor += valor;
+    existente.rateado = existente.rateado || rateado;
+    return;
+  }
+
+  resumo[finalidade].categorias.push({
+    nome,
+    valor,
+    cor,
+    rateado,
+  });
+}
+
+function obterCategoriaDaSaida(saida, categoriasPorId, categoriasPorNome) {
+  if (saida.categoria_id && categoriasPorId.has(String(saida.categoria_id))) {
+    return categoriasPorId.get(String(saida.categoria_id));
+  }
+
+  const porNome = categoriasPorNome.get(normalizarTexto(saida.categoria));
+  if (porNome) return porNome;
+
+  const nomeNormalizado = normalizarTexto(saida.categoria);
+  const categoriasFixas = {
+    abastecimento: { nome: "Abastecimento", tipo_uso: "rateada" },
+    manutencao: { nome: "Manutenção", tipo_uso: "rateada" },
+    seguro: { nome: "Seguro", tipo_uso: "rateada" },
+    "mensalidadedatag": { nome: "Mensalidade da TAG", tipo_uso: "rateada" },
+    "pedagiodeusoatrabalho": { nome: "Pedágio de uso a trabalho", tipo_uso: "trabalho" },
+    "pedagiodeusopessoal": { nome: "Pedágio de uso pessoal", tipo_uso: "pessoal" },
+    "estacionamentodeusoatrabalho": { nome: "Estacionamento de uso a trabalho", tipo_uso: "trabalho" },
+    "estacionamentodeusopessoal": { nome: "Estacionamento de uso pessoal", tipo_uso: "pessoal" },
+  };
+
+  return categoriasFixas[nomeNormalizado] || null;
+}
+
+function normalizarTipoUsoCategoria(tipoUso) {
+  const valor = String(tipoUso || "opcional").toLowerCase();
+
+  if (["trabalho", "uso_trabalho", "uso a trabalho"].includes(valor)) return "trabalho";
+  if (["pessoal", "uso_pessoal", "uso pessoal"].includes(valor)) return "pessoal";
+  if (["rateada", "rateado", "calculada", "calculado", "calculada_pelo_uso", "uso_veiculo"].includes(valor)) return "rateada";
+
+  return "opcional";
+}
+
+function custoRealParaDashboard(saida) {
+  const categoria = normalizarTexto(saida?.categoria);
+  const tipoMovimentacao = String(saida?.tipo_movimentacao || "").toLowerCase();
+
+  if (!saida || Number(saida.valor_total || 0) <= 0) return false;
+  if (tipoMovimentacao === "conta_pagar") return false;
+  if (tipoMovimentacao === "transferencia") return false;
+  if (saida.fatura_pagamento_id) return false;
+
+  const categoriasIgnoradas = new Set([
+    "saldoinicialdocartao",
+    "parcelamentoimportado",
+    "pagamentodefatura",
+    "recargatag",
+    "recargadetag",
+    "transferencia",
+  ]);
+
+  return !categoriasIgnoradas.has(categoria);
+}
+
+function normalizarTexto(texto) {
+  return String(texto || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function corCategoria(nome, corSalva = null) {
+  if (corSalva) return corSalva;
+
+  const chave = normalizarTexto(nome);
+  const cores = {
+    abastecimento: "#ef4444",
+    combustivel: "#ef4444",
+    manutencao: "#f59e0b",
+    seguro: "#8b5cf6",
+    mensalidadedatag: "#3b82f6",
+    tag: "#3b82f6",
+    pedagio: "#06b6d4",
+    pedagiodeusoatrabalho: "#06b6d4",
+    pedagiodeusopessoal: "#06b6d4",
+    estacionamentodeusoatrabalho: "#22c55e",
+    estacionamentodeusopessoal: "#22c55e",
+    alimentacao: "#f97316",
+    mercado: "#ec4899",
+    divida: "#64748b",
+    outros: "#94a3b8",
+  };
+
+  const corExistente = cores[chave] || cores[Object.keys(cores).find((item) => chave.includes(item))];
+  if (corExistente) return corExistente;
+
+  const paleta = [
+    "#ef4444",
+    "#f59e0b",
+    "#eab308",
+    "#22c55e",
+    "#06b6d4",
+    "#3b82f6",
+    "#8b5cf6",
+    "#ec4899",
+    "#f97316",
+    "#14b8a6",
+    "#a855f7",
+    "#84cc16",
+  ];
+
+  const indice = [...chave].reduce((total, letra) => total + letra.charCodeAt(0), 0) % paleta.length;
+  return paleta[indice];
 }
 
 function getSemanaDoAno(data) {
@@ -1063,6 +1822,92 @@ function anosEntre(inicio, fim) {
   return anos;
 }
 
+function BlocoDashboard({ titulo, descricao, aberto, onToggle, acaoExtra, children }) {
+  return (
+    <section className="bg-[#111827] border border-gray-800 rounded-3xl overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full p-5 flex items-center justify-between gap-4 text-left hover:bg-white/[0.02] transition"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="w-10 h-10 rounded-xl bg-[#0B1120] border border-gray-800 flex items-center justify-center text-green-400 shrink-0">
+            {aberto ? <FiChevronDown /> : <FiChevronRight />}
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-xl font-black truncate">{titulo}</h2>
+            <p className="text-sm text-gray-500 mt-1 truncate">{descricao}</p>
+          </div>
+        </div>
+
+        {acaoExtra && <div className="shrink-0" onClick={(e) => e.stopPropagation()}>{acaoExtra}</div>}
+      </button>
+
+      {aberto && <div className="px-5 pb-5">{children}</div>}
+    </section>
+  );
+}
+
+function InvestimentosObjetivosCard({ formatarMoeda }) {
+  return (
+    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
+      <p className="text-sm text-gray-400">Investimentos / Objetivos</p>
+      <h3 className="text-2xl font-black mt-1">{formatarMoeda(0)}</h3>
+      <p className="text-xs text-gray-500 mt-2">
+        Espaço reservado para reservas, objetivos e investimentos quando essa parte for implementada.
+      </p>
+      <div className="mt-4 h-3 rounded-full bg-[#0B1120] border border-gray-800 overflow-hidden">
+        <div className="h-full bg-green-500 rounded-full" style={{ width: "0%" }} />
+      </div>
+    </div>
+  );
+}
+
+function ContasAtrasadasCard({ contas, total, abrirConfiguracao, formatarMoeda, formatarDataBR }) {
+  return (
+    <div className="relative bg-[#111827] border border-gray-800 rounded-3xl p-5">
+      <button
+        type="button"
+        onClick={abrirConfiguracao}
+        className="absolute top-4 right-4 w-9 h-9 rounded-xl hover:bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition"
+        title="Configurar contas atrasadas e negativas"
+        aria-label="Configurar contas atrasadas e negativas"
+      >
+        <FiSettings className="text-lg" />
+      </button>
+
+      <div className="pr-12">
+        <p className="text-sm text-gray-400">Contas atrasadas / negativas</p>
+        <h3 className="text-2xl font-black mt-1 text-red-400">{formatarMoeda(total)}</h3>
+        <p className="text-xs text-gray-500 mt-1">Faturas vencidas, contas em atraso e contas negativas configuradas.</p>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {contas.length === 0 ? (
+          <p className="text-sm text-gray-500">Nada para mostrar conforme sua configuração.</p>
+        ) : (
+          contas.slice(0, 5).map((conta) => (
+            <div key={conta.id} className="flex items-center justify-between gap-3 border-t border-gray-800 pt-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[10px] font-black rounded-full px-2 py-0.5 shrink-0 bg-red-500/10 text-red-300 border border-red-500/30">
+                    {conta.tipo}
+                  </span>
+                  <p className="font-bold truncate">{conta.titulo}</p>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {conta.data ? `${formatarDataBR(conta.data)} • ` : ""}{conta.subtitulo}
+                </p>
+              </div>
+              <p className="font-black text-red-400 whitespace-nowrap">{formatarMoeda(conta.valor)}</p>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SaldoGeralCard({ saldoGeral, contas, abrirConfiguracao, formatarMoeda }) {
   return (
     <div className="relative bg-green-500 border border-green-400 rounded-3xl p-6 sm:p-7 text-white overflow-hidden">
@@ -1136,8 +1981,7 @@ function MetricCard({ titulo, valor }) {
   );
 }
 
-function ProximasContasCard({ contas, dias, abrirConfiguracao, formatarMoeda, formatarDataBR }) {
-  const total = contas.reduce((soma, item) => soma + Number(item.valor || 0), 0);
+function ProximasContasCard({ contas, dias, abrirConfiguracao, formatarMoeda, formatarDataBR, total }) {
 
   return (
     <div className="relative bg-[#111827] border border-gray-800 rounded-3xl p-5">
@@ -1239,6 +2083,149 @@ function PlataformasCard({ plataformas, total, formatarMoeda }) {
   );
 }
 
+
+function CustosPerformanceCard({ custos, aba, setAba, faturamento, rateio, formatarMoeda }) {
+  const dados = custos?.[aba] || { total: 0, categorias: [] };
+  const percentualFaturamento = Number(faturamento || 0) > 0 ? (Number(dados.total || 0) / Number(faturamento || 0)) * 100 : 0;
+
+  return (
+    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-xl font-bold">Custos operacionais</h3>
+          <p className="text-gray-400 text-sm mt-1">
+            Categorias diretas e rateadas pelo uso do veículo.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 bg-[#0B1120] border border-gray-800 rounded-xl p-1 shrink-0">
+          {[
+            ["trabalho", "Trabalho"],
+            ["pessoal", "Pessoal"],
+          ].map(([valor, label]) => (
+            <button
+              key={valor}
+              type="button"
+              onClick={() => setAba(valor)}
+              className={`px-3 py-2 rounded-lg text-xs font-black transition ${
+                aba === valor ? "bg-green-500 text-black" : "text-gray-400 hover:text-white"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4 bg-[#0B1120] border border-gray-800 rounded-2xl p-3 grid grid-cols-3 gap-3 text-center">
+        <div>
+          <p className="text-[11px] text-gray-500">KM total</p>
+          <p className="font-black text-white mt-1">{Number(rateio?.kmTotal || 0).toLocaleString("pt-BR")}</p>
+        </div>
+        <div>
+          <p className="text-[11px] text-gray-500">Trabalho</p>
+          <p className="font-black text-green-400 mt-1">{Math.round(rateio?.percentualTrabalho || 0)}%</p>
+        </div>
+        <div>
+          <p className="text-[11px] text-gray-500">Pessoal</p>
+          <p className="font-black text-blue-400 mt-1">{Math.round(rateio?.percentualPessoal || 0)}%</p>
+        </div>
+      </div>
+
+      {!rateio?.calculado && (
+        <p className="text-xs text-yellow-400 mt-2">
+          Sem KM total de abastecimento no período. Categorias rateadas foram consideradas como trabalho até existir abastecimento no período.
+        </p>
+      )}
+
+      <div className="mt-5 grid grid-cols-1 md:grid-cols-[180px_1fr] gap-5 items-center">
+        <div className="flex flex-col items-center justify-center">
+          <GraficoAnelCategorias categorias={dados.categorias} />
+          <p className="text-sm text-gray-400 mt-3">Total de custos</p>
+          <p className="text-2xl font-black text-white">{formatarMoeda(dados.total)}</p>
+          <p className="text-xs text-gray-500 mt-1">{Math.round(percentualFaturamento)}% do faturamento</p>
+        </div>
+
+        <div className="space-y-4 min-w-0">
+          {dados.categorias.length === 0 ? (
+            <p className="text-sm text-gray-500">Nenhum custo encontrado neste período.</p>
+          ) : (
+            dados.categorias.map((categoria) => (
+              <div key={categoria.nome}>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="w-3 h-3 rounded-full shrink-0"
+                      style={{ backgroundColor: categoria.cor }}
+                    />
+                    <span className="font-bold truncate" style={{ color: categoria.cor }}>
+                      {categoria.nome}
+                    </span>
+                    {categoria.rateado && (
+                      <span className="text-[10px] rounded-full px-2 py-0.5 bg-blue-500/10 text-blue-300 border border-blue-500/30 shrink-0">
+                        rateado
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-black whitespace-nowrap">{formatarMoeda(categoria.valor)}</span>
+                </div>
+
+                <div className="mt-2 h-3 bg-[#0B1120] rounded-full overflow-hidden border border-gray-800">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${Math.min(categoria.percentualDoFaturamento, 100)}%`,
+                      backgroundColor: categoria.cor,
+                    }}
+                  />
+                </div>
+
+                <p className="text-xs text-gray-500 mt-1">
+                  {Math.round(categoria.percentualDoFaturamento)}% do faturamento • {Math.round(categoria.percentualDoCusto)}% dos custos
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GraficoAnelCategorias({ categorias }) {
+  const lista = (categorias || []).filter((categoria) => Number(categoria.valor || 0) > 0);
+  const total = lista.reduce((soma, categoria) => soma + Number(categoria.valor || 0), 0);
+
+  if (total <= 0) {
+    return (
+      <div className="w-36 h-36 rounded-full flex items-center justify-center border border-gray-800 bg-[#0B1120]">
+        <div className="w-24 h-24 rounded-full bg-[#111827] border border-gray-800 flex items-center justify-center">
+          <span className="text-lg font-black text-gray-500">0%</span>
+        </div>
+      </div>
+    );
+  }
+
+  let acumulado = 0;
+  const partes = lista.map((categoria) => {
+    const inicio = acumulado;
+    const percentual = (Number(categoria.valor || 0) / total) * 100;
+    acumulado += percentual;
+    return `${categoria.cor} ${inicio}% ${acumulado}%`;
+  });
+
+  return (
+    <div
+      className="w-36 h-36 rounded-full flex items-center justify-center border border-gray-800"
+      style={{ background: `conic-gradient(${partes.join(", ")})` }}
+    >
+      <div className="w-24 h-24 rounded-full bg-[#111827] border border-gray-800 flex items-center justify-center text-center px-2">
+        <span className="text-lg font-black text-white">100%</span>
+      </div>
+    </div>
+  );
+}
+
 function iconePlataforma(nome) {
   const chave = normalizarNomePlataforma(nome);
 
@@ -1264,6 +2251,55 @@ function normalizarNomePlataforma(nome) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+
+function ModalContasAtrasadasDashboard({ config, alterarConfig, fechar }) {
+  const opcoes = [
+    { chave: "mostrarAtrasadas", titulo: "Contas atrasadas", descricao: "Faturas e contas vencidas ainda em aberto." },
+    { chave: "mostrarNegativas", titulo: "Contas negativas", descricao: "Contas bancárias, carteira ou TAG com saldo negativo." },
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[90] p-4">
+      <div className="w-full max-w-lg bg-[#111827] border border-gray-800 rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-hide">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-black">Contas atrasadas / negativas</h2>
+            <p className="text-gray-400 text-sm mt-2">Escolha o que aparece no card financeiro.</p>
+          </div>
+          <button type="button" onClick={fechar} className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-black">×</button>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {opcoes.map((opcao) => {
+            const ativo = Boolean(config?.[opcao.chave]);
+            return (
+              <button
+                key={opcao.chave}
+                type="button"
+                onClick={() => alterarConfig({ [opcao.chave]: !ativo })}
+                className={`w-full rounded-2xl p-4 flex items-center justify-between gap-4 text-left border transition ${
+                  ativo ? "bg-green-500/10 border-green-500/50" : "bg-[#0B1120] border-gray-800 hover:border-green-500/40"
+                }`}
+              >
+                <div>
+                  <p className="font-black">{opcao.titulo}</p>
+                  <p className="text-sm text-gray-500 mt-1">{opcao.descricao}</p>
+                </div>
+                <div className={`w-14 h-8 rounded-full p-1 transition ${ativo ? "bg-green-500" : "bg-gray-700"}`}>
+                  <div className={`w-6 h-6 rounded-full bg-white transition ${ativo ? "translate-x-6" : "translate-x-0"}`} />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <button type="button" onClick={fechar} className="mt-6 w-full bg-green-500 hover:bg-green-600 text-black font-black rounded-xl p-3">
+          Concluir
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function ModalContasPagarDashboard({ diasSelecionados, alterarDias, fechar }) {
   const opcoes = [

@@ -286,12 +286,31 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   async function salvarDetalhesAbastecimento(saidaId) {
     const litros = litrosCalculados();
     const odometroFinal = Number(odometro || 0);
-    const abastecimentoAnterior = await supabase.from("saidas_abastecimentos").select("*").eq("veiculo_id", Number(veiculoId)).lt("odometro", odometroFinal).order("odometro", { ascending: false }).limit(1).maybeSingle();
-    const odometroAnterior = abastecimentoAnterior.data?.odometro || 0;
-    const kmPeriodo = Math.max(odometroFinal - odometroAnterior, 0);
+    const kmInformado = Number(kmRodados || 0);
+
+    let kmPeriodo = kmInformado;
+
+    if (modoKm === "odometro") {
+      const abastecimentoAnterior = await supabase
+        .from("saidas_abastecimentos")
+        .select("*")
+        .eq("veiculo_id", Number(veiculoId))
+        .lt("odometro", odometroFinal)
+        .order("odometro", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const odometroAnterior = Number(abastecimentoAnterior.data?.odometro || veiculoSelecionado?.odometro_atual || 0);
+      kmPeriodo = Math.max(odometroFinal - odometroAnterior, 0);
+    }
+
+    if (modoKm === "trip") {
+      kmPeriodo = kmInformado;
+    }
+
     const consumoKmLitro = litros > 0 ? kmPeriodo / litros : 0;
     const custoPorKm = kmPeriodo > 0 ? moedaParaNumero(valorTotal) / kmPeriodo : 0;
-    const { error } = await supabase.from("saidas_abastecimentos").insert({ saida_id: saidaId, veiculo_id: Number(veiculoId), odometro: odometroFinal, km_rodados: Number(kmRodados || 0), km_total_periodo: kmPeriodo, tipo_combustivel: tipoCombustivel, litros, valor_litro: moedaParaNumero(valorLitro), tanque_cheio: tanqueCheio, uso: "automatico", percentual_trabalho: 0, consumo_km_l: consumoKmLitro, custo_por_km: custoPorKm, posto: null });
+    const { error } = await supabase.from("saidas_abastecimentos").insert({ saida_id: saidaId, veiculo_id: Number(veiculoId), odometro: odometroFinal, km_rodados: kmPeriodo, km_total_periodo: kmPeriodo, tipo_combustivel: tipoCombustivel, litros, valor_litro: moedaParaNumero(valorLitro), tanque_cheio: tanqueCheio, uso: "automatico", percentual_trabalho: 0, consumo_km_l: consumoKmLitro, custo_por_km: custoPorKm, posto: null });
     if (error) throw error;
     let campoMedia = null;
     if (tipoCombustivel === "etanol" || tipoCombustivel === "etanol_aditivado") campoMedia = "media_etanol";
