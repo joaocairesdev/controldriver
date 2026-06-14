@@ -12,7 +12,7 @@ import SelecionarParcelasModal from "./SelecionarParcelasModal";
 import FeedbackModal from "./FeedbackModal";
 import ConfirmacaoModal from "./ConfirmacaoModal";
 
-export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagInicialId = "" }) {
+export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagInicialId = "", edicao = null, onSalvo = null }) {
   const hoje = new Date().toISOString().split("T")[0];
 
   const categorias = [
@@ -171,8 +171,29 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   useEffect(() => {
     if (!aberto) return;
     carregarDados();
-    setEtapa(etapaInicial || "menu");
-  }, [aberto, etapaInicial, tagInicialId]);
+    setEtapa(edicao?.id ? "uso" : etapaInicial || "menu");
+  }, [aberto, etapaInicial, tagInicialId, edicao?.id]);
+
+  useEffect(() => {
+    if (!aberto || !edicao?.id || !edicao?.tag) return;
+    const tag = edicao.tag;
+    setContaTagId(tag.conta_tag_id ? String(tag.conta_tag_id) : (edicao.conta_id ? String(edicao.conta_id) : ""));
+    setGrupos([
+      {
+        id: crypto.randomUUID(),
+        data: edicao.data_compra || hoje,
+        usos: [
+          {
+            ...usoPadrao,
+            id: crypto.randomUUID(),
+            categoria: edicao.categoria || usoPadrao.categoria,
+            valor: numeroParaMoedaInput(edicao.valor_total || 0),
+            descricao: tag.descricao_local || edicao.descricao || "",
+          },
+        ],
+      },
+    ]);
+  }, [aberto, edicao?.id, edicao?.tag?.id]);
 
   useEffect(() => {
     if (isRecargaDinheiro && carteiraRecarga) {
@@ -384,7 +405,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois });
   }
 
-  function fecharFeedback() {
+  async function fecharFeedback() {
     const deveFechar = feedback.fecharDepois;
 
     setFeedback({
@@ -396,6 +417,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     });
 
     if (deveFechar) {
+      if (edicao?.id) await onSalvo?.();
       setEtapa("menu");
       resetarFormulario();
       limparRecarga();
@@ -981,9 +1003,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
           const valor = moedaParaNumero(uso.valor);
           const detalhe = dadosTagDetalhe(uso);
 
-          const { data: saidaCriada, error: erroSaida } = await supabase
-            .from("saidas")
-            .insert({
+          const dadosSaida = {
               data_compra: grupo.data,
               forma_pagamento: "tag",
               conta_id: Number(contaTagId),
@@ -998,14 +1018,24 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
               descricao: descricaoAutomatica(uso),
               status: "pago",
               tipo_movimentacao: "saida",
-            })
-            .select()
-            .single();
-
-          if (erroSaida) throw erroSaida;
+            };
+          let saidaId = edicao?.id || null;
+          if (saidaId) {
+            const { error: erroSaida } = await supabase.from("saidas").update(dadosSaida).eq("id", saidaId);
+            if (erroSaida) throw erroSaida;
+            await supabase.from("saidas_tag").delete().eq("saida_id", saidaId);
+          } else {
+            const { data: saidaCriada, error: erroSaida } = await supabase
+              .from("saidas")
+              .insert(dadosSaida)
+              .select()
+              .single();
+            if (erroSaida) throw erroSaida;
+            saidaId = saidaCriada.id;
+          }
 
           const { error: erroTag } = await supabase.from("saidas_tag").insert({
-            saida_id: saidaCriada.id,
+            saida_id: saidaId,
             conta_tag_id: Number(contaTagId),
             tipo_uso: detalhe.tipo_uso,
             uso: detalhe.uso,
@@ -1023,7 +1053,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
       abrirFeedback(
         "sucesso",
-        registrarRecarga ? "Uso e recarga salvos" : "Uso da TAG salvo",
+        edicao?.id ? "Uso da TAG atualizado" : registrarRecarga ? "Uso e recarga salvos" : "Uso da TAG salvo",
         registrarRecarga
           ? "O uso da TAG e a recarga necessária foram registrados com sucesso."
           : "Os lançamentos foram registrados com sucesso.",

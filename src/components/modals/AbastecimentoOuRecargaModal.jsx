@@ -5,7 +5,7 @@ import ModalBase from "./ModalBase";
 import AbastecimentoModal from "./AbastecimentoModal";
 import RecargaEletricaModal from "./RecargaEletricaModal";
 
-export default function AbastecimentoOuRecargaModal({ aberto, onClose }) {
+export default function AbastecimentoOuRecargaModal({ aberto, onClose, edicao = null, onSalvo = null }) {
   const [veiculos, setVeiculos] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [etapa, setEtapa] = useState("menu");
@@ -13,9 +13,15 @@ export default function AbastecimentoOuRecargaModal({ aberto, onClose }) {
   useEffect(() => {
     if (!aberto) return;
 
-    setEtapa("menu");
+    if (edicao?.abastecimento) {
+      setEtapa("abastecimento");
+    } else if (edicao?.recargaEletrica) {
+      setEtapa("recarga");
+    } else {
+      setEtapa("menu");
+    }
     carregarVeiculos();
-  }, [aberto]);
+  }, [aberto, edicao?.id]);
 
   const veiculosCombustao = useMemo(
     () =>
@@ -85,6 +91,8 @@ export default function AbastecimentoOuRecargaModal({ aberto, onClose }) {
         aberto={aberto}
         onClose={fecharTudo}
         veiculosPermitidos={veiculosCombustao}
+        edicao={edicao}
+        onSalvo={onSalvo}
       />
     );
   }
@@ -95,6 +103,8 @@ export default function AbastecimentoOuRecargaModal({ aberto, onClose }) {
         aberto={aberto}
         onClose={fecharTudo}
         veiculosPermitidos={veiculosEletricos}
+        edicao={edicao}
+        onSalvo={onSalvo}
       />
     );
   }

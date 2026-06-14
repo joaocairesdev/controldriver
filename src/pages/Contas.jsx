@@ -1,5 +1,14 @@
 import { useEffect, useState } from "react";
+import {
+  FiBriefcase,
+  FiCreditCard,
+  FiEdit2,
+  FiStar,
+  FiTrash2,
+  FiUser,
+} from "react-icons/fi";
 import { supabase } from "../services/supabase";
+import ModalBase from "../components/modals/ModalBase";
 
 export default function Contas() {
   const [contas, setContas] = useState([]);
@@ -23,6 +32,7 @@ export default function Contas() {
   const [saldoInicial, setSaldoInicial] = useState("");
   const [permitirSaldoNegativo, setPermitirSaldoNegativo] = useState(false);
   const [limiteChequeEspecial, setLimiteChequeEspecial] = useState("");
+  const [finalidadeConta, setFinalidadeConta] = useState("trabalho");
 
   useEffect(() => {
     carregarContas();
@@ -87,6 +97,18 @@ export default function Contas() {
     return conta.tipo_conta === "carteira";
   }
 
+  function finalidadeDaConta(conta) {
+    return (conta.finalidade || "trabalho") === "pessoal"
+      ? "pessoal"
+      : "trabalho";
+  }
+
+  function textoFinalidadeConta(conta) {
+    return finalidadeDaConta(conta) === "pessoal"
+      ? "Pessoal"
+      : "Trabalho / Operação";
+  }
+
   async function calcularSaldoConta(conta) {
     const contaId = conta.id;
 
@@ -98,8 +120,10 @@ export default function Contas() {
     const totalEntradas = (entradas || []).reduce((total, entrada) => {
       const totalPlataformas = (entrada.entrada_plataformas || []).reduce(
         (soma, item) =>
-          soma + Number(item.faturamento || 0) + Number(item.valor_reembolso || 0),
-        0
+          soma +
+          Number(item.faturamento || 0) +
+          Number(item.valor_reembolso || 0),
+        0,
       );
 
       return total + totalPlataformas;
@@ -112,7 +136,7 @@ export default function Contas() {
 
     const totalEntradasAvulsas = (entradasAvulsas || []).reduce(
       (total, entrada) => total + Number(entrada.valor || 0),
-      0
+      0,
     );
 
     const { data: transferenciasRecebidas } = await supabase
@@ -122,7 +146,7 @@ export default function Contas() {
 
     const totalTransferenciasRecebidas = (transferenciasRecebidas || []).reduce(
       (total, transferencia) => total + Number(transferencia.valor || 0),
-      0
+      0,
     );
 
     const { data: transferenciasEnviadas } = await supabase
@@ -132,7 +156,7 @@ export default function Contas() {
 
     const totalTransferenciasEnviadas = (transferenciasEnviadas || []).reduce(
       (total, transferencia) => total + Number(transferencia.valor || 0),
-      0
+      0,
     );
 
     const { data: saidas } = await supabase
@@ -172,10 +196,11 @@ export default function Contas() {
       (data || []).map(async (conta) => ({
         ...conta,
         tipo_conta: conta.tipo_conta || "banco",
+        finalidade: conta.finalidade || "trabalho",
         permitir_saldo_negativo: conta.permitir_saldo_negativo ?? false,
         limite_cheque_especial: Number(conta.limite_cheque_especial || 0),
         saldo_atual: await calcularSaldoConta(conta),
-      }))
+      })),
     );
 
     setContas(contasAtualizadas);
@@ -187,6 +212,7 @@ export default function Contas() {
     setSaldoInicial("");
     setPermitirSaldoNegativo(false);
     setLimiteChequeEspecial("");
+    setFinalidadeConta("trabalho");
   }
 
   function abrirNovaConta() {
@@ -199,7 +225,7 @@ export default function Contas() {
       abrirAviso(
         "Carteira padrão",
         "A carteira é criada pelo sistema. Por enquanto, mantenha os ajustes nela pelos lançamentos em dinheiro.",
-        "info"
+        "info",
       );
       return;
     }
@@ -207,9 +233,12 @@ export default function Contas() {
     setContaEditando(conta);
     setNomeConta(conta.nome || "");
     setSaldoInicial(numeroParaMoedaInput(conta.saldo_inicial));
+    setFinalidadeConta(conta.finalidade || "trabalho");
     setPermitirSaldoNegativo(conta.permitir_saldo_negativo ?? false);
     setLimiteChequeEspecial(
-      conta.limite_cheque_especial ? numeroParaMoedaInput(conta.limite_cheque_especial) : ""
+      conta.limite_cheque_especial
+        ? numeroParaMoedaInput(conta.limite_cheque_especial)
+        : "",
     );
     setModalAberto(true);
   }
@@ -221,19 +250,25 @@ export default function Contas() {
 
   async function salvarConta() {
     if (!nomeConta.trim()) {
-      abrirAviso("Nome obrigatório", "Digite o nome da conta bancária.", "erro");
+      abrirAviso(
+        "Nome obrigatório",
+        "Digite o nome da conta bancária.",
+        "erro",
+      );
       return;
     }
 
     const nomeNormalizado = nomeConta.trim();
     const saldoInicialNumero = moedaParaNumero(saldoInicial);
-    const limiteNumero = permitirSaldoNegativo ? moedaParaNumero(limiteChequeEspecial) : 0;
+    const limiteNumero = permitirSaldoNegativo
+      ? moedaParaNumero(limiteChequeEspecial)
+      : 0;
 
     if (saldoInicialNumero < 0 && !permitirSaldoNegativo) {
       abrirAviso(
         "Saldo negativo",
         "Para criar uma conta bancária já negativa, ative o cheque especial.",
-        "erro"
+        "erro",
       );
       return;
     }
@@ -242,7 +277,7 @@ export default function Contas() {
       abrirAviso(
         "Limite obrigatório",
         "Informe o limite do cheque especial ou desative a opção de saldo negativo.",
-        "erro"
+        "erro",
       );
       return;
     }
@@ -253,11 +288,15 @@ export default function Contas() {
       .ilike("nome", nomeNormalizado);
 
     const contaAtivaMesmoNome = (contasMesmoNome || []).find(
-      (conta) => conta.ativo === true && conta.id !== contaEditando?.id
+      (conta) => conta.ativo === true && conta.id !== contaEditando?.id,
     );
 
     if (contaAtivaMesmoNome) {
-      abrirAviso("Conta já cadastrada", "Já existe uma conta ativa com esse nome.", "erro");
+      abrirAviso(
+        "Conta já cadastrada",
+        "Já existe uma conta ativa com esse nome.",
+        "erro",
+      );
       return;
     }
 
@@ -265,6 +304,7 @@ export default function Contas() {
       nome: nomeNormalizado,
       tipo_conta: "banco",
       tipo_tag: null,
+      finalidade: finalidadeConta === "pessoal" ? "pessoal" : "trabalho",
       saldo_inicial: saldoInicialNumero,
       permitir_saldo_negativo: permitirSaldoNegativo,
       limite_cheque_especial: limiteNumero,
@@ -291,7 +331,7 @@ export default function Contas() {
     }
 
     const contaInativaMesmoNome = (contasMesmoNome || []).find(
-      (conta) => conta.ativo === false
+      (conta) => conta.ativo === false,
     );
 
     if (contaInativaMesmoNome) {
@@ -311,7 +351,9 @@ export default function Contas() {
       return;
     }
 
-    const jaExistePrincipal = contas.some((conta) => conta.principal && isBanco(conta));
+    const jaExistePrincipal = contas.some(
+      (conta) => conta.principal && isBanco(conta),
+    );
 
     const { error } = await supabase.from("contas").insert({
       ...dadosConta,
@@ -352,7 +394,10 @@ export default function Contas() {
   async function confirmarContaPrincipal() {
     if (!contaParaPrincipal) return;
 
-    await supabase.from("contas").update({ principal: false }).eq("tipo_conta", "banco");
+    await supabase
+      .from("contas")
+      .update({ principal: false })
+      .eq("tipo_conta", "banco");
 
     await supabase
       .from("contas")
@@ -369,7 +414,7 @@ export default function Contas() {
       abrirAviso(
         "Carteira obrigatória",
         "A carteira é uma conta padrão do sistema e não pode ser excluída.",
-        "erro"
+        "erro",
       );
       return;
     }
@@ -378,7 +423,7 @@ export default function Contas() {
       abrirAviso(
         "Conta principal",
         "Você não pode excluir a conta principal. Defina outra conta como principal antes.",
-        "erro"
+        "erro",
       );
       return;
     }
@@ -411,15 +456,17 @@ export default function Contas() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Contas</h1>
-          <p className="text-gray-400 mt-2">Gerencie bancos e a carteira padrão</p>
+          <p className="text-gray-400 mt-2">
+            Gerencie bancos e a carteira padrão
+          </p>
         </div>
 
         <button
           onClick={abrirNovaConta}
-          className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl px-5 py-3"
+          className="w-full sm:w-auto bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl px-5 py-3 text-center"
         >
           + Nova Conta Bancária
         </button>
@@ -441,17 +488,16 @@ export default function Contas() {
                   key={conta.id}
                   className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-[#111827] to-[#0B1120] p-4 shadow"
                 >
-                  <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-amber-400/10" />
-                  <div className="absolute right-4 bottom-4 text-5xl opacity-10">💵</div>
-
                   <div className="relative flex items-start justify-between gap-4">
                     <div>
                       <div className="inline-flex items-center gap-2 rounded-full bg-amber-500/15 text-amber-300 text-[11px] font-bold px-2.5 py-1">
-                        💵 Carteira padrão
+                        Carteira padrão
                       </div>
 
                       <h2 className="text-lg font-black mt-2">{conta.nome}</h2>
-                      <p className="text-xs text-gray-400 mt-0.5">Dinheiro em espécie</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        Dinheiro em espécie
+                      </p>
                     </div>
                   </div>
 
@@ -467,7 +513,8 @@ export default function Contas() {
                   </div>
 
                   <p className="relative text-xs text-gray-500 mt-4 border-t border-amber-500/20 pt-3">
-                    Criada automaticamente pelo sistema. Pagamentos em dinheiro sempre saem daqui.
+                    Criada automaticamente pelo sistema. Pagamentos em dinheiro
+                    sempre saem daqui.
                   </p>
                 </div>
               );
@@ -491,7 +538,8 @@ export default function Contas() {
             {bancos.map((conta) => {
               const saldoNegativo = Number(conta.saldo_atual || 0) < 0;
               const temCheque =
-                conta.permitir_saldo_negativo && Number(conta.limite_cheque_especial || 0) > 0;
+                conta.permitir_saldo_negativo &&
+                Number(conta.limite_cheque_especial || 0) > 0;
 
               const chequeUsado = calcularChequeUsado(conta);
               const porcentagemCheque = calcularPorcentagemCheque(conta);
@@ -503,45 +551,62 @@ export default function Contas() {
                     saldoNegativo
                       ? "border-red-500/60 bg-red-500/10"
                       : conta.principal
-                      ? "border-green-400 bg-green-500/10"
-                      : "border-gray-800 bg-[#111827]"
+                        ? "border-green-400 bg-green-500/10"
+                        : "border-gray-800 bg-[#111827]"
                   }`}
                 >
                   <div className="absolute top-4 right-4 flex items-center gap-3">
                     <button
                       onClick={() => solicitarContaPrincipal(conta)}
-                      className={`text-2xl transition ${
+                      className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${
                         conta.principal
-                          ? "text-yellow-400"
-                          : "text-gray-600 hover:text-yellow-400"
+                          ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-400"
+                          : "border-gray-700 bg-[#0B1120] text-gray-500 hover:text-yellow-400 hover:border-yellow-500/40"
                       }`}
                       title="Definir como principal"
                     >
-                      {conta.principal ? "★" : "☆"}
+                      <FiStar
+                        className={conta.principal ? "fill-current" : ""}
+                      />
                     </button>
 
                     <button
                       onClick={() => abrirEditarConta(conta)}
-                      className="text-gray-500 hover:text-white"
+                      className="w-9 h-9 rounded-xl border border-gray-700 bg-[#0B1120] flex items-center justify-center text-gray-500 hover:text-white hover:border-gray-500 transition"
                       title="Editar conta"
                     >
-                      ✏️
+                      <FiEdit2 />
                     </button>
 
                     <button
                       onClick={() => solicitarExclusaoConta(conta)}
-                      className="text-gray-500 hover:text-red-400"
+                      className="w-9 h-9 rounded-xl border border-gray-700 bg-[#0B1120] flex items-center justify-center text-gray-500 hover:text-red-400 hover:border-red-500/40 transition"
                       title="Excluir conta"
                     >
-                      🗑️
+                      <FiTrash2 />
                     </button>
                   </div>
 
                   <h2 className="text-xl font-bold pr-24">{conta.nome}</h2>
 
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <div className="rounded-full bg-gray-500/10 text-gray-300 text-xs font-bold px-3 py-1">
-                      🏦 Banco
+                    <div className="inline-flex items-center gap-1.5 rounded-full bg-gray-500/10 text-gray-300 text-xs font-bold px-3 py-1">
+                      <FiCreditCard className="text-sm" /> Banco
+                    </div>
+
+                    <div
+                      className={`inline-flex items-center gap-1.5 rounded-full text-xs font-bold px-3 py-1 border ${
+                        finalidadeDaConta(conta) === "pessoal"
+                          ? "bg-blue-500/15 text-blue-300 border-blue-500/20"
+                          : "bg-green-500/15 text-green-300 border-green-500/20"
+                      }`}
+                    >
+                      {finalidadeDaConta(conta) === "pessoal" ? (
+                        <FiUser />
+                      ) : (
+                        <FiBriefcase />
+                      )}
+                      {textoFinalidadeConta(conta)}
                     </div>
 
                     {conta.principal && (
@@ -558,11 +623,12 @@ export default function Contas() {
                             : "bg-yellow-500/20 text-yellow-400"
                         }`}
                       >
-                        {saldoNegativo && chequeUsado > Number(conta.limite_cheque_especial || 0)
+                        {saldoNegativo &&
+                        chequeUsado > Number(conta.limite_cheque_especial || 0)
                           ? "Cheque Especial Excedido"
                           : saldoNegativo
-                          ? "Cheque Especial Ativo"
-                          : "Cheque Especial Disponível"}
+                            ? "Cheque Especial Ativo"
+                            : "Cheque Especial Disponível"}
                       </div>
                     )}
                   </div>
@@ -588,14 +654,13 @@ export default function Contas() {
                   </div>
 
                   <div className="mt-6 border-t border-gray-800 pt-4">
-                    <div className="flex items-center gap-2 text-gray-500">
-                      <span>💼</span>
-                      <p className="text-sm">Saldo Inicial</p>
-                    </div>
+                    <p className="text-sm text-gray-500">Saldo Inicial</p>
 
                     <p
                       className={`mt-2 text-base font-semibold ${
-                        Number(conta.saldo_inicial || 0) < 0 ? "text-red-400" : "text-gray-400"
+                        Number(conta.saldo_inicial || 0) < 0
+                          ? "text-red-400"
+                          : "text-gray-400"
                       }`}
                     >
                       {formatarMoeda(conta.saldo_inicial)}
@@ -612,8 +677,8 @@ export default function Contas() {
                             porcentagemCheque >= 80
                               ? "text-red-400"
                               : porcentagemCheque >= 50
-                              ? "text-yellow-400"
-                              : "text-gray-300"
+                                ? "text-yellow-400"
+                                : "text-gray-300"
                           }`}
                         >
                           {porcentagemCheque.toFixed(0)}%
@@ -626,8 +691,8 @@ export default function Contas() {
                             porcentagemCheque >= 80
                               ? "bg-red-500"
                               : porcentagemCheque >= 50
-                              ? "bg-yellow-500"
-                              : "bg-green-500"
+                                ? "bg-yellow-500"
+                                : "bg-green-500"
                           }`}
                           style={{ width: `${porcentagemCheque}%` }}
                         />
@@ -647,7 +712,9 @@ export default function Contas() {
 
                           <p
                             className={`text-xl font-bold mt-2 ${
-                              chequeUsado > 0 ? "text-red-400" : "text-green-400"
+                              chequeUsado > 0
+                                ? "text-red-400"
+                                : "text-green-400"
                             }`}
                           >
                             {formatarMoeda(chequeUsado)}
@@ -663,20 +730,28 @@ export default function Contas() {
                         </div>
                       </div>
 
-                      {saldoNegativo && chequeUsado > Number(conta.limite_cheque_especial || 0) && (
-                        <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-xl p-3">
-                          <p className="text-sm font-bold text-red-400">⚠ Limite do cheque especial excedido</p>
-                          <p className="text-xs text-gray-300 mt-1">
-                            O banco permitiu ficar acima do limite cadastrado. Pode haver juros, tarifas ou bloqueios.
-                          </p>
-                        </div>
-                      )}
+                      {saldoNegativo &&
+                        chequeUsado >
+                          Number(conta.limite_cheque_especial || 0) && (
+                          <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-xl p-3">
+                            <p className="text-sm font-bold text-red-400">
+                              ⚠ Limite do cheque especial excedido
+                            </p>
+                            <p className="text-xs text-gray-300 mt-1">
+                              O banco permitiu ficar acima do limite cadastrado.
+                              Pode haver juros, tarifas ou bloqueios.
+                            </p>
+                          </div>
+                        )}
 
-                      {saldoNegativo && chequeUsado <= Number(conta.limite_cheque_especial || 0) && (
-                        <p className="text-xs text-yellow-400 mt-4">
-                          Atenção: você está usando cheque especial. Pode haver juros se continuar negativo.
-                        </p>
-                      )}
+                      {saldoNegativo &&
+                        chequeUsado <=
+                          Number(conta.limite_cheque_especial || 0) && (
+                          <p className="text-xs text-yellow-400 mt-4">
+                            Atenção: você está usando cheque especial. Pode
+                            haver juros se continuar negativo.
+                          </p>
+                        )}
                     </div>
                   )}
                 </div>
@@ -686,131 +761,165 @@ export default function Contas() {
         )}
       </section>
 
-      {modalAberto && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div
-            className="w-full max-w-md max-h-[90vh] overflow-y-auto bg-[#111827] border border-gray-800 rounded-2xl p-6"
-            style={{ scrollbarWidth: "none" }}
-          >
-            <h2 className="text-2xl font-bold">
-              {contaEditando ? "Editar Conta Bancária" : "Nova Conta Bancária"}
-            </h2>
+      <ModalBase
+        aberto={modalAberto}
+        titulo={contaEditando ? "Editar Conta Bancária" : "Nova Conta Bancária"}
+        descricao={
+          contaEditando
+            ? "Altere os dados da conta bancária cadastrada."
+            : "Cadastre contas bancárias separando operação e vida pessoal."
+        }
+        onClose={fecharModal}
+        largura="max-w-xl"
+      >
+        <div>
+          <label className="text-sm text-gray-300 font-semibold">Nome</label>
+          <input
+            type="text"
+            value={nomeConta}
+            placeholder="Ex: Nubank PJ, Itaú, Inter"
+            onChange={(e) => setNomeConta(e.target.value)}
+            className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-500 rounded-xl p-3 outline-none transition"
+          />
+        </div>
 
-            <p className="text-gray-400 mt-2">
-              {contaEditando
-                ? "Altere os dados da conta bancária cadastrada"
-                : "Cadastre apenas contas bancárias. Carteira e TAG ficam em seus próprios lugares."}
-            </p>
+        <div className="mt-5">
+          <p className="text-sm text-gray-300 font-semibold">Finalidade da conta</p>
 
-            <div className="mt-6">
-              <label className="text-sm text-gray-300">Nome</label>
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            <button
+              type="button"
+              onClick={() => setFinalidadeConta("trabalho")}
+              className={`rounded-2xl border p-3 text-left transition ${
+                finalidadeConta === "trabalho"
+                  ? "border-green-500 bg-green-500/10 text-green-300"
+                  : "border-gray-800 bg-[#0B1120] text-gray-400 hover:border-green-500/40 hover:text-white"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-9 h-9 rounded-xl bg-green-500/10 border border-green-500/30 flex items-center justify-center text-green-400 shrink-0">
+                  <FiBriefcase />
+                </span>
+                <div className="min-w-0">
+                  <p className="font-black leading-tight">Trabalho</p>
+                  <p className="text-[11px] opacity-80 mt-0.5 leading-tight">Operação</p>
+                </div>
+              </div>
+            </button>
 
-              <input
-                type="text"
-                value={nomeConta}
-                placeholder="Ex: Nubank PJ, Itaú, Inter"
-                onChange={(e) => setNomeConta(e.target.value)}
-                className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3"
-              />
+            <button
+              type="button"
+              onClick={() => setFinalidadeConta("pessoal")}
+              className={`rounded-2xl border p-3 text-left transition ${
+                finalidadeConta === "pessoal"
+                  ? "border-blue-500 bg-blue-500/10 text-blue-300"
+                  : "border-gray-800 bg-[#0B1120] text-gray-400 hover:border-blue-500/40 hover:text-white"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
+                  <FiUser />
+                </span>
+                <div className="min-w-0">
+                  <p className="font-black leading-tight">Pessoal</p>
+                  <p className="text-[11px] opacity-80 mt-0.5 leading-tight">Vida pessoal</p>
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <label className="text-sm text-gray-300 font-semibold">Saldo Inicial</label>
+          <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 focus-within:border-green-500 rounded-xl overflow-hidden transition">
+            <span className="px-3 text-gray-400">R$</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={saldoInicial}
+              placeholder="0,00 ou -700,00"
+              onChange={(e) => {
+                const valorFormatado = formatarMoedaDigitada(e.target.value, true);
+                setSaldoInicial(valorFormatado);
+
+                const valorNumero = moedaParaNumero(valorFormatado);
+                if (valorNumero < 0 && !permitirSaldoNegativo) {
+                  setPermitirSaldoNegativo(true);
+                }
+              }}
+              className="w-full bg-transparent p-3 outline-none"
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Para banco já negativo, digite com sinal de menos e configure o cheque especial.
+          </p>
+        </div>
+
+        <div className="mt-5 bg-[#0B1120] border border-gray-800 rounded-2xl p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="font-black text-white">Permitir saldo negativo</p>
+              <p className="text-xs text-gray-400 mt-1">Use para contas com cheque especial.</p>
             </div>
 
+            <button
+              type="button"
+              onClick={() => {
+                setPermitirSaldoNegativo(!permitirSaldoNegativo);
+                if (permitirSaldoNegativo) setLimiteChequeEspecial("");
+              }}
+              className={`relative w-14 h-8 rounded-full transition shrink-0 ${
+                permitirSaldoNegativo ? "bg-green-500" : "bg-gray-700"
+              }`}
+              aria-label="Permitir saldo negativo"
+            >
+              <span
+                className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition ${
+                  permitirSaldoNegativo ? "translate-x-6" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          {permitirSaldoNegativo && (
             <div className="mt-4">
-              <label className="text-sm text-gray-300">Saldo Inicial</label>
-
-              <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+              <label className="text-sm text-gray-300 font-semibold">Limite do Cheque Especial</label>
+              <div className="flex items-center mt-2 bg-[#111827] border border-gray-700 focus-within:border-yellow-500 rounded-xl overflow-hidden transition">
                 <span className="px-3 text-gray-400">R$</span>
-
                 <input
                   type="text"
                   inputMode="decimal"
-                  value={saldoInicial}
-                  placeholder="0,00 ou -700,00"
-                  onChange={(e) => {
-                    const valorFormatado = formatarMoedaDigitada(e.target.value, true);
-                    setSaldoInicial(valorFormatado);
-
-                    const valorNumero = moedaParaNumero(valorFormatado);
-
-                    if (valorNumero < 0 && !permitirSaldoNegativo) {
-                      setPermitirSaldoNegativo(true);
-                    }
-                  }}
+                  value={limiteChequeEspecial}
+                  placeholder="0,00"
+                  onChange={(e) => setLimiteChequeEspecial(formatarMoedaDigitada(e.target.value))}
                   className="w-full bg-transparent p-3 outline-none"
                 />
               </div>
-
-              <p className="text-xs text-gray-500 mt-2">
-                Para banco já negativo, digite com sinal de menos e configure o cheque especial.
+              <p className="text-xs text-yellow-400 mt-2">
+                O limite não soma no saldo. Ele aparece separado como cheque especial.
               </p>
             </div>
-
-            <div className="mt-5 bg-[#0B1120] border border-gray-700 rounded-xl p-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-bold text-white">Permitir saldo negativo</p>
-                  <p className="text-xs text-gray-400 mt-1">Use para contas com cheque especial.</p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPermitirSaldoNegativo(!permitirSaldoNegativo);
-                    if (permitirSaldoNegativo) setLimiteChequeEspecial("");
-                  }}
-                  className={`relative w-14 h-8 rounded-full transition ${
-                    permitirSaldoNegativo ? "bg-green-500" : "bg-gray-700"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition ${
-                      permitirSaldoNegativo ? "translate-x-6" : "translate-x-0"
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {permitirSaldoNegativo && (
-                <div className="mt-4">
-                  <label className="text-sm text-gray-300">Limite do Cheque Especial</label>
-
-                  <div className="flex items-center mt-2 bg-[#111827] border border-gray-700 rounded-xl overflow-hidden">
-                    <span className="px-3 text-gray-400">R$</span>
-
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={limiteChequeEspecial}
-                      placeholder="0,00"
-                      onChange={(e) => setLimiteChequeEspecial(formatarMoedaDigitada(e.target.value))}
-                      className="w-full bg-transparent p-3 outline-none"
-                    />
-                  </div>
-
-                  <p className="text-xs text-yellow-400 mt-2">
-                    O limite não soma no saldo. Ele aparece separado como cheque especial.
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 mt-6">
-              <button
-                onClick={fecharModal}
-                className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3"
-              >
-                Cancelar
-              </button>
-
-              <button
-                onClick={salvarConta}
-                className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
-              >
-                {contaEditando ? "Salvar Alterações" : "Salvar"}
-              </button>
-            </div>
-          </div>
+          )}
         </div>
-      )}
+
+        <div className="grid grid-cols-2 gap-3 mt-6 pt-4 border-t border-gray-800">
+          <button
+            type="button"
+            onClick={fecharModal}
+            className="border border-gray-700 hover:bg-white/5 text-white font-black rounded-xl p-3 transition"
+          >
+            Cancelar
+          </button>
+
+          <button
+            type="button"
+            onClick={salvarConta}
+            className="bg-green-500 hover:bg-green-600 text-black font-black rounded-xl p-3 transition"
+          >
+            {contaEditando ? "Salvar Alterações" : "Salvar"}
+          </button>
+        </div>
+      </ModalBase>
 
       {modalPrincipalAberto && (
         <ModalConfirmacao
@@ -818,7 +927,11 @@ export default function Contas() {
           cor="green"
           texto={
             <>
-              Deseja definir <span className="font-bold text-white">{contaParaPrincipal?.nome}</span> como conta principal?
+              Deseja definir{" "}
+              <span className="font-bold text-white">
+                {contaParaPrincipal?.nome}
+              </span>{" "}
+              como conta principal?
             </>
           }
           subtitulo="Os próximos lançamentos usarão esta conta como sugestão inicial."
@@ -837,7 +950,11 @@ export default function Contas() {
           cor="red"
           texto={
             <>
-              Deseja realmente excluir a conta <span className="font-bold text-white">{contaParaExcluir?.nome}</span>?
+              Deseja realmente excluir a conta{" "}
+              <span className="font-bold text-white">
+                {contaParaExcluir?.nome}
+              </span>
+              ?
             </>
           }
           subtitulo="Ela deixará de aparecer para novos lançamentos."
@@ -877,8 +994,19 @@ export default function Contas() {
   );
 }
 
-function ModalConfirmacao({ titulo, texto, subtitulo, cancelar, confirmar, textoConfirmar, cor }) {
-  const corBotao = cor === "red" ? "bg-red-500 hover:bg-red-600 text-white" : "bg-green-500 hover:bg-green-600 text-black";
+function ModalConfirmacao({
+  titulo,
+  texto,
+  subtitulo,
+  cancelar,
+  confirmar,
+  textoConfirmar,
+  cor,
+}) {
+  const corBotao =
+    cor === "red"
+      ? "bg-red-500 hover:bg-red-600 text-white"
+      : "bg-green-500 hover:bg-green-600 text-black";
   const corTitulo = cor === "red" ? "text-red-400" : "text-green-400";
 
   return (
@@ -897,7 +1025,11 @@ function ModalConfirmacao({ titulo, texto, subtitulo, cancelar, confirmar, texto
             Cancelar
           </button>
 
-          <button type="button" onClick={confirmar} className={`${corBotao} font-bold rounded-xl p-3`}>
+          <button
+            type="button"
+            onClick={confirmar}
+            className={`${corBotao} font-bold rounded-xl p-3`}
+          >
             {textoConfirmar}
           </button>
         </div>

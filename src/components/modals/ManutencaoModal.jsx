@@ -10,7 +10,7 @@ import SelecionarContaModal from "./SelecionarContaModal";
 import SelecionarCartaoModal from "./SelecionarCartaoModal";
 import SelecionarParcelasModal from "./SelecionarParcelasModal";
 
-export default function ManutencaoModal({ aberto, onClose }) {
+export default function ManutencaoModal({ aberto, onClose, edicao = null, onSalvo = null }) {
   const hoje = new Date().toISOString().split("T")[0];
 
   const formasPagamento = [
@@ -70,8 +70,29 @@ export default function ManutencaoModal({ aberto, onClose }) {
   useEffect(() => {
     if (!aberto) return;
     carregarDados();
-    limparFormulario(false);
-  }, [aberto]);
+    if (!edicao) limparFormulario(false);
+  }, [aberto, edicao?.id]);
+
+  useEffect(() => {
+    if (!aberto || !edicao?.id || !edicao?.manutencao) return;
+    const m = edicao.manutencao;
+    setDataCompra(edicao.data_compra || hoje);
+    setDataVencimento(edicao.data_vencimento || edicao.data_compra || hoje);
+    setFormaPagamento(edicao.forma_pagamento || "pix");
+    setContaId(edicao.conta_id ? String(edicao.conta_id) : "");
+    setCartaoId(edicao.cartao_id ? String(edicao.cartao_id) : "");
+    setValorTotal(numeroParaMoedaInput(edicao.valor_total || 0));
+    setValorParcela(numeroParaMoedaInput(edicao.valor_parcela || edicao.valor_total || 0));
+    setNumeroParcelas(String(edicao.numero_parcelas || 1));
+    setVeiculoId(m.veiculo_id ? String(m.veiculo_id) : "");
+    setOdometro(String(Number(m.odometro || 0)));
+    setTipoManutencao(m.tipo_manutencao || "");
+    setServico(m.servico || "");
+    setOficina(m.oficina || "");
+    setProximaRevisaoKm(m.proxima_revisao_km ? String(m.proxima_revisao_km) : "");
+    setProximaRevisaoData(m.proxima_revisao_data || "");
+    setObservacoes(m.observacoes || "");
+  }, [aberto, edicao?.id, edicao?.manutencao?.id]);
 
   useEffect(() => {
     if (isDinheiro && carteiraSelecionada) {
@@ -165,7 +186,7 @@ export default function ManutencaoModal({ aberto, onClose }) {
   function definirContaBancariaPadrao() { const conta = contasBancarias.find((c) => c.principal) || contasBancarias[0]; if (conta) setContaId(String(conta.id)); }
   function atualizarValorTotal(valor) { setUltimoCampoEditado("total"); setValorTotal(formatarMoedaDigitada(valor)); }
   function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) { setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois }); }
-  function fecharFeedback() { const fechar = feedback.fecharDepois; setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "", fecharDepois: false }); if (fechar) onClose(); }
+  async function fecharFeedback() { const fechar = feedback.fecharDepois; setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "", fecharDepois: false }); if (fechar) { if (edicao?.id) await onSalvo?.(); onClose(); } }
   function definirStatus() { if (isBoleto) return "aberto"; if (isCredito) return "fatura"; return "pago"; }
   function definirTipoMovimentacao() { if (isBoleto) return "conta_pagar"; return "saida"; }
   function ultimoDiaMes(ano, mes) { return new Date(ano, mes, 0).getDate(); }
@@ -206,13 +227,22 @@ export default function ManutencaoModal({ aberto, onClose }) {
     setSalvando(true);
     try {
       const descricao = `Manutenção - ${servico.trim()}${veiculoSelecionado?.nome ? ` - ${veiculoSelecionado.nome}` : ""}`;
-      const { data: saidaCriada, error: erroSaida } = await supabase.from("saidas").insert({ data_compra: dataCompra, forma_pagamento: formaPagamento, tipo_movimentacao: definirTipoMovimentacao(), conta_id: isCredito || isBoleto ? null : Number(contaId), cartao_id: isCredito ? Number(cartaoId) : null, tipo_credito: isCredito ? (isCreditoParcelado ? "parcelado" : "avista") : null, numero_parcelas: parcelas, valor_total: total, valor_parcela: parcelaValor, data_efetivacao: isBoleto ? null : dataCompra, data_vencimento: isBoleto ? dataVencimento : null, categoria: "Manutenção", descricao, status: definirStatus() }).select().single();
-      if (erroSaida) throw erroSaida;
-      if (isCredito) await gerarParcelasEFaturas(saidaCriada.id, total, parcelaValor, parcelas);
-      const { error: erroManutencao } = await supabase.from("saidas_manutencoes").insert({ saida_id: saidaCriada.id, veiculo_id: Number(veiculoId), odometro: Number(odometro || 0), tipo_manutencao: tipoManutencao.trim() || null, servico: servico.trim(), oficina: oficina.trim() || null, proxima_revisao_km: Number(proximaRevisaoKm || 0), proxima_revisao_data: proximaRevisaoData || null, observacoes: observacoes.trim() || null });
+      const dadosSaida = { data_compra: dataCompra, forma_pagamento: formaPagamento, tipo_movimentacao: definirTipoMovimentacao(), conta_id: isCredito || isBoleto ? null : Number(contaId), cartao_id: isCredito ? Number(cartaoId) : null, tipo_credito: isCredito ? (isCreditoParcelado ? "parcelado" : "avista") : null, numero_parcelas: parcelas, valor_total: total, valor_parcela: parcelaValor, data_efetivacao: isBoleto ? null : dataCompra, data_vencimento: isBoleto ? dataVencimento : null, categoria: "Manutenção", descricao, status: definirStatus() };
+      let saidaId = edicao?.id || null;
+      if (saidaId) {
+        const { error: erroSaida } = await supabase.from("saidas").update(dadosSaida).eq("id", saidaId);
+        if (erroSaida) throw erroSaida;
+        await supabase.from("saidas_manutencoes").delete().eq("saida_id", saidaId);
+      } else {
+        const { data: saidaCriada, error: erroSaida } = await supabase.from("saidas").insert(dadosSaida).select().single();
+        if (erroSaida) throw erroSaida;
+        saidaId = saidaCriada.id;
+        if (isCredito) await gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas);
+      }
+      const { error: erroManutencao } = await supabase.from("saidas_manutencoes").insert({ saida_id: saidaId, veiculo_id: Number(veiculoId), odometro: Number(odometro || 0), tipo_manutencao: tipoManutencao.trim() || null, servico: servico.trim(), oficina: oficina.trim() || null, proxima_revisao_km: Number(proximaRevisaoKm || 0), proxima_revisao_data: proximaRevisaoData || null, observacoes: observacoes.trim() || null });
       if (erroManutencao) throw erroManutencao;
       if (Number(odometro || 0) > Number(veiculoSelecionado?.odometro_atual || 0)) await supabase.from("veiculos").update({ odometro_atual: Number(odometro || 0) }).eq("id", Number(veiculoId));
-      abrirFeedback("sucesso", isBoleto ? "Conta registrada" : "Manutenção salva", isBoleto ? "Conta a pagar registrada com sucesso." : "Manutenção lançada com sucesso.", true);
+      abrirFeedback("sucesso", edicao?.id ? "Manutenção atualizada" : isBoleto ? "Conta registrada" : "Manutenção salva", isBoleto ? "Conta a pagar registrada com sucesso." : "Manutenção lançada com sucesso.", true);
       limparFormulario(false);
     } catch (error) {
       console.error(error);

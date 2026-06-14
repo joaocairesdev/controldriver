@@ -17,7 +17,7 @@ import {
   formatarDataBR,
 } from "../../utils/data";
 
-export default function EntradaAvulsaModal({ aberto, onClose }) {
+export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onSalvo = null }) {
   const hoje = hojeBrasil();
 
   const [contas, setContas] = useState([]);
@@ -38,9 +38,25 @@ export default function EntradaAvulsaModal({ aberto, onClose }) {
     fecharDepois: false,
   });
 
+  function numeroParaMoedaInput(valor) {
+    return Number(valor || 0).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
   useEffect(() => {
     if (aberto) carregarContas();
   }, [aberto]);
+
+  useEffect(() => {
+    if (!aberto || !edicao) return;
+
+    setData(edicao.data || hoje);
+    setContaId(edicao.conta_id ? String(edicao.conta_id) : "");
+    setValor(numeroParaMoedaInput(edicao.valor));
+    setDescricao(edicao.descricao || "");
+  }, [aberto, edicao]);
 
   const contaSelecionada = useMemo(
     () => contas.find((conta) => String(conta.id) === String(contaId)),
@@ -177,6 +193,7 @@ export default function EntradaAvulsaModal({ aberto, onClose }) {
 
     if (deveFechar) {
       limparFormulario();
+      onSalvo?.();
       onClose?.();
     }
   }
@@ -216,19 +233,25 @@ export default function EntradaAvulsaModal({ aberto, onClose }) {
     setSalvando(true);
 
     try {
-      const { error } = await supabase.from("entradas_avulsas").insert({
+      const dados = {
         data,
         conta_id: Number(contaId),
         valor: moedaParaNumero(valor),
         descricao: descricao.trim(),
-      });
+      };
+
+      const { error } = edicao?.id
+        ? await supabase.from("entradas_avulsas").update(dados).eq("id", edicao.id)
+        : await supabase.from("entradas_avulsas").insert(dados);
 
       if (error) throw error;
 
       abrirFeedback(
         "sucesso",
-        "Entrada salva",
-        "A entrada avulsa foi registrada com sucesso.",
+        edicao?.id ? "Entrada atualizada" : "Entrada salva",
+        edicao?.id
+          ? "A entrada avulsa foi atualizada com sucesso."
+          : "A entrada avulsa foi registrada com sucesso.",
         true
       );
     } catch (error) {
@@ -249,8 +272,8 @@ export default function EntradaAvulsaModal({ aberto, onClose }) {
     <>
       <ModalBase
         aberto={aberto}
-        titulo="Entrada Avulsa"
-        descricao="Registre dinheiro recebido fora das plataformas."
+        titulo={edicao?.id ? "Editar Entrada Avulsa" : "Entrada Avulsa"}
+        descricao={edicao?.id ? "Altere os dados da entrada selecionada." : "Registre dinheiro recebido fora das plataformas."}
         onClose={cancelar}
         largura="max-w-xl"
       >

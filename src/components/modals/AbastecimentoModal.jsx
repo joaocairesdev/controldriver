@@ -23,7 +23,7 @@ import SelecionarCartaoModal from "./SelecionarCartaoModal";
 import SelecionarCombustivelModal from "./SelecionarCombustivelModal";
 import SelecionarParcelasModal from "./SelecionarParcelasModal";
 
-export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos = null }) {
+export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos = null, edicao = null, onSalvo = null }) {
   const hoje = hojeBrasil();
 
   const formasPagamento = [
@@ -103,8 +103,28 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   useEffect(() => {
     if (!aberto) return;
     carregarDados();
-    limparFormulario(false);
-  }, [aberto, veiculosPermitidos]);
+    if (!edicao) limparFormulario(false);
+  }, [aberto, veiculosPermitidos, edicao?.id]);
+
+  useEffect(() => {
+    if (!aberto || !edicao?.id || !edicao?.abastecimento) return;
+    const a = edicao.abastecimento;
+    setDataCompra(edicao.data_compra || hoje);
+    setDataVencimento(edicao.data_vencimento || edicao.data_compra || hoje);
+    setFormaPagamento(edicao.forma_pagamento || "pix");
+    setContaId(edicao.conta_id ? String(edicao.conta_id) : "");
+    setCartaoId(edicao.cartao_id ? String(edicao.cartao_id) : "");
+    setValorTotal(numeroParaMoedaInput(edicao.valor_total || 0));
+    setNumeroParcelas(String(edicao.numero_parcelas || 1));
+    setValorParcela(numeroParaMoedaInput(edicao.valor_parcela || edicao.valor_total || 0));
+    setVeiculoId(a.veiculo_id ? String(a.veiculo_id) : "");
+    setTipoCombustivel(a.tipo_combustivel || "etanol");
+    setValorLitro(numeroParaMoedaInput(a.valor_litro || 0));
+    setModoKm("trip");
+    setKmRodados(String(Number(a.km_rodados || a.km_total_periodo || 0)));
+    setOdometro(String(Number(a.odometro || 0)));
+    setTanqueCheio(a.tanque_cheio ?? true);
+  }, [aberto, edicao?.id, edicao?.abastecimento?.id]);
 
   useEffect(() => {
     if (isDinheiro && carteiraSelecionada) {
@@ -205,7 +225,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   function atualizarKmRodados(valor) { const km = somenteNumeros(valor); setKmRodados(km); if (modoKm === "trip" && veiculoSelecionado) setOdometro(String(Number(veiculoSelecionado.odometro_atual || 0) + Number(km || 0))); }
   function atualizarOdometro(valor) { const novo = somenteNumeros(valor); setOdometro(novo); if (modoKm === "odometro" && veiculoSelecionado) setKmRodados(String(Math.max(Number(novo || 0) - Number(veiculoSelecionado.odometro_atual || 0), 0))); }
   function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) { setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois }); }
-  function fecharFeedback() {
+  async function fecharFeedback() {
     const fechar = feedback.fecharDepois;
 
     setFeedback({
@@ -217,6 +237,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     });
 
     if (fechar) {
+      if (edicao?.id) await onSalvo?.();
       limparFormulario(false);
       onClose?.();
     }
@@ -264,13 +285,22 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     if (isCredito && !(await verificarLimiteCartao(total))) return;
     setSalvando(true);
     try {
-      const { data: saidaCriada, error: erroSaida } = await supabase.from("saidas").insert({ data_compra: dataCompra, forma_pagamento: formaPagamento, tipo_movimentacao: definirTipoMovimentacao(), conta_id: isCredito || isBoleto ? null : Number(contaId), cartao_id: isCredito ? Number(cartaoId) : null, tipo_credito: isCredito ? (isCreditoParcelado ? "parcelado" : "avista") : null, numero_parcelas: parcelas, valor_total: total, valor_parcela: parcelaValor, data_efetivacao: isBoleto ? null : dataCompra, data_vencimento: isBoleto ? dataVencimento : null, categoria: "Abastecimento", descricao: `Compra de combustível - ${veiculoSelecionado?.nome || "Veículo"}`, status: definirStatus() }).select().single();
-      if (erroSaida) throw erroSaida;
-      if (isCredito) await gerarParcelasEFaturas(saidaCriada.id, total, parcelaValor, parcelas);
-      await salvarDetalhesAbastecimento(saidaCriada.id);
+      const dadosSaida = { data_compra: dataCompra, forma_pagamento: formaPagamento, tipo_movimentacao: definirTipoMovimentacao(), conta_id: isCredito || isBoleto ? null : Number(contaId), cartao_id: isCredito ? Number(cartaoId) : null, tipo_credito: isCredito ? (isCreditoParcelado ? "parcelado" : "avista") : null, numero_parcelas: parcelas, valor_total: total, valor_parcela: parcelaValor, data_efetivacao: isBoleto ? null : dataCompra, data_vencimento: isBoleto ? dataVencimento : null, categoria: "Abastecimento", descricao: `Compra de combustível - ${veiculoSelecionado?.nome || "Veículo"}`, status: definirStatus() };
+      let saidaId = edicao?.id || null;
+      if (saidaId) {
+        const { error: erroSaida } = await supabase.from("saidas").update(dadosSaida).eq("id", saidaId);
+        if (erroSaida) throw erroSaida;
+        await supabase.from("saidas_abastecimentos").delete().eq("saida_id", saidaId);
+      } else {
+        const { data: saidaCriada, error: erroSaida } = await supabase.from("saidas").insert(dadosSaida).select().single();
+        if (erroSaida) throw erroSaida;
+        saidaId = saidaCriada.id;
+        if (isCredito) await gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas);
+      }
+      await salvarDetalhesAbastecimento(saidaId);
       abrirFeedback(
         "sucesso",
-        isBoleto ? "Conta registrada" : "⛽ Abastecimento registrado",
+        edicao?.id ? "Abastecimento atualizado" : isBoleto ? "Conta registrada" : "Abastecimento registrado",
         isBoleto
           ? "Conta a pagar registrada com sucesso."
           : `${formatarMoeda(total)} lançados com sucesso para ${veiculoSelecionado?.nome || "o veículo"}.`,

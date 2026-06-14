@@ -12,7 +12,7 @@ import { obterConfigPlataforma } from "../../utils/plataformasIcons";
 import { formatarMoeda, moedaParaNumero } from "../../utils/moeda";
 import { hojeBrasil, formatarDataBR } from "../../utils/data";
 
-export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial = null }) {
+export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial = null, edicao = null, onSalvo = null }) {
   const hoje = hojeBrasil();
 
   const [data, setData] = useState(hoje);
@@ -44,6 +44,11 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
   }, [aberto]);
 
   useEffect(() => {
+    if (!aberto || !edicao) return;
+    aplicarEdicaoNoFormulario(edicao);
+  }, [aberto, edicao]);
+
+  useEffect(() => {
     if (!aberto || !jornadaInicial?.id) return;
     aplicarJornadaNoFormulario(jornadaInicial);
   }, [aberto, jornadaInicial?.id]);
@@ -73,8 +78,13 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
     setContaPrincipal(contaData || null);
     setVeiculoPrincipal(veiculoData || null);
 
-    const dataBase = jornadaInicial?.data || data || hoje;
+    const dataBase = edicao?.data || jornadaInicial?.data || data || hoje;
     await carregarLancamentosDoDia(dataBase);
+
+    if (edicao?.id) {
+      aplicarEdicaoNoFormulario(edicao);
+      return;
+    }
 
     if (jornadaInicial?.id) {
       aplicarJornadaNoFormulario(jornadaInicial);
@@ -175,6 +185,33 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
     });
   }
 
+  function aplicarEdicaoNoFormulario(dados) {
+    if (!dados) return;
+    const [hora = "00", minuto = "00"] = String(dados.horas_trabalhadas || "00:00").split(":");
+
+    setData(dados.data || hoje);
+    setKm(String(Math.round(Number(dados.km_rodados || 0))));
+    setTempoPicker({
+      hora: String(hora || "00").padStart(2, "0"),
+      minuto: String(minuto || "00").padStart(2, "0"),
+    });
+    setJornadaUsada(null);
+
+    const plataformasEdicao = (dados.entrada_plataformas || [])
+      .map((item) => ({
+        id: item.plataforma_id || item.plataformas?.id || item.id,
+        detalhe_id: item.id,
+        nome: item.plataformas?.nome || "Plataforma",
+        faturamento: formatarMoeda(Number(item.faturamento || 0)),
+        numero_corridas: Number(item.numero_corridas || 0),
+        houve_pedagio: Boolean(item.houve_pedagio),
+        valor_reembolso: formatarMoeda(Number(item.valor_reembolso || 0)),
+      }))
+      .filter((item) => item.id);
+
+    setSelecionadas(plataformasEdicao);
+  }
+
   function removerJornadaDoFormulario(dataISO = data) {
     setJornadaUsada(null);
     setData(dataISO || hoje);
@@ -267,55 +304,97 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
     const custoEstimadoCombustivel =
       Number(km || 0) * Number(veiculoPrincipal?.custo_medio_km_geral || 0);
 
-    const { data: entradaCriada, error: erroEntrada } = await supabase
-      .from("entradas")
-      .insert({
-        data,
-        horas_trabalhadas: `${tempoPicker.hora}:${tempoPicker.minuto}:00`,
-        km_rodados: Number(km),
-        conta_id: contaPrincipal?.id,
-        veiculo_id: veiculoPrincipal?.id,
-        custo_estimado_combustivel: custoEstimadoCombustivel,
-      })
-      .select()
-      .single();
+    let entradaId = edicao?.id || null;
 
-    if (erroEntrada) {
-      console.error(erroEntrada);
-      abrirFeedback("erro", "Erro ao salvar", "Erro ao salvar entrada.");
-      setSalvando(false);
-      return;
+    if (edicao?.id) {
+      const { error: erroEntrada } = await supabase
+        .from("entradas")
+        .update({
+          data,
+          horas_trabalhadas: `${tempoPicker.hora}:${tempoPicker.minuto}:00`,
+          km_rodados: Number(km),
+          custo_estimado_combustivel: custoEstimadoCombustivel,
+        })
+        .eq("id", edicao.id);
+
+      if (erroEntrada) {
+        console.error(erroEntrada);
+        abrirFeedback("erro", "Erro ao salvar", "Erro ao atualizar entrada.");
+        setSalvando(false);
+        return;
+      }
+
+      const idsMantidos = selecionadas.map((item) => item.detalhe_id).filter(Boolean);
+      let deleteQuery = supabase.from("entrada_plataformas").delete().eq("entrada_id", edicao.id);
+      if (idsMantidos.length > 0) deleteQuery = deleteQuery.not("id", "in", `(${idsMantidos.join(",")})`);
+      const { error: erroDelete } = await deleteQuery;
+      if (erroDelete) {
+        console.error(erroDelete);
+        abrirFeedback("erro", "Erro ao salvar", "Erro ao atualizar plataformas.");
+        setSalvando(false);
+        return;
+      }
+    } else {
+      const { data: entradaCriada, error: erroEntrada } = await supabase
+        .from("entradas")
+        .insert({
+          data,
+          horas_trabalhadas: `${tempoPicker.hora}:${tempoPicker.minuto}:00`,
+          km_rodados: Number(km),
+          conta_id: contaPrincipal?.id,
+          veiculo_id: veiculoPrincipal?.id,
+          custo_estimado_combustivel: custoEstimadoCombustivel,
+        })
+        .select()
+        .single();
+
+      if (erroEntrada) {
+        console.error(erroEntrada);
+        abrirFeedback("erro", "Erro ao salvar", "Erro ao salvar entrada.");
+        setSalvando(false);
+        return;
+      }
+
+      entradaId = entradaCriada.id;
     }
 
-    const detalhes = selecionadas.map((item) => ({
-      entrada_id: entradaCriada.id,
-      plataforma_id: item.id,
-      faturamento: moedaParaNumero(item.faturamento),
-      numero_corridas: Number(item.numero_corridas || 0),
-      houve_pedagio: item.houve_pedagio,
-      valor_reembolso: moedaParaNumero(item.valor_reembolso),
-    }));
+    for (const item of selecionadas) {
+      const dadosDetalhe = {
+        entrada_id: entradaId,
+        plataforma_id: item.id,
+        faturamento: moedaParaNumero(item.faturamento),
+        numero_corridas: Number(item.numero_corridas || 0),
+        houve_pedagio: item.houve_pedagio,
+        valor_reembolso: moedaParaNumero(item.valor_reembolso),
+      };
 
-    const { error: erroDetalhes } = await supabase
-      .from("entrada_plataformas")
-      .insert(detalhes);
+      const { error: erroDetalhes } = item.detalhe_id
+        ? await supabase.from("entrada_plataformas").update(dadosDetalhe).eq("id", item.detalhe_id)
+        : await supabase.from("entrada_plataformas").insert(dadosDetalhe);
 
-    if (erroDetalhes) {
-      console.error(erroDetalhes);
-      abrirFeedback("erro", "Erro ao salvar", "Erro ao salvar plataformas.");
-      setSalvando(false);
-      return;
+      if (erroDetalhes) {
+        console.error(erroDetalhes);
+        abrirFeedback("erro", "Erro ao salvar", "Erro ao salvar plataformas.");
+        setSalvando(false);
+        return;
+      }
     }
 
     if (jornadaUsada?.id) {
       await supabase
         .from("jornadas_trabalho")
-        .update({ lancamento_entrada_id: entradaCriada.id })
+        .update({ lancamento_entrada_id: entradaId })
         .eq("id", jornadaUsada.id);
     }
 
     setSalvando(false);
-    abrirFeedback("sucesso", "Entrada salva", "Os ganhos de plataforma foram registrados com sucesso.", true);
+    onSalvo?.();
+    abrirFeedback(
+      "sucesso",
+      edicao?.id ? "Entrada atualizada" : "Entrada salva",
+      edicao?.id ? "Os ganhos de plataforma foram atualizados com sucesso." : "Os ganhos de plataforma foram registrados com sucesso.",
+      true
+    );
   }
 
   function iniciais(nome) {
@@ -341,8 +420,8 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
     <>
       <ModalBase
         aberto={aberto}
-        titulo="Ganhos de Plataforma"
-        descricao="Registre ganhos de Uber, 99, iFood e outros apps."
+        titulo={edicao?.id ? "Editar Ganhos de Plataforma" : "Ganhos de Plataforma"}
+        descricao={edicao?.id ? "Altere os dados do lançamento selecionado." : "Registre ganhos de Uber, 99, iFood e outros apps."}
         onClose={cancelarFormulario}
         largura="max-w-5xl"
       >
@@ -519,7 +598,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
             disabled={salvando}
             className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-4"
           >
-            {salvando ? "Salvando..." : "Salvar"}
+            {salvando ? "Salvando..." : edicao?.id ? "Salvar alterações" : "Salvar"}
           </button>
         </div>
       </ModalBase>

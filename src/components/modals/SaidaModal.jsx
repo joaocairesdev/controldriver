@@ -17,6 +17,8 @@ import { CATEGORIAS_SISTEMA_FIXAS } from "../../utils/categoriasSistema";
 export default function SaidaModal({
   aberto,
   onClose,
+  onSalvo,
+  edicao = null,
   titulo = "Nova Despesa",
   descricaoModal = "Registre uma despesa.",
   categoriaInicial = "Outros",
@@ -24,6 +26,7 @@ export default function SaidaModal({
   modo = "saida", // saida | futura
 }) {
   const hoje = new Date().toISOString().split("T")[0];
+  const isEdicao = !!edicao?.id;
 
   const categoriasPadrao = [
     ...CATEGORIAS_SISTEMA_FIXAS.map((categoria) => categoria.nome),
@@ -177,11 +180,37 @@ export default function SaidaModal({
     setCategoriaId(categoriaSelecionada?.id || null);
   }, [categoriaSelecionada]);
 
+  function preencherFormularioEdicao() {
+    if (!edicao) return;
+
+    const dataBase = edicao.data_compra || edicao.data_vencimento || hoje;
+    setDataCompra(dataBase);
+    setDataVencimento(edicao.data_vencimento || dataBase);
+    setCategoria(edicao.categoria || categoriaInicial || "Outros");
+    setCategoriaId(edicao.categoria_id || null);
+    setFinalidade(edicao.finalidade || "trabalho");
+    setDescricao(edicao.descricao || "");
+    setValorTotal(numeroParaMoedaInput(edicao.valor_total || 0));
+    setValorParcela(numeroParaMoedaInput(edicao.valor_parcela || edicao.valor_total || 0));
+    setFormaPagamento(edicao.forma_pagamento || (modo === "futura" ? "boleto" : "pix"));
+    setContaId(edicao.conta_id ? String(edicao.conta_id) : "");
+    setCartaoId(edicao.cartao_id ? String(edicao.cartao_id) : "");
+    setNumeroParcelas(String(edicao.numero_parcelas || 1));
+    setUltimoCampoEditado("total");
+    setEtapa("dados");
+  }
+
   useEffect(() => {
     if (!aberto) return;
     carregarDados();
+
+    if (isEdicao) {
+      preencherFormularioEdicao();
+      return;
+    }
+
     resetarFormulario(false);
-  }, [aberto, categoriaInicial, modo]);
+  }, [aberto, categoriaInicial, modo, edicao?.id]);
 
   useEffect(() => {
     if (isDinheiro && carteiraSelecionada) {
@@ -1073,6 +1102,38 @@ export default function SaidaModal({
     setSalvando(true);
 
     try {
+      if (isEdicao) {
+        const payloadEdicao = {
+          data_compra: isContaPagar ? dataVencimento : dataCompra,
+          forma_pagamento: formaPagamento,
+          tipo_movimentacao: definirTipoMovimentacao(),
+          conta_id: isCredito || isContaPagar ? null : Number(contaId),
+          cartao_id: isCredito ? Number(cartaoId) : null,
+          tipo_credito: isCredito ? (isCreditoParcelado ? "parcelado" : "avista") : null,
+          numero_parcelas: parcelas,
+          valor_total: total,
+          valor_parcela: parcelaValor,
+          data_efetivacao: isContaPagar ? null : dataCompra,
+          data_vencimento: isContaPagar ? dataVencimento : null,
+          categoria,
+          categoria_id: categoriaId ? Number(categoriaId) : null,
+          finalidade,
+          descricao: descricao.trim(),
+          status: definirStatus(),
+        };
+
+        const { error: erroEdicao } = await supabase
+          .from("saidas")
+          .update(payloadEdicao)
+          .eq("id", edicao.id);
+
+        if (erroEdicao) throw erroEdicao;
+
+        abrirFeedback("sucesso", "Lançamento atualizado", "As alterações foram salvas com sucesso.", true);
+        await onSalvo?.();
+        return;
+      }
+
       if (isBoletoParcelado) {
         const parcelasPayload = Array.from({ length: parcelas }, (_, index) => {
           const vencimento = somarMesesISO(dataVencimento, index);
@@ -1374,7 +1435,7 @@ export default function SaidaModal({
                 disabled={salvando}
                 className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
               >
-                {salvando ? "Salvando..." : "Salvar"}
+                {salvando ? "Salvando..." : isEdicao ? "Salvar alterações" : "Salvar"}
               </button>
             </div>
           </>

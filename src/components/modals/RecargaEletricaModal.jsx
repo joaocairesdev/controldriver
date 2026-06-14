@@ -14,6 +14,8 @@ export default function RecargaEletricaModal({
   aberto,
   onClose,
   veiculosPermitidos = null,
+  edicao = null,
+  onSalvo = null,
 }) {
   const hoje = new Date().toISOString().split("T")[0];
 
@@ -101,8 +103,28 @@ export default function RecargaEletricaModal({
   useEffect(() => {
     if (!aberto) return;
     carregarDados();
-    limparFormulario(false);
-  }, [aberto, veiculosPermitidos]);
+    if (!edicao) limparFormulario(false);
+  }, [aberto, veiculosPermitidos, edicao?.id]);
+
+  useEffect(() => {
+    if (!aberto || !edicao?.id || !edicao?.recargaEletrica) return;
+    const r = edicao.recargaEletrica;
+    setDataCompra(edicao.data_compra || hoje);
+    setDataVencimento(edicao.data_vencimento || edicao.data_compra || hoje);
+    setFormaPagamento(edicao.forma_pagamento || "pix");
+    setContaId(edicao.conta_id ? String(edicao.conta_id) : "");
+    setCartaoId(edicao.cartao_id ? String(edicao.cartao_id) : "");
+    setValorTotal(numeroParaMoedaInput(edicao.valor_total || 0));
+    setValorParcela(numeroParaMoedaInput(edicao.valor_parcela || edicao.valor_total || 0));
+    setNumeroParcelas(String(edicao.numero_parcelas || 1));
+    setVeiculoId(r.veiculo_id ? String(r.veiculo_id) : "");
+    setKwh(numeroParaMoedaInput(r.kwh || 0));
+    setValorKwh(numeroParaMoedaInput(r.valor_kwh || 0));
+    setModoKm("trip");
+    setKmRodados(String(Number(r.km_rodados || 0)));
+    setOdometro(String(Number(r.odometro || 0)));
+    setLocalRecarga(r.local_recarga || "");
+  }, [aberto, edicao?.id, edicao?.recargaEletrica?.id]);
 
   useEffect(() => {
     if (isDinheiro && carteiraSelecionada) {
@@ -421,7 +443,7 @@ export default function RecargaEletricaModal({
     setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois });
   }
 
-  function fecharFeedback() {
+  async function fecharFeedback() {
     const fechar = feedback.fecharDepois;
 
     setFeedback({
@@ -432,7 +454,10 @@ export default function RecargaEletricaModal({
       fecharDepois: false,
     });
 
-    if (fechar) onClose();
+    if (fechar) {
+      if (edicao?.id) await onSalvo?.();
+      onClose();
+    }
   }
 
   function definirContaBancariaPadrao() {
@@ -710,9 +735,7 @@ export default function RecargaEletricaModal({
     setSalvando(true);
 
     try {
-      const { data: saidaCriada, error: erroSaida } = await supabase
-        .from("saidas")
-        .insert({
+      const dadosSaida = {
           data_compra: dataCompra,
           forma_pagamento: formaPagamento,
           tipo_movimentacao: definirTipoMovimentacao(),
@@ -731,21 +754,30 @@ export default function RecargaEletricaModal({
           categoria: "Recarga Elétrica",
           descricao: `Recarga elétrica - ${veiculoSelecionado?.nome || "Veículo"}`,
           status: definirStatus(),
-        })
-        .select()
-        .single();
-
-      if (erroSaida) throw erroSaida;
-
-      if (isCredito) {
-        await gerarParcelasEFaturas(saidaCriada.id, total, parcelaValor, parcelas);
+        };
+      let saidaId = edicao?.id || null;
+      if (saidaId) {
+        const { error: erroSaida } = await supabase.from("saidas").update(dadosSaida).eq("id", saidaId);
+        if (erroSaida) throw erroSaida;
+        await supabase.from("saidas_recargas_eletricas").delete().eq("saida_id", saidaId);
+      } else {
+        const { data: saidaCriada, error: erroSaida } = await supabase
+          .from("saidas")
+          .insert(dadosSaida)
+          .select()
+          .single();
+        if (erroSaida) throw erroSaida;
+        saidaId = saidaCriada.id;
+        if (isCredito) {
+          await gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas);
+        }
       }
 
-      await salvarDetalhesRecarga(saidaCriada.id);
+      await salvarDetalhesRecarga(saidaId);
 
       abrirFeedback(
         "sucesso",
-        isBoleto ? "Conta registrada" : "Recarga salva",
+        edicao?.id ? "Recarga atualizada" : isBoleto ? "Conta registrada" : "Recarga salva",
         isBoleto
           ? "Conta a pagar registrada com sucesso."
           : "Recarga elétrica lançada com sucesso.",

@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { FiFilter } from "react-icons/fi";
+import { FiArrowDown, FiArrowRight, FiArrowUp, FiFilter, FiSearch } from "react-icons/fi";
 import { supabase } from "../services/supabase";
 import SelecionarCategoriaModal from "../components/modals/SelecionarCategoriaModal";
 import SelecionarFormaPagamentoModal from "../components/modals/SelecionarFormaPagamentoModal";
 import DetalhesLancamentoModal from "../components/modals/DetalhesLancamentoModal";
 import ConfirmacaoModal from "../components/modals/ConfirmacaoModal";
 import FeedbackModal from "../components/modals/FeedbackModal";
+import EntradaAvulsaModal from "../components/modals/EntradaAvulsaModal";
+import TransferenciaModal from "../components/modals/TransferenciaModal";
+import GanhosPlataformaModal from "../components/modals/GanhosPlataformaModal";
+import SaidaModal from "../components/modals/SaidaModal";
+import AbastecimentoOuRecargaModal from "../components/modals/AbastecimentoOuRecargaModal";
+import ManutencaoModal from "../components/modals/ManutencaoModal";
+import TagModal from "../components/modals/TagModal";
 
 const ITENS_POR_PAGINA = 30;
 
@@ -28,6 +35,7 @@ export default function Extrato() {
 
   const [lancamentoSelecionado, setLancamentoSelecionado] = useState(null);
   const [confirmarExclusao, setConfirmarExclusao] = useState(null);
+  const [edicaoLancamento, setEdicaoLancamento] = useState(null);
   const [excluindo, setExcluindo] = useState(false);
 
   const [modoSelecao, setModoSelecao] = useState(false);
@@ -118,6 +126,8 @@ export default function Extrato() {
       conta_id,
       contas ( nome ),
       entrada_plataformas (
+        id,
+        plataforma_id,
         faturamento,
         valor_reembolso,
         numero_corridas,
@@ -163,6 +173,12 @@ export default function Extrato() {
       tipo_movimentacao,
       data_vencimento,
       numero_parcelas,
+      valor_parcela,
+      conta_id,
+      cartao_id,
+      tipo_credito,
+      data_efetivacao,
+      finalidade,
       contas ( nome ),
       cartoes ( nome, final_cartao )
     `);
@@ -185,6 +201,22 @@ export default function Extrato() {
       idsSaidas.length > 0
         ? await supabase
             .from("saidas_manutencoes")
+            .select("*")
+            .in("saida_id", idsSaidas)
+        : { data: [] };
+
+    const { data: recargasEletricasData } =
+      idsSaidas.length > 0
+        ? await supabase
+            .from("saidas_recargas_eletricas")
+            .select("*")
+            .in("saida_id", idsSaidas)
+        : { data: [] };
+
+    const { data: tagsData } =
+      idsSaidas.length > 0
+        ? await supabase
+            .from("saidas_tag")
             .select("*")
             .in("saida_id", idsSaidas)
         : { data: [] };
@@ -311,6 +343,12 @@ export default function Extrato() {
           manutencao: (manutencoesData || []).find(
             (item) => item.saida_id === saida.id
           ),
+          recargaEletrica: (recargasEletricasData || []).find(
+            (item) => item.saida_id === saida.id
+          ),
+          tag: (tagsData || []).find(
+            (item) => item.saida_id === saida.id
+          ),
         },
       };
     });
@@ -418,6 +456,10 @@ export default function Extrato() {
     paginaAtual * ITENS_POR_PAGINA
   );
 
+  const lancamentosVisiveis = modoSelecao
+    ? lancamentosPagina
+    : agruparEntradasDePlataformaPorDia(lancamentosPagina);
+
   function selecionarFiltro(valor) {
     if (valor === "personalizado") {
       setFiltroTipo("personalizado");
@@ -517,7 +559,8 @@ export default function Extrato() {
 }
 
   function editarLancamento(lancamento) {
-    abrirFeedback("aviso", "Em breve", "A edição de lançamentos será conectada na próxima etapa.");
+    setLancamentoSelecionado(null);
+    setEdicaoLancamento(lancamento);
   }
 
   async function excluirLancamentoItem(lancamentoAlvo) {
@@ -744,7 +787,7 @@ export default function Extrato() {
 
         <div className="relative w-full">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
-            🔍
+            <FiSearch />
           </span>
 
           <input
@@ -826,10 +869,10 @@ export default function Extrato() {
           </div>
         )}
 
-        {lancamentosPagina.map((item) => {
+        {lancamentosVisiveis.map((item) => {
           const selecionado = selecionados.includes(item.id);
 
-          const entrada = item.tipo === "entrada" || item.tipo === "entrada_avulsa";
+          const entrada = ["entrada", "entrada_avulsa", "entrada_agrupada"].includes(item.tipo);
           const neutro = item.tipo === "conta_pagar" || item.tipo === "transferencia";
           const sinal = entrada ? "+" : neutro ? "" : "-";
           const corValor = entrada ? "text-green-400" : neutro ? "text-blue-400" : "text-red-400";
@@ -838,7 +881,7 @@ export default function Extrato() {
             : neutro
             ? "bg-blue-500/15 text-blue-400"
             : "bg-red-500/15 text-red-400";
-          const icone = entrada ? "↑" : neutro ? "→" : "↓";
+          const IconeLancamento = entrada ? FiArrowUp : neutro ? FiArrowRight : FiArrowDown;
           const colunasCard = modoSelecao
             ? "grid-cols-[auto_1fr_auto]"
             : "grid-cols-[1fr_auto] sm:grid-cols-[auto_1fr_auto]";
@@ -887,7 +930,7 @@ export default function Extrato() {
 
               {!modoSelecao && (
                 <div className={`hidden sm:flex w-10 h-10 rounded-xl items-center justify-center font-black shrink-0 ${corIcone}`}>
-                  {icone}
+                  <IconeLancamento />
                 </div>
               )}
 
@@ -895,7 +938,7 @@ export default function Extrato() {
                 <div className="flex items-center gap-1.5 min-w-0">
                   {!modoSelecao && (
                     <span className={`sm:hidden w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-black shrink-0 ${corIcone}`}>
-                      {icone}
+                      <IconeLancamento />
                     </span>
                   )}
                   <p className="text-xs text-gray-500 truncate">{formatarData(item.data)}</p>
@@ -985,11 +1028,87 @@ export default function Extrato() {
   lancamento={lancamentoSelecionado}
   fechar={() => setLancamentoSelecionado(null)}
   editar={() => editarLancamento(lancamentoSelecionado)}
+  editarTurno={(turno) => editarLancamento(turno)}
   pedirExclusao={() => setConfirmarExclusao(lancamentoSelecionado)}
   formatarMoeda={formatarMoeda}
   formatarData={formatarData}
   formatarHoraSemSegundos={formatarHoraSemSegundos}
 />
+
+      {edicaoLancamento?.tipo === "entrada_avulsa" && (
+        <EntradaAvulsaModal
+          aberto={true}
+          edicao={edicaoLancamento.dadosOriginais}
+          onClose={() => setEdicaoLancamento(null)}
+          onSalvo={carregarExtrato}
+        />
+      )}
+
+      {edicaoLancamento?.tipo === "transferencia" && (
+        <TransferenciaModal
+          aberto={true}
+          edicao={edicaoLancamento.dadosOriginais}
+          onClose={() => setEdicaoLancamento(null)}
+          onSalvo={carregarExtrato}
+        />
+      )}
+
+      {edicaoLancamento?.tipo === "entrada" && (
+        <GanhosPlataformaModal
+          aberto={true}
+          edicao={edicaoLancamento.dadosOriginais}
+          onClose={() => setEdicaoLancamento(null)}
+          onSalvo={carregarExtrato}
+        />
+      )}
+
+      {edicaoLancamento && ["saida", "conta_pagar"].includes(edicaoLancamento.tipo) &&
+        !edicaoLancamento.dadosOriginais?.abastecimento &&
+        !edicaoLancamento.dadosOriginais?.manutencao &&
+        edicaoLancamento.formaPagamento !== "tag" && (
+          <SaidaModal
+            aberto={true}
+            edicao={edicaoLancamento.dadosOriginais}
+            onClose={() => setEdicaoLancamento(null)}
+            onSalvo={carregarExtrato}
+            titulo={edicaoLancamento.tipo === "conta_pagar" ? "Editar Despesa Futura" : "Editar Despesa"}
+            descricaoModal="Altere os dados deste lançamento."
+            modo={edicaoLancamento.tipo === "conta_pagar" ? "futura" : "saida"}
+            categoriaInicial={edicaoLancamento.categoria || "Outros"}
+          />
+      )}
+
+      {edicaoLancamento && (
+        edicaoLancamento.dadosOriginais?.abastecimento ||
+        edicaoLancamento.dadosOriginais?.recargaEletrica
+      ) && (
+        <AbastecimentoOuRecargaModal
+          aberto={true}
+          edicao={edicaoLancamento.dadosOriginais}
+          onClose={() => setEdicaoLancamento(null)}
+          onSalvo={carregarExtrato}
+        />
+      )}
+
+      {edicaoLancamento?.dadosOriginais?.manutencao && (
+        <ManutencaoModal
+          aberto={true}
+          edicao={edicaoLancamento.dadosOriginais}
+          onClose={() => setEdicaoLancamento(null)}
+          onSalvo={carregarExtrato}
+        />
+      )}
+
+      {edicaoLancamento && (
+        edicaoLancamento.formaPagamento === "tag" || edicaoLancamento.dadosOriginais?.tag
+      ) && (
+        <TagModal
+          aberto={true}
+          edicao={edicaoLancamento.dadosOriginais}
+          onClose={() => setEdicaoLancamento(null)}
+          onSalvo={carregarExtrato}
+        />
+      )}
 
       <ConfirmacaoModal
         aberto={!!confirmarExclusao}
@@ -1024,6 +1143,81 @@ export default function Extrato() {
       />
     </div>
   );
+}
+
+
+function agruparEntradasDePlataformaPorDia(lista) {
+  const grupos = new Map();
+  const resultado = [];
+
+  for (const item of lista) {
+    if (item.tipo !== "entrada") {
+      resultado.push(item);
+      continue;
+    }
+
+    const chave = `entrada-${item.data}`;
+
+    if (!grupos.has(chave)) {
+      const grupo = {
+        id: `entrada-grupo-${item.data}`,
+        idOriginal: null,
+        tipo: "entrada_agrupada",
+        data: item.data,
+        created_at: item.created_at,
+        titulo: "Ganhos com Plataformas",
+        descricao: "",
+        valor: 0,
+        contaDestino: "",
+        categoria: "Entrada",
+        formaPagamento: "entrada",
+        textoBusca: "",
+        dadosOriginais: { turnos: [] },
+      };
+
+      grupos.set(chave, grupo);
+      resultado.push(grupo);
+    }
+
+    const grupo = grupos.get(chave);
+    grupo.dadosOriginais.turnos.push(item);
+    grupo.valor += Number(item.valor || 0);
+
+    if (new Date(item.created_at) > new Date(grupo.created_at)) {
+      grupo.created_at = item.created_at;
+    }
+  }
+
+  for (const grupo of grupos.values()) {
+    const turnos = grupo.dadosOriginais.turnos;
+
+    if (turnos.length === 1) {
+      const index = resultado.findIndex((item) => item.id === grupo.id);
+      if (index >= 0) resultado[index] = turnos[0];
+      continue;
+    }
+
+    const plataformas = [
+      ...new Set(
+        turnos.flatMap((turno) =>
+          String(turno.descricao || "")
+            .split(",")
+            .map((texto) => texto.trim())
+            .filter(Boolean),
+        ),
+      ),
+    ];
+
+    const contas = [
+      ...new Set(turnos.map((turno) => turno.contaDestino).filter(Boolean)),
+    ];
+
+    grupo.descricao = `${turnos.length} turnos${plataformas.length ? ` • ${plataformas.join(", ")}` : ""}`;
+    grupo.contaDestino = contas.length === 1 ? contas[0] : "Várias contas";
+    grupo.textoBusca = `${grupo.titulo} ${grupo.descricao} ${grupo.contaDestino}`;
+  }
+
+  return resultado;
 }
 
 function ModalPersonalizado({
@@ -1478,240 +1672,11 @@ function ButtonField({ children, onClick }) {
   );
 }
 
-function ModalDetalhes({
-  lancamento,
-  fechar,
-  editar,
-  pedirExclusao,
-  formatarMoeda,
-  formatarData,
-  formatarHoraSemSegundos,
-}) {
-  const dados = lancamento.dadosOriginais;
-  const abastecimento = dados.abastecimento;
-  const manutencao = dados.manutencao;
-
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div
-        className="w-full max-w-2xl max-h-[88vh] overflow-y-auto bg-[#111827] border border-gray-800 rounded-2xl p-6 scrollbar-hide"
-        style={{ scrollbarWidth: "none" }}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm text-gray-500">{formatarData(lancamento.data)}</p>
-            <h2 className="text-2xl font-bold mt-1">{lancamento.titulo}</h2>
-            <p className="text-gray-400 mt-1">{lancamento.descricao}</p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={pedirExclusao}
-              className="w-10 h-10 rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10 font-bold"
-              title="Excluir"
-            >
-              🗑️
-            </button>
-
-            <button
-              type="button"
-              onClick={fechar}
-              className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-
-        {lancamento.tipo === "entrada" && (
-          <div className="mt-6 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <DetalheItem
-                titulo="Valor total"
-                valor={`+ ${formatarMoeda(lancamento.valor)}`}
-                destaque="green"
-              />
-              <DetalheItem titulo="KM rodados" valor={`${dados.km_rodados || 0} km`} />
-              <DetalheItem
-                titulo="Horas trabalhadas"
-                valor={formatarHoraSemSegundos(dados.horas_trabalhadas)}
-              />
-            </div>
-
-            <h3 className="font-bold pt-2">Plataformas</h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {(dados.entrada_plataformas || []).map((item, index) => {
-                const total =
-                  Number(item.faturamento || 0) + Number(item.valor_reembolso || 0);
-
-                return (
-                  <div
-                    key={index}
-                    className="bg-[#0B1120] border border-gray-800 rounded-xl p-4"
-                  >
-                    <div className="flex justify-between gap-4">
-                      <div>
-                        <p className="font-semibold">
-                          {item.plataformas?.nome || "Plataforma"}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {item.numero_corridas || 0} corrida(s)
-                        </p>
-                        {item.houve_pedagio && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Inclui reembolso de pedágio
-                          </p>
-                        )}
-                      </div>
-
-                      <p className="font-bold text-green-400">
-                        {formatarMoeda(total)}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {lancamento.tipo === "saida" && (
-          <div className="mt-6 space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <DetalheItem
-                titulo="Valor total"
-                valor={`- ${formatarMoeda(lancamento.valor)}`}
-                destaque="red"
-              />
-              <DetalheItem titulo="Categoria" valor={dados.categoria || "-"} />
-              <DetalheItem titulo="Status" valor={dados.status || "-"} />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <DetalheItem
-                titulo="Forma de pagamento"
-                valor={dados.formaPagamentoTexto || "-"}
-              />
-              <DetalheItem titulo="Conta / Cartão" valor={dados.contaOrigem || "-"} />
-              <DetalheItem
-                titulo="Descrição"
-                valor={dados.descricao || dados.categoria || "-"}
-              />
-            </div>
-
-            {abastecimento && (
-              <>
-                <h3 className="font-bold pt-2">Abastecimento</h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <DetalheItem
-                    titulo="Combustível"
-                    valor={abastecimento.tipo_combustivel || "-"}
-                  />
-                  <DetalheItem
-                    titulo="Litros"
-                    valor={`${Number(abastecimento.litros || 0).toFixed(3)} L`}
-                  />
-                  <DetalheItem
-                    titulo="Valor/L"
-                    valor={formatarMoeda(abastecimento.valor_litro || 0)}
-                  />
-                  <DetalheItem
-                    titulo="Odômetro"
-                    valor={`${Number(abastecimento.odometro || 0).toLocaleString(
-                      "pt-BR"
-                    )} km`}
-                  />
-                  <DetalheItem
-                    titulo="KM rodados"
-                    valor={`${Number(abastecimento.km_rodados || 0).toLocaleString(
-                      "pt-BR"
-                    )} km`}
-                  />
-                  <DetalheItem
-                    titulo="Consumo"
-                    valor={
-                      abastecimento.consumo_km_l
-                        ? `${Number(abastecimento.consumo_km_l).toFixed(2)} km/L`
-                        : "-"
-                    }
-                  />
-                </div>
-              </>
-            )}
-
-            {manutencao && (
-              <>
-                <h3 className="font-bold pt-2">Manutenção</h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <DetalheItem
-                    titulo="Tipo"
-                    valor={manutencao.tipo_manutencao || "-"}
-                  />
-                  <DetalheItem titulo="Serviço" valor={manutencao.servico || "-"} />
-                  <DetalheItem titulo="Oficina" valor={manutencao.oficina || "-"} />
-                  <DetalheItem
-                    titulo="Odômetro"
-                    valor={`${Number(manutencao.odometro || 0).toLocaleString(
-                      "pt-BR"
-                    )} km`}
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-4 mt-6">
-          <button
-            type="button"
-            onClick={editar}
-            className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3"
-          >
-            Editar
-          </button>
-
-          <button
-            type="button"
-            onClick={fechar}
-            className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
-          >
-            Fechar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function Campo({ label, children }) {
   return (
     <div>
       <label className="text-sm text-gray-300">{label}</label>
       <div className="mt-2">{children}</div>
-    </div>
-  );
-}
-
-function DetalheItem({ titulo, valor, destaque }) {
-  return (
-    <div className="bg-[#0B1120] border border-gray-800 rounded-xl p-4">
-      <p className="text-xs text-gray-500">{titulo}</p>
-
-      <p
-        className={`font-bold mt-1 ${
-          destaque === "green"
-            ? "text-green-400"
-            : destaque === "red"
-            ? "text-red-400"
-            : "text-white"
-        }`}
-      >
-        {valor}
-      </p>
     </div>
   );
 }

@@ -17,7 +17,7 @@ import {
   formatarDataBR,
 } from "../../utils/data";
 
-export default function TransferenciaModal({ aberto, onClose }) {
+export default function TransferenciaModal({ aberto, onClose, edicao = null, onSalvo = null }) {
   const hoje = hojeBrasil();
 
   const [contas, setContas] = useState([]);
@@ -41,9 +41,26 @@ export default function TransferenciaModal({ aberto, onClose }) {
     fecharDepois: false,
   });
 
+  function numeroParaMoedaInput(valor) {
+    return Number(valor || 0).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
   useEffect(() => {
     if (aberto) carregarContas();
   }, [aberto]);
+
+  useEffect(() => {
+    if (!aberto || !edicao) return;
+
+    setData(edicao.data || hoje);
+    setContaOrigemId(edicao.conta_origem_id ? String(edicao.conta_origem_id) : "");
+    setContaDestinoId(edicao.conta_destino_id ? String(edicao.conta_destino_id) : "");
+    setValor(numeroParaMoedaInput(edicao.valor));
+    setDescricao(edicao.descricao || "");
+  }, [aberto, edicao]);
 
   const contaOrigem = useMemo(
     () => contas.find((conta) => String(conta.id) === String(contaOrigemId)),
@@ -185,6 +202,7 @@ export default function TransferenciaModal({ aberto, onClose }) {
 
     if (deveFechar) {
       limparFormulario();
+      onSalvo?.();
       onClose?.();
     }
   }

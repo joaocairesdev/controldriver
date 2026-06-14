@@ -93,7 +93,7 @@ export default function NovoLancamento({
       titulo: "Entrada Avulsa",
       descricao: "Pix recebido, depósito ou reembolso",
       icon: <FiPlusCircle />,
-      cor: "green",
+      cor: "blue",
       acao: () => setModalEntradaAvulsaAberto(true),
     },
   ];
@@ -101,9 +101,9 @@ export default function NovoLancamento({
   const movimentacoes = [
     {
       titulo: "Transferência",
-      descricao: "Entre contas, carteira e TAG",
+      descricao: "Entre contas, carteira",
       icon: <FiRefreshCw />,
-      cor: "blue",
+      cor: "indigo",
       acao: () => setModalTransferenciaAberto(true),
     },
   ];
@@ -111,7 +111,7 @@ export default function NovoLancamento({
   const operacao = [
     {
       titulo: "Abastecimento / Recarga",
-      descricao: "Combustível e controle de consumo",
+      descricao: "Combustível, recargas eletricas e controle de consumo",
       icon: <FiDroplet />,
       cor: "orange",
       acao: () => setModalAbastecimentoAberto(true),
@@ -127,9 +127,9 @@ export default function NovoLancamento({
       ? [
           {
             titulo: "Uso da TAG",
-            descricao: "Pedágio, estacionamento e recarga",
+            descricao: "Pedágio, estacionamento e recarga usado pela TAG",
             icon: <FiTag />,
-            cor: "blue",
+            cor: "purple",
             acao: () => setModalTagAberto(true),
           },
         ]
@@ -139,9 +139,9 @@ export default function NovoLancamento({
   const despesas = [
     {
       titulo: "Outras Despesas",
-      descricao: "Despesas de trabalho ou pessoais",
+      descricao: "Despesas de trabalho ou despesas pessoais",
       icon: <FiMoreHorizontal />,
-      cor: "purple",
+      cor: "pink",
       acao: () => setModalOutrasDespesasAberto(true),
     },
     {
@@ -162,6 +162,10 @@ export default function NovoLancamento({
     red: "border-red-500 bg-red-500/10 text-red-400",
     purple: "border-purple-500 bg-purple-500/10 text-purple-400",
     gray: "border-gray-600 bg-gray-500/10 text-gray-300",
+    teal: "border-teal-500 bg-teal-500/10 text-teal-400",
+indigo: "border-indigo-500 bg-indigo-500/10 text-indigo-400",
+pink: "border-pink-500 bg-pink-500/10 text-pink-400",
+slate: "border-slate-500 bg-slate-500/10 text-slate-300",
   };
 
   return (
@@ -218,8 +222,7 @@ export default function NovoLancamento({
         aberto={modalOutrasDespesasAberto}
         onClose={() => setModalOutrasDespesasAberto(false)}
         titulo="Outras Despesas"
-        descricaoModal="Registre seguro, lavagem, acessórios, impostos, multas e gastos gerais."
-        categoriaInicial="Outros"
+        descricaoModal="Registre lavagem, acessórios, impostos, multas e outros gastos gerais."
       />
 
       <SaidaModal
@@ -227,7 +230,6 @@ export default function NovoLancamento({
         onClose={() => setModalDespesasFuturasAberto(false)}
         titulo="Despesas Futuras"
         descricaoModal="Registre boletos, contas a pagar e vencimentos futuros."
-        categoriaInicial="Outros"
         modo="futura"
       />
     </div>
