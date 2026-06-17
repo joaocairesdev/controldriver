@@ -25,6 +25,7 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
   const [contaId, setContaId] = useState("");
   const [valor, setValor] = useState("");
   const [descricao, setDescricao] = useState("");
+  const [finalidade, setFinalidade] = useState("trabalho");
 
   const [modalDataAberto, setModalDataAberto] = useState(false);
   const [modalContaAberto, setModalContaAberto] = useState(false);
@@ -56,12 +57,27 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
     setContaId(edicao.conta_id ? String(edicao.conta_id) : "");
     setValor(numeroParaMoedaInput(edicao.valor));
     setDescricao(edicao.descricao || "");
+    setFinalidade(edicao.finalidade || "trabalho");
   }, [aberto, edicao]);
 
   const contaSelecionada = useMemo(
     () => contas.find((conta) => String(conta.id) === String(contaId)),
     [contas, contaId]
   );
+
+  const ehRecargaTag = useMemo(() => {
+    const textoDescricao = String(descricao || edicao?.descricao || "").toLowerCase();
+    const contaEhTag = (contaSelecionada?.tipo_conta || "") === "tag";
+
+    return (
+      contaEhTag ||
+      textoDescricao.includes("recarga tag") ||
+      textoDescricao.includes("recarga da tag") ||
+      textoDescricao.includes("veloe") ||
+      textoDescricao.includes("sem parar") ||
+      textoDescricao.includes("conectcar")
+    );
+  }, [descricao, edicao?.descricao, contaSelecionada?.tipo_conta]);
 
   const contasDestinoDisponiveis = useMemo(
     () => contas.filter((conta) => (conta.tipo_conta || "banco") !== "tag"),
@@ -174,6 +190,7 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
     setData(hoje);
     setValor("");
     setDescricao("");
+    setFinalidade("trabalho");
   }
 
   function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) {
@@ -238,6 +255,7 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
         conta_id: Number(contaId),
         valor: moedaParaNumero(valor),
         descricao: descricao.trim(),
+        finalidade: ehRecargaTag ? null : finalidade,
       };
 
       const { error } = edicao?.id
@@ -316,6 +334,38 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
           />
         </Campo>
 
+        {!ehRecargaTag && (
+          <Campo label="Finalidade da entrada">
+            <div className="grid grid-cols-2 gap-3 mt-2">
+              <button
+                type="button"
+                onClick={() => setFinalidade("trabalho")}
+                className={`rounded-xl border p-3 text-left transition ${
+                  finalidade === "trabalho"
+                    ? "border-green-400 bg-green-500/10 text-green-400"
+                    : "border-gray-700 bg-[#0B1120] text-gray-300 hover:bg-white/5"
+                }`}
+              >
+                <span className="block font-black">Trabalho</span>
+                <span className="block text-xs opacity-70 mt-1">Operação</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setFinalidade("pessoal")}
+                className={`rounded-xl border p-3 text-left transition ${
+                  finalidade === "pessoal"
+                    ? "border-green-400 bg-green-500/10 text-green-400"
+                    : "border-gray-700 bg-[#0B1120] text-gray-300 hover:bg-white/5"
+                }`}
+              >
+                <span className="block font-black">Pessoal</span>
+                <span className="block text-xs opacity-70 mt-1">Vida pessoal</span>
+              </button>
+            </div>
+          </Campo>
+        )}
+
         {contaSelecionada && valor && descricao && (
           <div className="mt-5 bg-[#0B1120] border border-gray-800 rounded-2xl p-4">
             <p className="text-xs text-gray-500">Confirmação</p>
@@ -326,7 +376,12 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
                 {formatarMoeda(moedaParaNumero(valor))}
               </span>{" "}
               em <span className="font-bold text-white">{contaSelecionada.nome}</span>{" "}
-              como <span className="font-bold text-white">{descricao}</span>.
+              como <span className="font-bold text-white">{descricao}</span>
+              {!ehRecargaTag ? (
+                <>
+                  {" "}na finalidade <span className="font-bold text-white">{finalidade === "trabalho" ? "Trabalho" : "Pessoal"}</span>
+                </>
+              ) : null}.
             </p>
           </div>
         )}

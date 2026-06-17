@@ -117,6 +117,12 @@ export default function DetalhesLancamentoModal({
         {isEntradaAvulsa && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <DetalheItem titulo="Tipo" valor="Entrada avulsa" />
+            {dados.finalidade ? (
+              <DetalheItem
+                titulo="Finalidade"
+                valor={dados.finalidade === "pessoal" ? "Pessoal" : "Trabalho"}
+              />
+            ) : null}
             <DetalheItem titulo="Conta" valor={lancamento.contaDestino || "-"} />
             <DetalheItem titulo="Descrição" valor={dados.descricao || lancamento.descricao || "-"} />
           </div>

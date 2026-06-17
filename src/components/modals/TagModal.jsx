@@ -834,6 +834,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
       conta_id: Number(tagId),
       valor: Number(valor || 0),
       descricao,
+      finalidade: null,
     });
 
     if (error) throw error;

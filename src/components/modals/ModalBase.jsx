@@ -10,6 +10,7 @@ export default function ModalBase({
   largura = "max-w-lg",
   mostrarFechar = true,
   acaoCabecalho = null,
+  rodape = null,
 }) {
   if (!aberto) return null;
 
@@ -54,6 +55,12 @@ export default function ModalBase({
         >
           {children}
         </div>
+
+        {rodape ? (
+          <div className="shrink-0 border-t border-gray-800 bg-[#111827] p-4 sm:p-5">
+            {rodape}
+          </div>
+        ) : null}
       </div>
     </div>
   );

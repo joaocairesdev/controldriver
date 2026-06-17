@@ -202,10 +202,10 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
         id: item.plataforma_id || item.plataformas?.id || item.id,
         detalhe_id: item.id,
         nome: item.plataformas?.nome || "Plataforma",
-        faturamento: formatarMoeda(Number(item.faturamento || 0)),
+        faturamento: numeroParaMoedaFormulario(item.faturamento),
         numero_corridas: Number(item.numero_corridas || 0),
         houve_pedagio: Boolean(item.houve_pedagio),
-        valor_reembolso: formatarMoeda(Number(item.valor_reembolso || 0)),
+        valor_reembolso: numeroParaMoedaFormulario(item.valor_reembolso),
       }))
       .filter((item) => item.id);
 
@@ -234,6 +234,18 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
     return `${String(horas).padStart(2, "0")}:${String(minutos).padStart(2, "0")}`;
   }
 
+
+  function numeroParaMoedaFormulario(valor) {
+    return Number(valor || 0).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  function idsIguais(a, b) {
+    return String(a) === String(b);
+  }
+
   function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) {
     setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois });
   }
@@ -255,14 +267,27 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
 
   function salvarDadosPlataforma(dados) {
     setSelecionadas((listaAtual) => {
-      const jaExiste = listaAtual.some((item) => item.id === dados.id);
-      if (jaExiste) return listaAtual.map((item) => (item.id === dados.id ? { ...item, ...dados } : item));
+      const jaExiste = listaAtual.some((item) => idsIguais(item.id, dados.id));
+
+      if (jaExiste) {
+        return listaAtual.map((item) =>
+          idsIguais(item.id, dados.id)
+            ? {
+                ...item,
+                ...dados,
+                id: item.id,
+                detalhe_id: item.detalhe_id || dados.detalhe_id,
+              }
+            : item
+        );
+      }
+
       return [...listaAtual, dados];
     });
   }
 
   function removerPlataforma(id) {
-    setSelecionadas((listaAtual) => listaAtual.filter((item) => item.id !== id));
+    setSelecionadas((listaAtual) => listaAtual.filter((item) => !idsIguais(item.id, id)));
   }
 
   function limparFormulario() {
@@ -407,11 +432,16 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
   }
 
   function dadosDaPlataforma(id) {
-    return selecionadas.find((item) => item.id === id);
+    return selecionadas.find((item) => idsIguais(item.id, id));
+  }
+
+  function valorMoedaParaNumero(valor) {
+    if (typeof valor === "number") return valor;
+    return moedaParaNumero(valor);
   }
 
   function totalPlataforma(item) {
-    return moedaParaNumero(item.faturamento) + moedaParaNumero(item.valor_reembolso);
+    return valorMoedaParaNumero(item.faturamento) + valorMoedaParaNumero(item.valor_reembolso);
   }
 
   if (!aberto) return null;
@@ -609,9 +639,9 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
         onChange={async (novaData) => {
           setModalDataAberto(false);
           setData(novaData);
-          setSelecionadas([]);
+          if (!edicao?.id) setSelecionadas([]);
           await carregarLancamentosDoDia(novaData);
-          await carregarJornadaPorData(novaData);
+          if (!edicao?.id) await carregarJornadaPorData(novaData);
         }}
         onClose={() => setModalDataAberto(false)}
       />
@@ -632,7 +662,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
         plataforma={plataformaEditando}
         dadosIniciais={plataformaEditando ? dadosDaPlataforma(plataformaEditando.id) : null}
         lancamentoAnterior={
-          plataformaEditando ? lancamentosDoDia[String(plataformaEditando.id)] || null : null
+          !edicao?.id && plataformaEditando ? lancamentosDoDia[String(plataformaEditando.id)] || null : null
         }
         onClose={() => {
           setModalDadosPlataformaAberto(false);

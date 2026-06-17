@@ -145,6 +145,7 @@ export default function Extrato() {
         conta_id,
         valor,
         descricao,
+        finalidade,
         contas ( nome )
       `);
 
@@ -263,9 +264,15 @@ export default function Extrato() {
         descricao: entrada.descricao || "Entrada avulsa",
         valor: Number(entrada.valor || 0),
         contaDestino: entrada.contas?.nome || "Conta",
-        categoria: "Entrada Avulsa",
+        categoria:
+          entrada.finalidade === "pessoal"
+            ? "Entrada Avulsa Pessoal"
+            : entrada.finalidade === "trabalho"
+            ? "Entrada Avulsa Trabalho"
+            : "Entrada Avulsa",
+        finalidade: entrada.finalidade || null,
         formaPagamento: "entrada_avulsa",
-        textoBusca: `Entrada Avulsa ${entrada.descricao || ""} ${entrada.contas?.nome || ""}`,
+        textoBusca: `Entrada Avulsa ${entrada.finalidade || ""} ${entrada.descricao || ""} ${entrada.contas?.nome || ""}`,
         dadosOriginais: entrada,
       })
     );
@@ -943,8 +950,12 @@ export default function Extrato() {
                   )}
                   <p className="text-xs text-gray-500 truncate">{formatarData(item.data)}</p>
                 </div>
-                <h2 className="text-base sm:text-lg font-black truncate mt-0.5">{item.titulo}</h2>
-                <p className="text-xs sm:text-sm text-gray-400 mt-1 truncate">{item.descricao}</p>
+                <h2 className="text-base sm:text-lg font-black truncate mt-0.5">
+                  {item.descricao || item.titulo}
+                </h2>
+                <p className="text-xs sm:text-sm text-gray-400 mt-1 truncate">
+                  {item.titulo}
+                </p>
               </div>
 
               <div className="text-right min-w-[92px] sm:min-w-[130px]">
@@ -955,6 +966,9 @@ export default function Extrato() {
                 {entrada && (
                   <p className="text-[11px] sm:text-xs text-gray-500 mt-1 truncate">
                     Para {item.contaDestino}
+                    {item.tipo === "entrada_avulsa" && item.finalidade
+                      ? ` • ${item.finalidade === "pessoal" ? "Pessoal" : "Trabalho"}`
+                      : ""}
                   </p>
                 )}
 
@@ -1190,6 +1204,14 @@ function agruparEntradasDePlataformaPorDia(lista) {
 
   for (const grupo of grupos.values()) {
     const turnos = grupo.dadosOriginais.turnos;
+
+    turnos.sort((a, b) => {
+      const dataA = new Date(a.created_at || `${a.data}T00:00:00`).getTime();
+      const dataB = new Date(b.created_at || `${b.data}T00:00:00`).getTime();
+
+      if (dataA !== dataB) return dataA - dataB;
+      return Number(a.idOriginal || 0) - Number(b.idOriginal || 0);
+    });
 
     if (turnos.length === 1) {
       const index = resultado.findIndex((item) => item.id === grupo.id);
