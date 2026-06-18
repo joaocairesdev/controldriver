@@ -195,8 +195,109 @@ export default function ManutencaoModal({ aberto, onClose, edicao = null, onSalv
   function somarMeses(dataBase, meses) { const d = new Date(`${dataBase}T00:00:00`); d.setMonth(d.getMonth() + meses); return d; }
   function calcularCompetenciaFatura(dataBase, cartao) { const d = new Date(`${dataBase}T00:00:00`); const diaCompra = d.getDate(); const diaFechamento = Number(cartao?.dia_fechamento || 1); const diaVencimento = Number(cartao?.dia_vencimento || 1); let mesFechamento = d.getMonth() + 1; let anoFechamento = d.getFullYear(); if (diaCompra > diaFechamento) ({ mes: mesFechamento, ano: anoFechamento } = adicionarMesCompetencia(anoFechamento, mesFechamento, 1)); let mes = mesFechamento; let ano = anoFechamento; if (diaVencimento < diaFechamento) ({ mes, ano } = adicionarMesCompetencia(ano, mes, 1)); return { mes, ano, mesFechamento, anoFechamento }; }
   async function buscarOuCriarFatura({ cartao, dataBase }) { const comp = calcularCompetenciaFatura(dataBase, cartao); const dataFechamento = dataComDiaSeguro(comp.anoFechamento, comp.mesFechamento, cartao.dia_fechamento); const dataVencimento = dataComDiaSeguro(comp.ano, comp.mes, cartao.dia_vencimento); const { data: existente, error: erroBusca } = await supabase.from("faturas_cartao").select("*").eq("cartao_id", Number(cartao.id)).eq("mes", comp.mes).eq("ano", comp.ano).maybeSingle(); if (erroBusca) throw erroBusca; if (existente) return existente; const { data, error } = await supabase.from("faturas_cartao").insert({ cartao_id: Number(cartao.id), mes: comp.mes, ano: comp.ano, data_fechamento: dataFechamento, data_vencimento: dataVencimento, valor_total: 0, status: "aberta" }).select().single(); if (error) throw error; return data; }
-  async function atualizarValorFatura(faturaId, valorSomar) { const { data, error } = await supabase.from("faturas_cartao").select("valor_total").eq("id", faturaId).single(); if (error) throw error; const { error: erroUpdate } = await supabase.from("faturas_cartao").update({ valor_total: Number(data.valor_total || 0) + Number(valorSomar || 0) }).eq("id", faturaId); if (erroUpdate) throw erroUpdate; }
-  async function gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas) { if (!isCredito || !cartaoSelecionado) return; const payload = []; for (let i = 0; i < parcelas; i++) { const dataBase = somarMeses(dataCompra, i).toISOString().split("T")[0]; const fatura = await buscarOuCriarFatura({ cartao: cartaoSelecionado, dataBase }); await atualizarValorFatura(fatura.id, parcelaValor); payload.push({ saida_id: saidaId, cartao_id: Number(cartaoId), fatura_id: fatura.id, numero_parcela: i + 1, total_parcelas: parcelas, valor_parcela: parcelaValor, data_vencimento: fatura.data_vencimento, status: "pendente" }); } if (payload.length) { const { error } = await supabase.from("saidas_parcelas").insert(payload); if (error) throw error; } }
+  
+  async function recalcularFaturaPorParcelas(faturaId) {
+    if (!faturaId) return;
+
+    const idFatura = Number(faturaId);
+
+    const { data: parcelas, error: erroParcelas } = await supabase
+      .from("saidas_parcelas")
+      .select("valor_parcela")
+      .eq("fatura_id", idFatura);
+
+    if (erroParcelas) throw erroParcelas;
+
+    const total = Math.round(
+      (parcelas || []).reduce((soma, parcela) => soma + Number(parcela.valor_parcela || 0), 0) * 100
+    ) / 100;
+
+    const { data: fatura, error: erroFatura } = await supabase
+      .from("faturas_cartao")
+      .select("valor_pago, status")
+      .eq("id", idFatura)
+      .maybeSingle();
+
+    if (erroFatura) throw erroFatura;
+    if (!fatura) return;
+
+    if (total <= 0) {
+      const { error: erroDelete } = await supabase
+        .from("faturas_cartao")
+        .delete()
+        .eq("id", idFatura);
+
+      if (erroDelete) throw erroDelete;
+      return;
+    }
+
+    const valorPago = Math.min(Number(fatura.valor_pago || 0), total);
+    const statusAnterior = String(fatura.status || "aberta").toLowerCase();
+    const novoStatus =
+      valorPago >= total
+        ? "paga"
+        : valorPago > 0
+        ? "parcial"
+        : statusAnterior === "fechada"
+        ? "fechada"
+        : "aberta";
+
+    const { error: erroUpdate } = await supabase
+      .from("faturas_cartao")
+      .update({
+        valor_total: total,
+        valor_pago: valorPago,
+        status: novoStatus,
+      })
+      .eq("id", idFatura);
+
+    if (erroUpdate) throw erroUpdate;
+  }
+
+  async function recalcularFaturasDaSaida(saidaId) {
+    if (!saidaId) return;
+
+    const { data: parcelas, error } = await supabase
+      .from("saidas_parcelas")
+      .select("fatura_id")
+      .eq("saida_id", Number(saidaId));
+
+    if (error) throw error;
+
+    const ids = [...new Set((parcelas || []).map((parcela) => parcela.fatura_id).filter(Boolean))];
+
+    for (const faturaId of ids) {
+      await recalcularFaturaPorParcelas(faturaId);
+    }
+  }
+
+async function atualizarValorFatura(faturaId, valorSomar) { const { data, error } = await supabase.from("faturas_cartao").select("valor_total").eq("id", faturaId).single(); if (error) throw error; const { error: erroUpdate } = await supabase.from("faturas_cartao").update({ valor_total: Number(data.valor_total || 0) + Number(valorSomar || 0) }).eq("id", faturaId); if (erroUpdate) throw erroUpdate; }
+
+  async function ajustarFaturasAoRemoverParcelasDaSaida(saidaId) {
+    const { data: parcelas, error: erroParcelasBusca } = await supabase
+      .from("saidas_parcelas")
+      .select("fatura_id")
+      .eq("saida_id", Number(saidaId));
+
+    if (erroParcelasBusca) throw erroParcelasBusca;
+
+    const faturasAfetadas = [
+      ...new Set((parcelas || []).map((parcela) => parcela.fatura_id).filter(Boolean)),
+    ];
+
+    const { error: erroExcluirParcelas } = await supabase
+      .from("saidas_parcelas")
+      .delete()
+      .eq("saida_id", Number(saidaId));
+
+    if (erroExcluirParcelas) throw erroExcluirParcelas;
+
+    for (const faturaId of faturasAfetadas) {
+      await recalcularFaturaPorParcelas(faturaId);
+    }
+  }
+
+  async function gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas) { if (!isCredito || !cartaoSelecionado) return; const payload = []; for (let i = 0; i < parcelas; i++) { const dataBase = somarMeses(dataCompra, i).toISOString().split("T")[0]; const fatura = await buscarOuCriarFatura({ cartao: cartaoSelecionado, dataBase }); await atualizarValorFatura(fatura.id, parcelaValor); payload.push({ saida_id: saidaId, cartao_id: Number(cartaoId), fatura_id: fatura.id, numero_parcela: i + 1, total_parcelas: parcelas, valor_parcela: parcelaValor, data_vencimento: fatura.data_vencimento, status: "pendente" }); } if (payload.length) { const { error } = await supabase.from("saidas_parcelas").insert(payload); if (error) throw error; await recalcularFaturasDaSaida(saidaId); } }
 
   async function verificarLimiteCartao(total) {
     if (!cartaoSelecionado) return true;
@@ -230,8 +331,13 @@ export default function ManutencaoModal({ aberto, onClose, edicao = null, onSalv
       const dadosSaida = { data_compra: dataCompra, forma_pagamento: formaPagamento, tipo_movimentacao: definirTipoMovimentacao(), conta_id: isCredito || isBoleto ? null : Number(contaId), cartao_id: isCredito ? Number(cartaoId) : null, tipo_credito: isCredito ? (isCreditoParcelado ? "parcelado" : "avista") : null, numero_parcelas: parcelas, valor_total: total, valor_parcela: parcelaValor, data_efetivacao: isBoleto ? null : dataCompra, data_vencimento: isBoleto ? dataVencimento : null, categoria: "Manutenção", descricao, status: definirStatus() };
       let saidaId = edicao?.id || null;
       if (saidaId) {
+        await ajustarFaturasAoRemoverParcelasDaSaida(saidaId);
+
         const { error: erroSaida } = await supabase.from("saidas").update(dadosSaida).eq("id", saidaId);
         if (erroSaida) throw erroSaida;
+
+        if (isCredito) await gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas);
+
         await supabase.from("saidas_manutencoes").delete().eq("saida_id", saidaId);
       } else {
         const { data: saidaCriada, error: erroSaida } = await supabase.from("saidas").insert(dadosSaida).select().single();

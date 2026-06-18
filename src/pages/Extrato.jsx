@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { FiArrowDown, FiArrowRight, FiArrowUp, FiFilter, FiSearch } from "react-icons/fi";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FiArrowDown, FiArrowRight, FiArrowUp, FiFilter, FiSearch, FiSettings } from "react-icons/fi";
 import { supabase } from "../services/supabase";
 import SelecionarCategoriaModal from "../components/modals/SelecionarCategoriaModal";
 import SelecionarFormaPagamentoModal from "../components/modals/SelecionarFormaPagamentoModal";
@@ -14,14 +14,17 @@ import AbastecimentoOuRecargaModal from "../components/modals/AbastecimentoOuRec
 import ManutencaoModal from "../components/modals/ManutencaoModal";
 import TagModal from "../components/modals/TagModal";
 
-const ITENS_POR_PAGINA = 30;
+const ITENS_POR_PAGINA_PADRAO = 30;
 
 export default function Extrato() {
   const [todosLancamentos, setTodosLancamentos] = useState([]);
   const [carregando, setCarregando] = useState(true);
-  const [filtroTipo, setFiltroTipo] = useState("todos");
+  const [tiposFiltro, setTiposFiltro] = useState([]);
   const [busca, setBusca] = useState("");
+  const [ordenacao, setOrdenacao] = useState("ultimos_lancados");
+  const [itensPorPagina, setItensPorPagina] = useState(ITENS_POR_PAGINA_PADRAO);
   const [paginaAtual, setPaginaAtual] = useState(1);
+  const [modalConfiguracaoAberto, setModalConfiguracaoAberto] = useState(false);
 
   const [modalPersonalizadoAberto, setModalPersonalizadoAberto] =
     useState(false);
@@ -29,8 +32,8 @@ export default function Extrato() {
   const [filtrosPersonalizados, setFiltrosPersonalizados] = useState({
     dataInicio: "",
     dataFim: "",
-    categoria: "todas",
-    formaPagamento: "todas",
+    categorias: [],
+    formasPagamento: [],
   });
 
   const [lancamentoSelecionado, setLancamentoSelecionado] = useState(null);
@@ -41,6 +44,9 @@ export default function Extrato() {
   const [modoSelecao, setModoSelecao] = useState(false);
   const [selecionados, setSelecionados] = useState([]);
   const [confirmarExclusaoLote, setConfirmarExclusaoLote] = useState(false);
+  const longPressTimerRef = useRef(null);
+  const longPressAtivouRef = useRef(false);
+  const extratoTopoRef = useRef(null);
 
   const [feedback, setFeedback] = useState({
     aberto: false,
@@ -56,7 +62,7 @@ export default function Extrato() {
   useEffect(() => {
     setPaginaAtual(1);
     setSelecionados([]);
-  }, [filtroTipo, busca, filtrosPersonalizados]);
+  }, [tiposFiltro, busca, filtrosPersonalizados, ordenacao, itensPorPagina]);
 
   function formatarMoeda(valor) {
     return Number(valor || 0).toLocaleString("pt-BR", {
@@ -180,6 +186,8 @@ export default function Extrato() {
       tipo_credito,
       data_efetivacao,
       finalidade,
+      conta_pagar_origem_id,
+      fatura_pagamento_id,
       contas ( nome ),
       cartoes ( nome, final_cartao )
     `);
@@ -409,37 +417,31 @@ export default function Extrato() {
   const lancamentosFiltrados = useMemo(() => {
     let lista = [...todosLancamentos];
 
-    if (filtroTipo === "entrada") {
-      lista = lista.filter((item) => ["entrada", "entrada_avulsa"].includes(item.tipo));
+    if (tiposFiltro.length > 0) {
+      lista = lista.filter((item) => {
+        if (tiposFiltro.includes("entrada") && ["entrada", "entrada_avulsa"].includes(item.tipo)) return true;
+        if (tiposFiltro.includes("saida") && ["saida", "conta_pagar"].includes(item.tipo)) return true;
+        if (tiposFiltro.includes("transferencia") && item.tipo === "transferencia") return true;
+        return false;
+      });
     }
 
-    if (filtroTipo === "saida") {
-      lista = lista.filter((item) => ["saida", "conta_pagar"].includes(item.tipo));
+    const { dataInicio, dataFim, categorias, formasPagamento } = filtrosPersonalizados;
+
+    if (dataInicio) {
+      lista = lista.filter((item) => item.data >= dataInicio);
     }
 
-    if (filtroTipo === "transferencia") {
-      lista = lista.filter((item) => item.tipo === "transferencia");
+    if (dataFim) {
+      lista = lista.filter((item) => item.data <= dataFim);
     }
 
-    if (filtroTipo === "personalizado") {
-      const { dataInicio, dataFim, categoria, formaPagamento } =
-        filtrosPersonalizados;
+    if ((categorias || []).length > 0) {
+      lista = lista.filter((item) => categorias.includes(item.categoria));
+    }
 
-      if (dataInicio) {
-        lista = lista.filter((item) => item.data >= dataInicio);
-      }
-
-      if (dataFim) {
-        lista = lista.filter((item) => item.data <= dataFim);
-      }
-
-      if (categoria !== "todas") {
-        lista = lista.filter((item) => item.categoria === categoria);
-      }
-
-      if (formaPagamento !== "todas") {
-        lista = lista.filter((item) => item.formaPagamento === formaPagamento);
-      }
+    if ((formasPagamento || []).length > 0) {
+      lista = lista.filter((item) => formasPagamento.includes(item.formaPagamento));
     }
 
     if (busca.trim()) {
@@ -451,42 +453,73 @@ export default function Extrato() {
     }
 
     return lista;
-  }, [todosLancamentos, filtroTipo, filtrosPersonalizados, busca]);
+  }, [todosLancamentos, tiposFiltro, filtrosPersonalizados, busca]);
+
+  const lancamentosOrdenados = useMemo(() => {
+    return [...lancamentosFiltrados].sort((a, b) => {
+      const dataA = new Date(`${a.data || "1900-01-01"}T00:00:00`).getTime();
+      const dataB = new Date(`${b.data || "1900-01-01"}T00:00:00`).getTime();
+      const criadoA = new Date(a.created_at || a.data || 0).getTime();
+      const criadoB = new Date(b.created_at || b.data || 0).getTime();
+      const valorA = Math.abs(Number(a.valor || 0));
+      const valorB = Math.abs(Number(b.valor || 0));
+
+      if (ordenacao === "primeiros_lancados") {
+        if (criadoA !== criadoB) return criadoA - criadoB;
+        return String(a.id).localeCompare(String(b.id));
+      }
+
+      if (ordenacao === "data_recente") {
+        if (dataA !== dataB) return dataB - dataA;
+        return criadoB - criadoA;
+      }
+
+      if (ordenacao === "data_antiga") {
+        if (dataA !== dataB) return dataA - dataB;
+        return criadoA - criadoB;
+      }
+
+      if (ordenacao === "maior_valor") {
+        if (valorA !== valorB) return valorB - valorA;
+        return criadoB - criadoA;
+      }
+
+      if (ordenacao === "menor_valor") {
+        if (valorA !== valorB) return valorA - valorB;
+        return criadoB - criadoA;
+      }
+
+      if (criadoA !== criadoB) return criadoB - criadoA;
+      return String(b.id).localeCompare(String(a.id));
+    });
+  }, [lancamentosFiltrados, ordenacao]);
 
   const totalPaginas = Math.max(
-    Math.ceil(lancamentosFiltrados.length / ITENS_POR_PAGINA),
+    Math.ceil(lancamentosOrdenados.length / itensPorPagina),
     1
   );
 
-  const lancamentosPagina = lancamentosFiltrados.slice(
-    (paginaAtual - 1) * ITENS_POR_PAGINA,
-    paginaAtual * ITENS_POR_PAGINA
+  const lancamentosPagina = lancamentosOrdenados.slice(
+    (paginaAtual - 1) * itensPorPagina,
+    paginaAtual * itensPorPagina
   );
 
   const lancamentosVisiveis = modoSelecao
     ? lancamentosPagina
     : agruparEntradasDePlataformaPorDia(lancamentosPagina);
 
-  function selecionarFiltro(valor) {
-    if (valor === "personalizado") {
-      setFiltroTipo("personalizado");
-      setModalPersonalizadoAberto(true);
-      return;
-    }
-
-    setFiltroTipo(valor);
-  }
-
   function limparFiltros() {
-    setFiltroTipo("todos");
+    setTiposFiltro([]);
     setBusca("");
+    setOrdenacao("ultimos_lancados");
     setFiltrosPersonalizados({
       dataInicio: "",
       dataFim: "",
-      categoria: "todas",
-      formaPagamento: "todas",
+      categorias: [],
+      formasPagamento: [],
     });
     setModalPersonalizadoAberto(false);
+    setModalConfiguracaoAberto(false);
   }
 
   function abrirFeedback(tipo, titulo, mensagem) {
@@ -529,6 +562,78 @@ export default function Extrato() {
     setModoSelecao(false);
   }
 
+  function cancelarLongPress() {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }
+
+  function iniciarLongPress(event, item) {
+    if (modoSelecao) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    longPressAtivouRef.current = false;
+    cancelarLongPress();
+
+    longPressTimerRef.current = setTimeout(() => {
+      longPressAtivouRef.current = true;
+      setLancamentoSelecionado(null);
+      setModoSelecao(true);
+      setSelecionados([item.id]);
+    }, 550);
+  }
+
+  function finalizarLongPress() {
+    cancelarLongPress();
+  }
+
+  function mudarPagina(novaPagina) {
+    const paginaSegura = Math.min(Math.max(Number(novaPagina || 1), 1), totalPaginas);
+    setPaginaAtual(paginaSegura);
+
+    requestAnimationFrame(() => {
+      if (extratoTopoRef.current) {
+        extratoTopoRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      document.documentElement.scrollTo({ top: 0, behavior: "smooth" });
+      document.body.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+
+  function alternarOrdenacaoData() {
+    setOrdenacao((valor) => {
+      if (valor === "ultimos_lancados") return "data_recente";
+      if (valor === "data_recente") return "data_antiga";
+      return "ultimos_lancados";
+    });
+  }
+
+  function tituloOrdenacaoData() {
+    if (ordenacao === "data_recente") return "Data mais recente";
+    if (ordenacao === "data_antiga") return "Data mais antiga";
+    return "Ordem de cadastro";
+  }
+
+  function IconeOrdenacaoData() {
+    if (ordenacao === "data_recente") return <FiArrowUp />;
+    if (ordenacao === "data_antiga") return <FiArrowDown />;
+    return <FiArrowRight />;
+  }
+
+
+  function resumoRegistros() {
+    if (lancamentosOrdenados.length === 0) return "Nenhum lançamento";
+
+    const inicio = (paginaAtual - 1) * itensPorPagina + 1;
+    const fim = Math.min(paginaAtual * itensPorPagina, lancamentosOrdenados.length);
+
+    return `Mostrando ${inicio}-${fim} de ${lancamentosOrdenados.length} lançamento(s)`;
+  }
+
   async function recalcularOdometroVeiculo(veiculoId) {
   if (!veiculoId) return;
 
@@ -564,6 +669,121 @@ export default function Extrato() {
     })
     .eq("id", veiculoId);
 }
+
+
+  async function recalcularFaturaPorParcelas(faturaId) {
+    if (!faturaId) return;
+
+    const idFatura = Number(faturaId);
+
+    const { data: parcelas, error: erroParcelas } = await supabase
+      .from("saidas_parcelas")
+      .select("valor_parcela")
+      .eq("fatura_id", idFatura);
+
+    if (erroParcelas) throw erroParcelas;
+
+    const total = Math.round(
+      (parcelas || []).reduce((soma, parcela) => soma + Number(parcela.valor_parcela || 0), 0) * 100
+    ) / 100;
+
+    const { data: fatura, error: erroFatura } = await supabase
+      .from("faturas_cartao")
+      .select("valor_pago, status")
+      .eq("id", idFatura)
+      .maybeSingle();
+
+    if (erroFatura) throw erroFatura;
+    if (!fatura) return;
+
+    if (total <= 0) {
+      const { error: erroDelete } = await supabase
+        .from("faturas_cartao")
+        .delete()
+        .eq("id", idFatura);
+
+      if (erroDelete) throw erroDelete;
+      return;
+    }
+
+    const valorPago = Math.min(Number(fatura.valor_pago || 0), total);
+    const statusAnterior = String(fatura.status || "aberta").toLowerCase();
+    const novoStatus =
+      valorPago >= total
+        ? "paga"
+        : valorPago > 0
+        ? "parcial"
+        : statusAnterior === "fechada"
+        ? "fechada"
+        : "aberta";
+
+    const { error: erroUpdate } = await supabase
+      .from("faturas_cartao")
+      .update({ valor_total: total, valor_pago: valorPago, status: novoStatus })
+      .eq("id", idFatura);
+
+    if (erroUpdate) throw erroUpdate;
+  }
+
+  async function ajustarFaturasAoExcluirParcelasDaSaida(saidaId) {
+    const { data: parcelas, error: erroParcelasBusca } = await supabase
+      .from("saidas_parcelas")
+      .select("fatura_id")
+      .eq("saida_id", Number(saidaId));
+
+    if (erroParcelasBusca) throw erroParcelasBusca;
+
+    const faturasAfetadas = [
+      ...new Set((parcelas || []).map((parcela) => parcela.fatura_id).filter(Boolean)),
+    ];
+
+    const { error: erroExcluirParcelas } = await supabase
+      .from("saidas_parcelas")
+      .delete()
+      .eq("saida_id", Number(saidaId));
+
+    if (erroExcluirParcelas) throw erroExcluirParcelas;
+
+    for (const faturaId of faturasAfetadas) {
+      await recalcularFaturaPorParcelas(faturaId);
+    }
+  }
+
+  async function reabrirContaPagarAoExcluirPagamento(saidaPagamento) {
+    if (!saidaPagamento?.conta_pagar_origem_id) return;
+
+    const { data: contaOriginal, error: erroContaOriginal } = await supabase
+      .from("saidas")
+      .select("id, valor_total, valor_pago, data_efetivacao")
+      .eq("id", saidaPagamento.conta_pagar_origem_id)
+      .maybeSingle();
+
+    if (erroContaOriginal) throw erroContaOriginal;
+    if (!contaOriginal) return;
+
+    const novoValorPago = Math.max(
+      Math.round((Number(contaOriginal.valor_pago || 0) - Number(saidaPagamento.valor_total || 0)) * 100) / 100,
+      0
+    );
+    const totalOriginal = Number(contaOriginal.valor_total || 0);
+    const novoStatus =
+      novoValorPago <= 0
+        ? "pendente"
+        : novoValorPago >= totalOriginal
+        ? "pago"
+        : "parcial";
+
+    const { error: erroReabrir } = await supabase
+      .from("saidas")
+      .update({
+        valor_pago: novoValorPago,
+        status: novoStatus,
+        data_efetivacao: novoStatus === "pago" ? contaOriginal.data_efetivacao || null : null,
+      })
+      .eq("id", contaOriginal.id);
+
+    if (erroReabrir) throw erroReabrir;
+  }
 
   function editarLancamento(lancamento) {
     setLancamentoSelecionado(null);
@@ -610,7 +830,7 @@ export default function Extrato() {
     if (["saida", "conta_pagar"].includes(lancamentoAlvo.tipo)) {
       const { data: saidaPagamento } = await supabase
         .from("saidas")
-        .select("id, categoria, valor_total, fatura_pagamento_id")
+        .select("id, categoria, valor_total, fatura_pagamento_id, conta_pagar_origem_id")
         .eq("id", lancamentoAlvo.idOriginal)
         .maybeSingle();
 
@@ -646,6 +866,9 @@ export default function Extrato() {
             .eq("fatura_id", saidaPagamento.fatura_pagamento_id);
         }
       }
+
+      await reabrirContaPagarAoExcluirPagamento(saidaPagamento);
+      await ajustarFaturasAoExcluirParcelasDaSaida(lancamentoAlvo.idOriginal);
 
       const { data: abastecimentoExcluido, error: erroBuscaAbastecimento } =
         await supabase
@@ -745,54 +968,15 @@ export default function Extrato() {
   }
 
   return (
-    <div>
+    <div ref={extratoTopoRef}>
       <h1 className="text-3xl font-bold">Extrato</h1>
 
       <p className="text-gray-400 mt-2">
         Acompanhe todos os lançamentos de entrada e saída.
       </p>
 
-      <div className="mt-6 space-y-3">
-        <div className="grid grid-cols-4 gap-2">
-          {[
-            { nome: "Todos", valor: "todos" },
-            { nome: "Entradas", valor: "entrada" },
-            { nome: "Saídas", valor: "saida" },
-          ].map((item) => {
-            const ativo = filtroTipo === item.valor;
-
-            return (
-              <button
-                key={item.valor}
-                type="button"
-                onClick={() => selecionarFiltro(item.valor)}
-                className={`h-11 px-2 rounded-xl border text-sm font-black transition ${
-                  ativo
-                    ? "bg-green-500 text-black border-green-500"
-                    : "border-gray-700 text-gray-300 hover:bg-white/5"
-                }`}
-              >
-                {item.nome}
-              </button>
-            );
-          })}
-
-          <button
-            type="button"
-            onClick={() => selecionarFiltro("personalizado")}
-            className={`h-11 rounded-xl border flex items-center justify-center transition ${
-              filtroTipo === "personalizado"
-                ? "bg-green-500 text-black border-green-500"
-                : "border-gray-700 text-gray-300 hover:bg-white/5"
-            }`}
-            title="Filtros personalizados"
-            aria-label="Filtros personalizados"
-          >
-            <FiFilter className="text-lg" />
-          </button>
-        </div>
-
-        <div className="relative w-full">
+      <div className="mt-6 grid grid-cols-[1fr_auto_auto_auto] gap-2 sm:gap-3">
+        <div className="relative w-full min-w-0">
           <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
             <FiSearch />
           </span>
@@ -802,65 +986,92 @@ export default function Extrato() {
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar no extrato..."
-            className="w-full bg-[#111827] border border-gray-700 focus:border-green-400 outline-none rounded-xl py-3 pl-11 pr-4"
+            className="w-full h-12 bg-[#111827] border border-gray-700 focus:border-green-400 outline-none rounded-xl py-3 pl-11 pr-4"
           />
         </div>
 
-        {(filtroTipo !== "todos" || busca) && (
-          <button
-            type="button"
-            onClick={limparFiltros}
-            className="w-full sm:w-auto px-4 py-2 rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10 font-semibold text-sm"
-          >
-            Limpar filtros
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={alternarOrdenacaoData}
+          className={`w-12 h-12 rounded-xl border font-bold flex items-center justify-center transition ${
+            ordenacao === "ultimos_lancados"
+              ? "border-gray-700 text-gray-300 hover:bg-white/5"
+              : "border-green-500/60 text-green-400 bg-green-500/10"
+          }`}
+          title={tituloOrdenacaoData()}
+          aria-label={tituloOrdenacaoData()}
+        >
+          {IconeOrdenacaoData()}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setModalPersonalizadoAberto(true)}
+          className="w-12 h-12 rounded-xl border border-gray-700 text-gray-300 hover:bg-white/5 font-bold flex items-center justify-center"
+          title="Filtros do extrato"
+          aria-label="Filtros do extrato"
+        >
+          <FiFilter />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setModalConfiguracaoAberto(true)}
+          className="w-12 h-12 rounded-xl border border-gray-700 text-gray-300 hover:bg-white/5 font-bold flex items-center justify-center"
+          title="Configurações do extrato"
+          aria-label="Configurações do extrato"
+        >
+          <FiSettings />
+        </button>
       </div>
+
+      {(tiposFiltro.length > 0 || busca || ordenacao !== "ultimos_lancados" || filtrosPersonalizados.dataInicio || filtrosPersonalizados.dataFim || filtrosPersonalizados.categorias.length > 0 || filtrosPersonalizados.formasPagamento.length > 0) && (
+        <button
+          type="button"
+          onClick={limparFiltros}
+          className="mt-3 w-full sm:w-auto px-4 py-2 rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10 font-semibold text-sm"
+        >
+          Limpar filtros
+        </button>
+      )}
 
       <div className="mt-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="text-sm text-gray-500">
-          Mostrando {lancamentosPagina.length} de {lancamentosFiltrados.length}{" "}
-          lançamento(s)
+          <p>{resumoRegistros()}</p>
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap">
-          {modoSelecao && (
-            <>
-              <button
-                type="button"
-                onClick={selecionarTodosDaPagina}
-                className="px-4 py-2 rounded-xl border border-gray-700 text-gray-300 hover:bg-white/5 font-semibold"
-              >
-                Selecionar página
-              </button>
+        {modoSelecao && (
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={selecionarTodosDaPagina}
+              className="px-4 py-2 rounded-xl border border-gray-700 text-gray-300 hover:bg-white/5 font-semibold"
+            >
+              Selecionar página
+            </button>
 
-              <span className="text-sm text-gray-400">
-                {selecionados.length} selecionado(s)
-              </span>
+            <span className="text-sm text-gray-400">
+              {selecionados.length} selecionado(s)
+            </span>
 
-              <button
-                type="button"
-                disabled={selecionados.length === 0 || excluindo}
-                onClick={() => setConfirmarExclusaoLote(true)}
-                className="px-4 py-2 rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10 font-semibold disabled:opacity-40"
-              >
-                Excluir selecionados
-              </button>
-            </>
-          )}
+            <button
+              type="button"
+              disabled={selecionados.length === 0 || excluindo}
+              onClick={() => setConfirmarExclusaoLote(true)}
+              className="px-4 py-2 rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10 font-semibold disabled:opacity-40"
+            >
+              Excluir selecionados
+            </button>
 
-          <button
-            type="button"
-            onClick={alternarModoSelecao}
-            className={`px-4 py-2 rounded-xl border font-semibold transition ${
-              modoSelecao
-                ? "border-gray-700 text-gray-300 hover:bg-white/5"
-                : "border-green-500/60 text-green-400 hover:bg-green-500/10"
-            }`}
-          >
-            {modoSelecao ? "Cancelar seleção" : "Selecionar lançamentos"}
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={limparSelecao}
+              className="px-4 py-2 rounded-xl border border-gray-700 text-gray-300 hover:bg-white/5 font-semibold"
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mt-6 space-y-4">
@@ -898,9 +1109,25 @@ export default function Extrato() {
               key={item.id}
               role="button"
               tabIndex={0}
-              onClick={() => {
+              onPointerDown={(event) => iniciarLongPress(event, item)}
+              onPointerUp={finalizarLongPress}
+              onPointerLeave={cancelarLongPress}
+              onPointerCancel={cancelarLongPress}
+              onClick={(event) => {
+                if (longPressAtivouRef.current) {
+                  event.preventDefault();
+                  longPressAtivouRef.current = false;
+                  return;
+                }
+
                 if (modoSelecao) {
                   alternarSelecionado(item.id);
+                  return;
+                }
+
+                if (event.ctrlKey || event.metaKey) {
+                  setModoSelecao(true);
+                  setSelecionados([item.id]);
                   return;
                 }
 
@@ -1000,40 +1227,33 @@ export default function Extrato() {
       </div>
 
       {totalPaginas > 1 && (
-        <div className="flex items-center justify-center gap-3 mt-8">
-          <button
-            type="button"
-            disabled={paginaAtual === 1}
-            onClick={() => setPaginaAtual((p) => Math.max(p - 1, 1))}
-            className="px-4 py-2 rounded-xl border border-gray-700 disabled:opacity-40 hover:bg-white/5"
-          >
-            Anterior
-          </button>
-
-          <span className="text-sm text-gray-400">
-            Página {paginaAtual} de {totalPaginas}
-          </span>
-
-          <button
-            type="button"
-            disabled={paginaAtual === totalPaginas}
-            onClick={() => setPaginaAtual((p) => Math.min(p + 1, totalPaginas))}
-            className="px-4 py-2 rounded-xl border border-gray-700 disabled:opacity-40 hover:bg-white/5"
-          >
-            Próxima
-          </button>
-        </div>
+        <PaginacaoExtrato
+          paginaAtual={paginaAtual}
+          totalPaginas={totalPaginas}
+          mudarPagina={mudarPagina}
+          className="mt-8"
+        />
       )}
 
       {modalPersonalizadoAberto && (
         <ModalPersonalizado
           filtros={filtrosPersonalizados}
           setFiltros={setFiltrosPersonalizados}
+          tiposFiltro={tiposFiltro}
+          setTiposFiltro={setTiposFiltro}
           categorias={categoriasDisponiveis}
           formasPagamento={formasPagamentoDisponiveis}
           formatarData={formatarData}
           fechar={() => setModalPersonalizadoAberto(false)}
           limpar={limparFiltros}
+        />
+      )}
+
+      {modalConfiguracaoAberto && (
+        <ModalConfiguracaoExtrato
+          itensPorPagina={itensPorPagina}
+          setItensPorPagina={setItensPorPagina}
+          fechar={() => setModalConfiguracaoAberto(false)}
         />
       )}
 
@@ -1242,9 +1462,150 @@ function agruparEntradasDePlataformaPorDia(lista) {
   return resultado;
 }
 
+const OPCOES_ORDENACAO = [
+  { valor: "data_recente", titulo: "Data mais recente", descricao: "Lançamentos com data mais nova no topo." },
+  { valor: "data_antiga", titulo: "Data mais antiga", descricao: "Lançamentos com data mais antiga no topo." },
+];
+
+const OPCOES_ITENS_POR_PAGINA = [30, 50, 100];
+
+function paginasVisiveis(paginaAtual, totalPaginas) {
+  const totalVisivel = Math.min(5, totalPaginas);
+  let inicio = Math.max(1, paginaAtual - Math.floor(totalVisivel / 2));
+  let fim = inicio + totalVisivel - 1;
+
+  if (fim > totalPaginas) {
+    fim = totalPaginas;
+    inicio = Math.max(1, fim - totalVisivel + 1);
+  }
+
+  return Array.from({ length: fim - inicio + 1 }, (_, index) => inicio + index);
+}
+
+function PaginacaoExtrato({ paginaAtual, totalPaginas, mudarPagina, className = "" }) {
+  const paginas = paginasVisiveis(paginaAtual, totalPaginas);
+
+  return (
+    <div className={`flex flex-wrap items-center justify-center gap-2 ${className}`}>
+      <button
+        type="button"
+        disabled={paginaAtual === 1}
+        onClick={() => mudarPagina(1)}
+        className="min-w-10 h-10 px-3 rounded-xl border border-gray-700 disabled:opacity-40 hover:bg-white/5 font-bold"
+        title="Primeira página"
+      >
+        &lt;&lt;
+      </button>
+
+      <button
+        type="button"
+        disabled={paginaAtual === 1}
+        onClick={() => mudarPagina(paginaAtual - 1)}
+        className="min-w-10 h-10 px-3 rounded-xl border border-gray-700 disabled:opacity-40 hover:bg-white/5 font-bold"
+        title="Página anterior"
+      >
+        &lt;
+      </button>
+
+      {paginas.map((pagina) => {
+        const ativa = pagina === paginaAtual;
+
+        return (
+          <button
+            key={pagina}
+            type="button"
+            onClick={() => mudarPagina(pagina)}
+            className={`min-w-10 h-10 px-3 rounded-xl border font-black transition ${
+              ativa
+                ? "bg-green-500 border-green-500 text-black"
+                : "border-gray-700 text-gray-300 hover:bg-white/5"
+            }`}
+          >
+            {pagina}
+          </button>
+        );
+      })}
+
+      <button
+        type="button"
+        disabled={paginaAtual === totalPaginas}
+        onClick={() => mudarPagina(paginaAtual + 1)}
+        className="min-w-10 h-10 px-3 rounded-xl border border-gray-700 disabled:opacity-40 hover:bg-white/5 font-bold"
+        title="Próxima página"
+      >
+        &gt;
+      </button>
+
+      <button
+        type="button"
+        disabled={paginaAtual === totalPaginas}
+        onClick={() => mudarPagina(totalPaginas)}
+        className="min-w-10 h-10 px-3 rounded-xl border border-gray-700 disabled:opacity-40 hover:bg-white/5 font-bold"
+        title="Última página"
+      >
+        &gt;&gt;
+      </button>
+    </div>
+  );
+}
+
+function ModalConfiguracaoExtrato({ itensPorPagina, setItensPorPagina, fechar }) {
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-50 p-4">
+      <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-3xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-hide">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-black">Configuração do extrato</h2>
+            <p className="text-gray-400 mt-2 text-sm leading-relaxed">
+              Ajuste quantos lançamentos aparecem por página.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={fechar}
+            className="w-10 h-10 rounded-2xl bg-red-500 hover:bg-red-600 text-white font-black shrink-0"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="mt-6">
+          <label className="text-sm text-gray-300">Itens por página</label>
+          <div className="grid grid-cols-3 gap-3 mt-2">
+            {OPCOES_ITENS_POR_PAGINA.map((quantidade) => {
+              const ativa = itensPorPagina === quantidade;
+
+              return (
+                <button
+                  key={quantidade}
+                  type="button"
+                  onClick={() => {
+                    setItensPorPagina(quantidade);
+                    fechar();
+                  }}
+                  className={`rounded-2xl border p-4 font-black transition ${
+                    ativa
+                      ? "border-green-400 bg-green-500/10 text-green-400"
+                      : "border-gray-700 bg-[#0B1120] text-white hover:bg-white/5"
+                  }`}
+                >
+                  {quantidade}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ModalPersonalizado({
   filtros,
   setFiltros,
+  tiposFiltro,
+  setTiposFiltro,
   categorias,
   formasPagamento,
   formatarData,
@@ -1252,25 +1613,57 @@ function ModalPersonalizado({
   limpar,
 }) {
   const [modalPeriodoAberto, setModalPeriodoAberto] = useState(false);
-  const [modalCategoriaAberto, setModalCategoriaAberto] = useState(false);
-  const [modalFormaPagamentoAberto, setModalFormaPagamentoAberto] = useState(false);
-
-  const categoriaTexto =
-    filtros.categoria === "todas" ? "Todas as categorias" : filtros.categoria;
-
-  const formaPagamentoTexto =
-    formasPagamento.find((item) => item.valor === filtros.formaPagamento)?.titulo ||
-    "Todas as formas";
+  const [modalCategoriasAberto, setModalCategoriasAberto] = useState(false);
+  const [modalFormasAberto, setModalFormasAberto] = useState(false);
 
   const periodoTexto = textoPeriodoFiltro(filtros.dataInicio, filtros.dataFim, formatarData);
-  const categoriasFiltro = ["Todas as categorias", ...categorias];
-  const formasFiltro = [
-    { valor: "todas", titulo: "Todas as formas" },
-    ...formasPagamento,
+
+  const categoriasSelecionadas = filtros.categorias || [];
+  const formasSelecionadas = filtros.formasPagamento || [];
+
+  const categoriaTexto =
+    categoriasSelecionadas.length === 0
+      ? "Todas as categorias"
+      : categoriasSelecionadas.length === 1
+      ? categoriasSelecionadas[0]
+      : `${categoriasSelecionadas.length} categorias selecionadas`;
+
+  const formaPagamentoTexto =
+    formasSelecionadas.length === 0
+      ? "Todas as formas"
+      : formasSelecionadas.length === 1
+      ? formasPagamento.find((item) => item.valor === formasSelecionadas[0])?.titulo || formasSelecionadas[0]
+      : `${formasSelecionadas.length} formas selecionadas`;
+
+  const formasFiltro = formasPagamento.map((forma) => ({
+    valor: forma.valor,
+    titulo: forma.titulo,
+  }));
+
+  const categoriasFiltro = categorias.map((categoria) => ({
+    valor: categoria,
+    titulo: categoria,
+  }));
+
+  const tiposDisponiveis = [
+    { valor: "entrada", titulo: "Entradas" },
+    { valor: "saida", titulo: "Saídas" },
+    { valor: "transferencia", titulo: "Transferências" },
   ];
 
-  function atualizarFiltro(campo, valor) {
-    setFiltros((filtrosAtuais) => ({ ...filtrosAtuais, [campo]: valor }));
+  function alternarTipo(valor) {
+    setTiposFiltro((listaAtual) =>
+      listaAtual.includes(valor)
+        ? listaAtual.filter((item) => item !== valor)
+        : [...listaAtual, valor]
+    );
+  }
+
+  function atualizarLista(campo, lista) {
+    setFiltros((filtrosAtuais) => ({
+      ...filtrosAtuais,
+      [campo]: lista,
+    }));
   }
 
   function aplicarPeriodo({ dataInicio, dataFim }) {
@@ -1299,13 +1692,9 @@ function ModalPersonalizado({
         <div className="w-full max-w-lg bg-[#111827] border border-gray-800 rounded-3xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-hide">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="inline-flex items-center rounded-full border border-green-500/30 bg-green-500/10 px-3 py-1 text-xs font-black text-green-400">
-                Filtros do extrato
-              </div>
-
-              <h2 className="text-2xl font-black mt-3">Filtro personalizado</h2>
+              <h2 className="text-2xl font-black">Filtro do extrato</h2>
               <p className="text-gray-400 mt-2 text-sm leading-relaxed">
-                Escolha o período, categoria e forma de pagamento para refinar os lançamentos.
+                Selecione um ou mais tipos, categorias e formas de pagamento.
               </p>
             </div>
 
@@ -1313,13 +1702,37 @@ function ModalPersonalizado({
               type="button"
               onClick={fechar}
               className="w-10 h-10 rounded-2xl bg-red-500 hover:bg-red-600 text-white font-black shrink-0"
-              aria-label="Fechar filtro personalizado"
+              aria-label="Fechar filtro"
             >
               ×
             </button>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-4">
+          <div className="mt-6">
+            <label className="text-sm text-gray-300">Tipo</label>
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {tiposDisponiveis.map((tipo) => {
+                const ativo = tiposFiltro.includes(tipo.valor);
+
+                return (
+                  <button
+                    key={tipo.valor}
+                    type="button"
+                    onClick={() => alternarTipo(tipo.valor)}
+                    className={`min-h-[46px] rounded-2xl border px-3 text-sm font-black transition ${
+                      ativo
+                        ? "border-green-400 bg-green-500/10 text-green-400"
+                        : "border-gray-700 bg-[#0B1120] text-white hover:bg-white/5"
+                    }`}
+                  >
+                    {tipo.titulo}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-5">
             <Campo label="Período">
               <ButtonField onClick={() => setModalPeriodoAberto(true)}>
                 {periodoTexto}
@@ -1329,23 +1742,16 @@ function ModalPersonalizado({
 
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Campo label="Categoria">
-              <ButtonField onClick={() => setModalCategoriaAberto(true)}>
+              <ButtonField onClick={() => setModalCategoriasAberto(true)}>
                 {categoriaTexto}
               </ButtonField>
             </Campo>
 
             <Campo label="Forma de pagamento">
-              <ButtonField onClick={() => setModalFormaPagamentoAberto(true)}>
+              <ButtonField onClick={() => setModalFormasAberto(true)}>
                 {formaPagamentoTexto}
               </ButtonField>
             </Campo>
-          </div>
-
-          <div className="mt-6 rounded-2xl bg-[#0B1120] border border-gray-800 p-4">
-            <p className="text-xs text-gray-500 leading-relaxed">
-              No período, primeiro escolha a data inicial. Depois escolha a data final.
-              Datas anteriores ao início ficam bloqueadas automaticamente.
-            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
@@ -1378,27 +1784,133 @@ function ModalPersonalizado({
         formatarData={formatarData}
       />
 
-      <SelecionarCategoriaModal
-        aberto={modalCategoriaAberto}
-        categorias={categoriasFiltro}
-        categoria={categoriaTexto}
-        onSelecionar={(valor) =>
-          atualizarFiltro(
-            "categoria",
-            valor === "Todas as categorias" ? "todas" : valor
-          )
-        }
-        onClose={() => setModalCategoriaAberto(false)}
+      <ModalSelecaoMultipla
+        aberto={modalCategoriasAberto}
+        titulo="Selecionar categorias"
+        descricao="Escolha uma ou mais categorias para filtrar o extrato."
+        opcoes={categoriasFiltro}
+        selecionados={categoriasSelecionadas}
+        onChange={(lista) => atualizarLista("categorias", lista)}
+        onClose={() => setModalCategoriasAberto(false)}
+        textoVazio="Nenhuma categoria disponível."
       />
 
-      <SelecionarFormaPagamentoModal
-        aberto={modalFormaPagamentoAberto}
-        formasPagamento={formasFiltro}
-        formaPagamento={filtros.formaPagamento}
-        onSelecionar={(valor) => atualizarFiltro("formaPagamento", valor)}
-        onClose={() => setModalFormaPagamentoAberto(false)}
+      <ModalSelecaoMultipla
+        aberto={modalFormasAberto}
+        titulo="Selecionar formas de pagamento"
+        descricao="Escolha uma ou mais formas de pagamento para filtrar o extrato."
+        opcoes={formasFiltro}
+        selecionados={formasSelecionadas}
+        onChange={(lista) => atualizarLista("formasPagamento", lista)}
+        onClose={() => setModalFormasAberto(false)}
+        textoVazio="Nenhuma forma de pagamento disponível."
       />
     </>
+  );
+}
+
+function ModalSelecaoMultipla({
+  aberto,
+  titulo,
+  descricao,
+  opcoes,
+  selecionados,
+  onChange,
+  onClose,
+  textoVazio,
+}) {
+  if (!aberto) return null;
+
+  function alternarOpcao(valor) {
+    const listaAtual = selecionados || [];
+    const novaLista = listaAtual.includes(valor)
+      ? listaAtual.filter((item) => item !== valor)
+      : [...listaAtual, valor];
+
+    onChange(novaLista);
+  }
+
+  function limparSelecao() {
+    onChange([]);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-[70] p-4">
+      <div className="w-full max-w-lg bg-[#111827] border border-gray-800 rounded-3xl p-5 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-hide">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-black">{titulo}</h2>
+            <p className="text-gray-400 mt-2 text-sm leading-relaxed">{descricao}</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-10 h-10 rounded-2xl bg-red-500 hover:bg-red-600 text-white font-black shrink-0"
+            aria-label="Fechar seleção"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="mt-6 space-y-2">
+          {opcoes.map((opcao) => {
+            const ativo = (selecionados || []).includes(opcao.valor);
+
+            return (
+              <button
+                key={opcao.valor}
+                type="button"
+                onClick={() => alternarOpcao(opcao.valor)}
+                className={`w-full min-h-[50px] rounded-2xl border px-4 py-3 text-left transition flex items-center justify-between gap-3 ${
+                  ativo
+                    ? "border-green-400 bg-green-500/10"
+                    : "border-gray-700 bg-[#0B1120] hover:bg-white/5"
+                }`}
+              >
+                <span className={`font-black ${ativo ? "text-green-400" : "text-white"}`}>
+                  {opcao.titulo}
+                </span>
+
+                <span
+                  className={`w-5 h-5 rounded-md border flex items-center justify-center text-xs shrink-0 ${
+                    ativo
+                      ? "bg-green-500 border-green-500 text-black"
+                      : "border-gray-600 text-transparent"
+                  }`}
+                >
+                  ✓
+                </span>
+              </button>
+            );
+          })}
+
+          {opcoes.length === 0 && (
+            <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4 text-sm text-gray-500">
+              {textoVazio}
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
+          <button
+            type="button"
+            onClick={limparSelecao}
+            className="w-full border border-gray-700 hover:bg-white/5 text-white font-black rounded-2xl p-4"
+          >
+            Limpar seleção
+          </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full bg-green-500 hover:bg-green-600 text-black font-black rounded-2xl p-4"
+          >
+            Aplicar
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

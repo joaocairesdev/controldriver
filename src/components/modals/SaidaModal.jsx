@@ -954,42 +954,164 @@ export default function SaidaModal({
     return novaFatura;
   }
 
-  async function atualizarValorFatura(faturaId, valorSomar) {
+  
+  async function recalcularFaturaPorParcelas(faturaId) {
+    if (!faturaId) return;
+
+    const idFatura = Number(faturaId);
+
+    const { data: parcelas, error: erroParcelas } = await supabase
+      .from("saidas_parcelas")
+      .select("valor_parcela")
+      .eq("fatura_id", idFatura);
+
+    if (erroParcelas) throw erroParcelas;
+
+    const total = Math.round(
+      (parcelas || []).reduce((soma, parcela) => soma + Number(parcela.valor_parcela || 0), 0) * 100
+    ) / 100;
+
+    const { data: fatura, error: erroFatura } = await supabase
+      .from("faturas_cartao")
+      .select("valor_pago, status")
+      .eq("id", idFatura)
+      .maybeSingle();
+
+    if (erroFatura) throw erroFatura;
+    if (!fatura) return;
+
+    if (total <= 0) {
+      const { error: erroDelete } = await supabase
+        .from("faturas_cartao")
+        .delete()
+        .eq("id", idFatura);
+
+      if (erroDelete) throw erroDelete;
+      return;
+    }
+
+    const valorPago = Math.min(Number(fatura.valor_pago || 0), total);
+    const statusAnterior = String(fatura.status || "aberta").toLowerCase();
+    const novoStatus =
+      valorPago >= total
+        ? "paga"
+        : valorPago > 0
+        ? "parcial"
+        : statusAnterior === "fechada"
+        ? "fechada"
+        : "aberta";
+
+    const { error: erroUpdate } = await supabase
+      .from("faturas_cartao")
+      .update({
+        valor_total: total,
+        valor_pago: valorPago,
+        status: novoStatus,
+      })
+      .eq("id", idFatura);
+
+    if (erroUpdate) throw erroUpdate;
+  }
+
+  async function recalcularFaturasDaSaida(saidaId) {
+    if (!saidaId) return;
+
+    const { data: parcelas, error } = await supabase
+      .from("saidas_parcelas")
+      .select("fatura_id")
+      .eq("saida_id", Number(saidaId));
+
+    if (error) throw error;
+
+    const ids = [...new Set((parcelas || []).map((parcela) => parcela.fatura_id).filter(Boolean))];
+
+    for (const faturaId of ids) {
+      await recalcularFaturaPorParcelas(faturaId);
+    }
+  }
+
+async function atualizarValorFatura(faturaId, valorSomar) {
     const { data: fatura, error: erroBusca } = await supabase
       .from("faturas_cartao")
-      .select("valor_total")
+      .select("valor_total, valor_pago, status")
       .eq("id", faturaId)
       .single();
 
     if (erroBusca) throw erroBusca;
 
-    const novoTotal = Number(fatura.valor_total || 0) + Number(valorSomar || 0);
+    const novoTotal = Math.max(
+      Math.round((Number(fatura.valor_total || 0) + Number(valorSomar || 0)) * 100) / 100,
+      0
+    );
+
+    const valorPago = Math.min(Number(fatura.valor_pago || 0), novoTotal);
+    const statusAnterior = String(fatura.status || "aberta").toLowerCase();
+
+    let novoStatus = "aberta";
+    if (novoTotal <= 0) {
+      novoStatus = "aberta";
+    } else if (valorPago >= novoTotal) {
+      novoStatus = "paga";
+    } else if (valorPago > 0) {
+      novoStatus = "parcial";
+    } else if (statusAnterior === "fechada") {
+      novoStatus = "fechada";
+    } else {
+      novoStatus = "aberta";
+    }
 
     const { error: erroUpdate } = await supabase
       .from("faturas_cartao")
-      .update({ valor_total: novoTotal })
+      .update({
+        valor_total: novoTotal,
+        valor_pago: valorPago,
+        status: novoStatus,
+      })
       .eq("id", faturaId);
 
     if (erroUpdate) throw erroUpdate;
   }
 
+  async function obterCartaoAtualObrigatorio() {
+    const idSelecionado = cartaoId ? Number(cartaoId) : null;
+    if (!idSelecionado) throw new Error("Selecione um cartão.");
+
+    const cartaoLocal = cartoes.find((cartao) => Number(cartao.id) === idSelecionado);
+    if (cartaoLocal) return cartaoLocal;
+
+    const { data: cartaoBanco, error } = await supabase
+      .from("cartoes")
+      .select("*")
+      .eq("id", idSelecionado)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!cartaoBanco) throw new Error("Cartão selecionado não encontrado.");
+
+    return cartaoBanco;
+  }
+
   async function verificarLimiteCartao(total) {
-    if (!cartaoSelecionado) return true;
+    if (!isCredito) return true;
+
+    const cartaoAtual = await obterCartaoAtualObrigatorio();
 
     const { data: faturasAbertas, error: erroFaturas } = await supabase
       .from("faturas_cartao")
-      .select("valor_total")
-      .eq("cartao_id", Number(cartaoId))
-      .in("status", ["aberta", "fechada"]);
+      .select("valor_total, valor_pago")
+      .eq("cartao_id", Number(cartaoAtual.id))
+      .in("status", ["aberta", "fechada", "parcial"]);
 
     if (erroFaturas) throw erroFaturas;
 
     const usadoAtual = (faturasAbertas || []).reduce(
-      (totalAtual, fatura) => totalAtual + Number(fatura.valor_total || 0),
+      (totalAtual, fatura) =>
+        totalAtual +
+        Math.max(Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0), 0),
       0
     );
 
-    const limite = Number(cartaoSelecionado.limite_total || 0);
+    const limite = Number(cartaoAtual.limite_total || 0);
     const disponivel = limite - usadoAtual;
 
     if (limite > 0 && total > disponivel) {
@@ -1002,20 +1124,21 @@ export default function SaidaModal({
   }
 
   async function gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas) {
-    if (!isCredito || !cartaoSelecionado) return;
+    if (!isCredito) return;
 
+    const cartaoAtual = await obterCartaoAtualObrigatorio();
     const parcelasPayload = [];
 
     for (let index = 0; index < parcelas; index++) {
       const dataParcela = somarMeses(dataCompra, index);
       const dataBase = dataParcela.toISOString().split("T")[0];
 
-      const fatura = await buscarOuCriarFatura({ cartao: cartaoSelecionado, dataBase });
+      const fatura = await buscarOuCriarFatura({ cartao: cartaoAtual, dataBase });
       await atualizarValorFatura(fatura.id, parcelaValor);
 
       parcelasPayload.push({
         saida_id: saidaId,
-        cartao_id: Number(cartaoId),
+        cartao_id: Number(cartaoAtual.id),
         fatura_id: fatura.id,
         numero_parcela: index + 1,
         total_parcelas: parcelas,
@@ -1031,7 +1154,149 @@ export default function SaidaModal({
         .insert(parcelasPayload);
 
       if (erroParcelas) throw erroParcelas;
+      await recalcularFaturasDaSaida(saidaId);
     }
+  }
+
+
+  function formaEhCredito(valor) {
+    return valor === "credito_avista" || valor === "credito_parcelado";
+  }
+
+  async function gerarParcelasEFaturasExplicito({
+    saidaId,
+    cartaoIdAtual,
+    dataCompraAtual,
+    formaPagamentoAtual,
+    totalAtual,
+    parcelaValorAtual,
+    parcelasAtual,
+  }) {
+    if (!formaEhCredito(formaPagamentoAtual)) return;
+
+    const idCartao = Number(cartaoIdAtual || 0);
+    if (!idCartao) throw new Error("Selecione um cartão.");
+
+    const cartaoLocal = cartoes.find((cartao) => Number(cartao.id) === idCartao);
+    const cartaoAtual = cartaoLocal || (await supabase
+      .from("cartoes")
+      .select("*")
+      .eq("id", idCartao)
+      .maybeSingle()).data;
+
+    if (!cartaoAtual?.id) throw new Error("Cartão selecionado não encontrado.");
+
+    const quantidadeParcelas = Math.max(Number(parcelasAtual || 1), 1);
+    const valorParcelaFinal = Math.round(Number(parcelaValorAtual || totalAtual || 0) * 100) / 100;
+    const dataBaseCompra = dataCompraAtual || hoje;
+    const parcelasPayload = [];
+
+    for (let index = 0; index < quantidadeParcelas; index++) {
+      const dataParcela = somarMeses(dataBaseCompra, index);
+      const dataBase = dataParcela.toISOString().split("T")[0];
+      const fatura = await buscarOuCriarFatura({ cartao: cartaoAtual, dataBase });
+
+      await atualizarValorFatura(fatura.id, valorParcelaFinal);
+
+      parcelasPayload.push({
+        saida_id: Number(saidaId),
+        cartao_id: Number(cartaoAtual.id),
+        fatura_id: Number(fatura.id),
+        numero_parcela: index + 1,
+        total_parcelas: quantidadeParcelas,
+        valor_parcela: valorParcelaFinal,
+        data_vencimento: fatura.data_vencimento,
+        status: "pendente",
+      });
+    }
+
+    if (parcelasPayload.length > 0) {
+      const { error: erroParcelas } = await supabase
+        .from("saidas_parcelas")
+        .insert(parcelasPayload);
+
+      if (erroParcelas) throw erroParcelas;
+      await recalcularFaturasDaSaida(saidaId);
+    }
+  }
+
+    async function ajustarFaturasAoRemoverParcelasDaSaida(saidaId) {
+    const { data: parcelas, error: erroParcelasBusca } = await supabase
+      .from("saidas_parcelas")
+      .select("fatura_id")
+      .eq("saida_id", Number(saidaId));
+
+    if (erroParcelasBusca) throw erroParcelasBusca;
+
+    const faturasAfetadas = [
+      ...new Set((parcelas || []).map((parcela) => parcela.fatura_id).filter(Boolean)),
+    ];
+
+    const { error: erroExcluirParcelas } = await supabase
+      .from("saidas_parcelas")
+      .delete()
+      .eq("saida_id", Number(saidaId));
+
+    if (erroExcluirParcelas) throw erroExcluirParcelas;
+
+    for (const faturaId of faturasAfetadas) {
+      await recalcularFaturaPorParcelas(faturaId);
+    }
+  }
+
+  async function recalcularContaPagarOrigem(contaPagarId) {
+    if (!contaPagarId) return;
+
+    const { data: contaOriginal, error: erroConta } = await supabase
+      .from("saidas")
+      .select("id, valor_total")
+      .eq("id", contaPagarId)
+      .maybeSingle();
+
+    if (erroConta) throw erroConta;
+    if (!contaOriginal) return;
+
+    const { data: pagamentos, error: erroPagamentos } = await supabase
+      .from("saidas")
+      .select("valor_total, data_efetivacao, data_compra, created_at")
+      .eq("conta_pagar_origem_id", contaPagarId);
+
+    if (erroPagamentos) throw erroPagamentos;
+
+    const valorPago = Math.max(
+      Math.round(
+        (pagamentos || []).reduce(
+          (total, pagamento) => total + Number(pagamento.valor_total || 0),
+          0
+        ) * 100
+      ) / 100,
+      0
+    );
+
+    const totalOriginal = Number(contaOriginal.valor_total || 0);
+    const saldo = Math.max(Math.round((totalOriginal - valorPago) * 100) / 100, 0);
+    const novoStatus = valorPago <= 0 ? "pendente" : saldo > 0 ? "parcial" : "pago";
+
+    const pagamentosOrdenados = [...(pagamentos || [])].sort((a, b) => {
+      const dataA = new Date(a.data_efetivacao || a.data_compra || a.created_at || 0).getTime();
+      const dataB = new Date(b.data_efetivacao || b.data_compra || b.created_at || 0).getTime();
+      return dataB - dataA;
+    });
+
+    const dataEfetivacao = novoStatus === "pago"
+      ? pagamentosOrdenados[0]?.data_efetivacao || pagamentosOrdenados[0]?.data_compra || null
+      : null;
+
+    const { error: erroUpdate } = await supabase
+      .from("saidas")
+      .update({
+        valor_pago: valorPago,
+        status: novoStatus,
+        data_efetivacao: dataEfetivacao,
+      })
+      .eq("id", contaPagarId);
+
+    if (erroUpdate) throw erroUpdate;
   }
 
   function validarCampos() {
@@ -1103,6 +1368,16 @@ export default function SaidaModal({
 
     try {
       if (isEdicao) {
+        const { data: saidaAntesEdicao, error: erroBuscaSaida } = await supabase
+          .from("saidas")
+          .select("id, conta_pagar_origem_id")
+          .eq("id", edicao.id)
+          .maybeSingle();
+
+        if (erroBuscaSaida) throw erroBuscaSaida;
+
+        await ajustarFaturasAoRemoverParcelasDaSaida(edicao.id);
+
         const payloadEdicao = {
           data_compra: isContaPagar ? dataVencimento : dataCompra,
           forma_pagamento: formaPagamento,
@@ -1128,6 +1403,22 @@ export default function SaidaModal({
           .eq("id", edicao.id);
 
         if (erroEdicao) throw erroEdicao;
+
+        if (formaEhCredito(formaPagamento)) {
+          await gerarParcelasEFaturasExplicito({
+            saidaId: edicao.id,
+            cartaoIdAtual: cartaoId,
+            dataCompraAtual: dataCompra,
+            formaPagamentoAtual: formaPagamento,
+            totalAtual: total,
+            parcelaValorAtual: parcelaValor,
+            parcelasAtual: parcelas,
+          });
+        }
+
+        if (saidaAntesEdicao?.conta_pagar_origem_id) {
+          await recalcularContaPagarOrigem(saidaAntesEdicao.conta_pagar_origem_id);
+        }
 
         abrirFeedback("sucesso", "Lançamento atualizado", "As alterações foram salvas com sucesso.", true);
         await onSalvo?.();
@@ -1200,8 +1491,16 @@ export default function SaidaModal({
 
       if (erroSaida) throw erroSaida;
 
-      if (isCredito) {
-        await gerarParcelasEFaturas(saidaCriada.id, total, parcelaValor, parcelas);
+      if (formaEhCredito(formaPagamento)) {
+        await gerarParcelasEFaturasExplicito({
+          saidaId: saidaCriada.id,
+          cartaoIdAtual: cartaoId,
+          dataCompraAtual: dataCompra,
+          formaPagamentoAtual: formaPagamento,
+          totalAtual: total,
+          parcelaValorAtual: parcelaValor,
+          parcelasAtual: parcelas,
+        });
       }
 
       abrirFeedback(

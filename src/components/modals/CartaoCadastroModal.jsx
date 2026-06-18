@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FiX } from "react-icons/fi";
 import { supabase } from "../../services/supabase";
 
 import DatePickerModal from "./DatePickerModal";
@@ -992,10 +993,10 @@ export default function CartaoCadastroModal({
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 overscroll-none overflow-hidden">
         <div
-          className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-[#111827] border border-gray-800 rounded-2xl p-6 scrollbar-hide"
-          style={{ scrollbarWidth: "none" }}
+          className="w-full max-w-2xl max-h-[100dvh] sm:max-h-[88vh] overflow-y-auto bg-[#111827] border border-gray-800 rounded-t-3xl sm:rounded-2xl p-5 sm:p-6 pb-28 sm:pb-6 scrollbar-hide"
+          style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
         >
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -1013,9 +1014,10 @@ export default function CartaoCadastroModal({
             <button
               type="button"
               onClick={fecharModal}
-              className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shrink-0"
+              className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shrink-0 flex items-center justify-center"
+              aria-label="Fechar"
             >
-              ×
+              <FiX className="w-5 h-5" />
             </button>
           </div>
 
@@ -1481,7 +1483,7 @@ export default function CartaoCadastroModal({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4 mt-6">
+          <div className="sticky bottom-0 z-20 grid grid-cols-2 gap-4 mt-6 -mx-5 sm:-mx-6 px-5 sm:px-6 pt-4 pb-[max(env(safe-area-inset-bottom),1rem)] bg-[#111827] border-t border-gray-800">
             <button
               type="button"
               onClick={() => {

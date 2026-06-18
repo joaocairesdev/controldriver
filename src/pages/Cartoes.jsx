@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FiAlertTriangle, FiCreditCard, FiEdit2, FiPlus, FiTrash2 } from "react-icons/fi";
 import { supabase } from "../services/supabase";
 
 import CartaoCadastroModal from "../components/modals/CartaoCadastroModal";
@@ -60,6 +61,8 @@ export default function Cartoes() {
 
     const contasComSaldo = await Promise.all(
       (data || []).map(async (conta) => {
+        const contaId = conta.id;
+
         const { data: entradas } = await supabase
           .from("entradas")
           .select(`
@@ -68,7 +71,7 @@ export default function Cartoes() {
               valor_reembolso
             )
           `)
-          .eq("conta_id", conta.id);
+          .eq("conta_id", contaId);
 
         const totalEntradas = (entradas || []).reduce((total, entrada) => {
           const totalPlataformas = (entrada.entrada_plataformas || []).reduce(
@@ -82,22 +85,55 @@ export default function Cartoes() {
           return total + totalPlataformas;
         }, 0);
 
-        const { data: saidas } = await supabase
-          .from("saidas")
-          .select("valor_total")
-          .eq("conta_id", conta.id);
+        const { data: entradasAvulsas } = await supabase
+          .from("entradas_avulsas")
+          .select("valor")
+          .eq("conta_id", contaId);
 
-        const totalSaidas = (saidas || []).reduce(
-          (total, saida) => total + Number(saida.valor_total || 0),
+        const totalEntradasAvulsas = (entradasAvulsas || []).reduce(
+          (total, entrada) => total + Number(entrada.valor || 0),
           0
         );
 
+        const { data: transferenciasRecebidas } = await supabase
+          .from("transferencias")
+          .select("valor")
+          .eq("conta_destino_id", contaId);
+
+        const totalTransferenciasRecebidas = (transferenciasRecebidas || []).reduce(
+          (total, transferencia) => total + Number(transferencia.valor || 0),
+          0
+        );
+
+        const { data: transferenciasEnviadas } = await supabase
+          .from("transferencias")
+          .select("valor")
+          .eq("conta_origem_id", contaId);
+
+        const totalTransferenciasEnviadas = (transferenciasEnviadas || []).reduce(
+          (total, transferencia) => total + Number(transferencia.valor || 0),
+          0
+        );
+
+        const { data: saidas } = await supabase
+          .from("saidas")
+          .select("valor_total, tipo_movimentacao")
+          .eq("conta_id", contaId);
+
+        const totalSaidas = (saidas || [])
+          .filter((saida) => saida.tipo_movimentacao !== "conta_pagar")
+          .reduce((total, saida) => total + Number(saida.valor_total || 0), 0);
+
         return {
           ...conta,
+          tipo_conta: conta.tipo_conta || "banco",
           saldo_atual:
             Number(conta.saldo_inicial || 0) +
-            totalEntradas -
-            totalSaidas,
+            totalEntradas +
+            totalEntradasAvulsas +
+            totalTransferenciasRecebidas -
+            totalSaidas -
+            totalTransferenciasEnviadas,
         };
       })
     );
@@ -135,18 +171,39 @@ export default function Cartoes() {
       return;
     }
 
+    const idsFaturas = (faturasData || []).map((fatura) => fatura.id);
+
+    const { data: parcelasData, error: erroParcelas } =
+      idsFaturas.length > 0
+        ? await supabase
+            .from("saidas_parcelas")
+            .select("fatura_id, valor_parcela")
+            .in("fatura_id", idsFaturas)
+        : { data: [], error: null };
+
+    if (erroParcelas) {
+      console.error(erroParcelas);
+      abrirAviso("Erro", "Erro ao carregar parcelas dos cartões.", "erro");
+      return;
+    }
+
+    const totalParcelasPorFatura = (parcelasData || []).reduce((acc, parcela) => {
+      const id = String(parcela.fatura_id);
+      acc[id] = (acc[id] || 0) + Number(parcela.valor_parcela || 0);
+      return acc;
+    }, {});
+
     const cartoesComResumo = (data || []).map((cartao) => {
       const usado = (faturasData || [])
         .filter((fatura) => String(fatura.cartao_id) === String(cartao.id))
-        .reduce(
-          (soma, fatura) =>
-            soma +
-            Math.max(
-              Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0),
-              0
-            ),
-          0
-        );
+        .reduce((soma, fatura) => {
+          const totalFatura = Math.max(
+            Number(fatura.valor_total || 0),
+            Number(totalParcelasPorFatura[String(fatura.id)] || 0)
+          );
+
+          return soma + Math.max(totalFatura - Number(fatura.valor_pago || 0), 0);
+        }, 0);
 
       const limite = Number(cartao.limite_total || 0);
       const disponivel = limite - usado;
@@ -703,10 +760,12 @@ export default function Cartoes() {
         </div>
 
         <button
+          type="button"
           onClick={abrirNovoCartao}
-          className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl px-5 py-3"
+          className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl px-4 sm:px-5 py-3 flex items-center justify-center gap-2"
         >
-          + Novo Cartão
+          <FiPlus />
+          <span>Novo Cartão</span>
         </button>
       </div>
 
@@ -728,7 +787,7 @@ export default function Cartoes() {
                 : "cursor-not-allowed opacity-80"
             }`}
           >
-            <div className="absolute -right-12 -top-12 w-36 h-36 rounded-full bg-green-500/5" />
+            
 
             <div className="absolute top-4 right-4 flex items-center gap-3 z-10">
               <button
@@ -736,10 +795,11 @@ export default function Cartoes() {
                   e.stopPropagation();
                   abrirEditarCartao(cartao);
                 }}
-                className="text-gray-500 hover:text-white"
+                className="w-9 h-9 rounded-xl border border-gray-700 bg-[#0B1120] text-gray-400 hover:text-white hover:border-green-400 flex items-center justify-center"
                 title="Editar cartão"
+                aria-label="Editar cartão"
               >
-                ✏️
+                <FiEdit2 />
               </button>
 
               <button
@@ -747,19 +807,23 @@ export default function Cartoes() {
                   e.stopPropagation();
                   solicitarExclusaoCartao(cartao);
                 }}
-                className="text-gray-500 hover:text-red-400"
+                className="w-9 h-9 rounded-xl border border-gray-700 bg-[#0B1120] text-gray-400 hover:text-red-400 hover:border-red-500/60 flex items-center justify-center"
                 title="Excluir cartão"
+                aria-label="Excluir cartão"
               >
-                🗑️
+                <FiTrash2 />
               </button>
             </div>
 
-            <div>
-              <h2 className="text-xl font-bold pr-20">{cartao.nome}</h2>
+            <div className="flex items-start gap-3 pr-20">
+              <div className="w-11 h-11 rounded-xl bg-green-500/10 text-green-400 flex items-center justify-center shrink-0">
+                <FiCreditCard className="w-5 h-5" />
+              </div>
 
-              <p className="text-gray-400 text-sm mt-1">
-                Final {cartao.final_cartao}
-              </p>
+              <div className="min-w-0">
+                <h2 className="text-xl font-black truncate">{cartao.nome}</h2>
+                <p className="text-gray-400 text-sm mt-1">Final {cartao.final_cartao}</p>
+              </div>
             </div>
 
             <div className="mt-8">
@@ -795,8 +859,9 @@ export default function Cartoes() {
 
               {cartao.limiteEstourado && (
   <div className="mt-3 bg-red-500/10 border border-red-500/30 rounded-xl p-3">
-    <p className="text-red-400 font-bold text-sm">
-      ⚠ Limite excedido
+    <p className="text-red-400 font-bold text-sm flex items-center gap-2">
+      <FiAlertTriangle />
+      <span>Limite excedido</span>
     </p>
 
     <p className="text-xs text-gray-300 mt-1">
@@ -1007,7 +1072,7 @@ function TelaFaturasCartao({
     vencimento.setHours(0, 0, 0, 0);
 
     if (vencimento < hoje) {
-      return { texto: "⚠ Em Atraso", classe: "bg-red-500/10 text-red-400" };
+      return { texto: "Em atraso", classe: "bg-red-500/10 text-red-400" };
     }
 
     return { texto: "Aberta", classe: "bg-blue-500/10 text-blue-400" };

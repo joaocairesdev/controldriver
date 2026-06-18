@@ -318,6 +318,15 @@ export default function DetalheFaturaModal({
 
     await recarregar();
     await carregarParcelas();
+
+    if (novoStatus === "paga") {
+      abrirAvisoLocal(
+        "Pagamento registrado",
+        "A fatura foi quitada e a saída foi lançada no extrato.",
+        "info",
+        true
+      );
+    }
   } catch (error) {
     console.error(error);
     abrirAvisoLocal("Erro", error.message || "Erro ao pagar fatura.", "erro");
@@ -520,6 +529,7 @@ export default function DetalheFaturaModal({
   }
 
   const saldo = saldoFatura(faturaAtual);
+  const faturaPaga = String(faturaAtual.status || "").toLowerCase() === "paga" || saldo <= 0;
   const valorPagamentoNumero = moedaParaNumero(valorPago);
   const faltaParaQuitar = Math.max(saldo - valorPagamentoNumero, 0);
   const pagamentoParcial = valorPagamentoNumero > 0 && valorPagamentoNumero < saldo;
@@ -559,13 +569,15 @@ export default function DetalheFaturaModal({
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={abrirEditarFatura}
-                className="rounded-xl border border-gray-700 hover:bg-white/5 text-white font-bold px-4 py-2"
-              >
-                Editar fatura
-              </button>
+              {!faturaPaga && (
+                <button
+                  type="button"
+                  onClick={abrirEditarFatura}
+                  className="rounded-xl border border-gray-700 hover:bg-white/5 text-white font-bold px-4 py-2"
+                >
+                  Editar fatura
+                </button>
+              )}
 
               <button
                 type="button"
@@ -577,11 +589,20 @@ export default function DetalheFaturaModal({
             </div>
           </div>
 
-          {pagamentoRegistrado && (
+          {pagamentoRegistrado && !faturaPaga && (
             <div className="mt-6 bg-green-500/10 border border-green-500/40 rounded-xl p-4">
               <p className="font-bold text-green-400">Pagamento registrado</p>
               <p className="text-sm text-gray-300 mt-1">
                 A saída foi lançada no extrato e a fatura foi atualizada.
+              </p>
+            </div>
+          )}
+
+          {faturaPaga && (
+            <div className="mt-6 bg-green-500/10 border border-green-500/40 rounded-xl p-4">
+              <p className="font-bold text-green-400">Fatura quitada</p>
+              <p className="text-sm text-gray-300 mt-1">
+                Esta fatura já está paga. Para alterar algo, exclua o pagamento no Extrato para reabrir a fatura.
               </p>
             </div>
           )}
@@ -596,7 +617,7 @@ export default function DetalheFaturaModal({
           <div className="mt-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-bold">Lançamentos da fatura</h3>
-              {editandoLancamentos && (
+              {!faturaPaga && editandoLancamentos && (
                 <p className="text-xs text-yellow-400 mt-1">
                   Modo edição ativo. Use apenas para corrigir lançamento que caiu na fatura errada.
                 </p>
@@ -604,19 +625,21 @@ export default function DetalheFaturaModal({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setEditandoLancamentos((valor) => !valor)}
-                className={`rounded-xl border px-4 py-2 font-bold transition ${
-                  editandoLancamentos
-                    ? "border-yellow-400 bg-yellow-500/10 text-yellow-400"
-                    : "border-gray-700 hover:bg-white/5 text-white"
-                }`}
-              >
-                {editandoLancamentos ? "Cancelar edição" : "Editar lançamentos"}
-              </button>
+              {!faturaPaga && (
+                <button
+                  type="button"
+                  onClick={() => setEditandoLancamentos((valor) => !valor)}
+                  className={`rounded-xl border px-4 py-2 font-bold transition ${
+                    editandoLancamentos
+                      ? "border-yellow-400 bg-yellow-500/10 text-yellow-400"
+                      : "border-gray-700 hover:bg-white/5 text-white"
+                  }`}
+                >
+                  {editandoLancamentos ? "Cancelar edição" : "Editar lançamentos"}
+                </button>
+              )}
 
-              {saldo > 0 && (
+              {!faturaPaga && saldo > 0 && (
                 <button
                   type="button"
                   onClick={() => {
