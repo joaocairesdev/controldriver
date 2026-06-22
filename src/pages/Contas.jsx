@@ -9,11 +9,14 @@ import {
 } from "react-icons/fi";
 import { supabase } from "../services/supabase";
 import ModalBase from "../components/modals/ModalBase";
+import ModalExtratoConta from "../components/modals/ModalExtratoConta";
+import { formatarDataBR } from "../utils/data";
 
 export default function Contas() {
   const [contas, setContas] = useState([]);
   const [modalAberto, setModalAberto] = useState(false);
   const [contaEditando, setContaEditando] = useState(null);
+  const [contaExtrato, setContaExtrato] = useState(null);
 
   const [modalExcluirAberto, setModalExcluirAberto] = useState(false);
   const [contaParaExcluir, setContaParaExcluir] = useState(null);
@@ -486,7 +489,10 @@ export default function Contas() {
               return (
                 <div
                   key={conta.id}
-                  className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-[#111827] to-[#0B1120] p-4 shadow"
+                  onClick={() => setContaExtrato(conta)}
+                  role="button"
+                  tabIndex={0}
+                  className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-[#111827] to-[#0B1120] p-4 shadow cursor-pointer hover:border-green-400/60 transition"
                 >
                   <div className="relative flex items-start justify-between gap-4">
                     <div>
@@ -547,7 +553,10 @@ export default function Contas() {
               return (
                 <div
                   key={conta.id}
-                  className={`relative rounded-2xl border p-6 transition ${
+                  onClick={() => setContaExtrato(conta)}
+                  role="button"
+                  tabIndex={0}
+                  className={`relative rounded-2xl border p-6 transition cursor-pointer hover:border-green-400/60 ${
                     saldoNegativo
                       ? "border-red-500/60 bg-red-500/10"
                       : conta.principal
@@ -557,7 +566,7 @@ export default function Contas() {
                 >
                   <div className="absolute top-4 right-4 flex items-center gap-3">
                     <button
-                      onClick={() => solicitarContaPrincipal(conta)}
+                      onClick={(e) => { e.stopPropagation(); solicitarContaPrincipal(conta); }}
                       className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${
                         conta.principal
                           ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-400"
@@ -571,7 +580,7 @@ export default function Contas() {
                     </button>
 
                     <button
-                      onClick={() => abrirEditarConta(conta)}
+                      onClick={(e) => { e.stopPropagation(); abrirEditarConta(conta); }}
                       className="w-9 h-9 rounded-xl border border-gray-700 bg-[#0B1120] flex items-center justify-center text-gray-500 hover:text-white hover:border-gray-500 transition"
                       title="Editar conta"
                     >
@@ -579,7 +588,7 @@ export default function Contas() {
                     </button>
 
                     <button
-                      onClick={() => solicitarExclusaoConta(conta)}
+                      onClick={(e) => { e.stopPropagation(); solicitarExclusaoConta(conta); }}
                       className="w-9 h-9 rounded-xl border border-gray-700 bg-[#0B1120] flex items-center justify-center text-gray-500 hover:text-red-400 hover:border-red-500/40 transition"
                       title="Excluir conta"
                     >
@@ -760,6 +769,14 @@ export default function Contas() {
           </div>
         )}
       </section>
+
+      <ModalExtratoConta
+        aberto={!!contaExtrato}
+        conta={contaExtrato}
+        onClose={() => setContaExtrato(null)}
+        formatarMoeda={formatarMoeda}
+        formatarData={formatarDataBR}
+      />
 
       <ModalBase
         aberto={modalAberto}
@@ -993,6 +1010,7 @@ export default function Contas() {
     </div>
   );
 }
+
 
 function ModalConfirmacao({
   titulo,
