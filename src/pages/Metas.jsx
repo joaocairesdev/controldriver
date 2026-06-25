@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { FiChevronDown, FiChevronRight, FiClock, FiDollarSign } from "react-icons/fi";
 import { supabase } from "../services/supabase";
+import MetaModal from "../components/modals/MetaModal";
 
 const TIPOS_META = ["diaria", "semanal", "mensal", "anual"];
 const DIAS_SEMANA = [
@@ -12,9 +14,17 @@ const DIAS_SEMANA = [
   { valor: 0, curto: "Dom", nome: "Domingo" },
 ];
 
+function dataISOApp(date = new Date()) {
+  if (typeof date === "string") return date.split("T")[0];
+  const ano = date.getFullYear();
+  const mes = String(date.getMonth() + 1).padStart(2, "0");
+  const dia = String(date.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
 export default function Metas() {
   const hoje = new Date();
-  const hojeISO = dataISO(hoje);
+  const hojeISO = dataISOApp(hoje);
 
   const [metas, setMetas] = useState([]);
   const [metaAtiva, setMetaAtiva] = useState(null);
@@ -22,9 +32,13 @@ export default function Metas() {
   const [modalAberto, setModalAberto] = useState(false);
   const [realizado, setRealizado] = useState({ dia: 0, semana: 0, mes: 0, ano: 0 });
   const [metaHoje, setMetaHoje] = useState(0);
+  const [mediaGanhosHora, setMediaGanhosHora] = useState(null);
+  const [resumoPeriodoMeta, setResumoPeriodoMeta] = useState(null);
+  const [distribuicaoDiasMeta, setDistribuicaoDiasMeta] = useState([]);
 
   useEffect(() => {
     carregarMetas();
+    carregarMediaGanhosHora();
   }, []);
 
   useEffect(() => {
@@ -35,6 +49,9 @@ export default function Metas() {
     if (!metaAtiva) return { diaria: 0, semanal: 0, mensal: 0, anual: 0 };
     return calcularMetasPlanejadas(metaAtiva, hojeISO);
   }, [metaAtiva, hojeISO]);
+
+  const horasNecessariasHoje = mediaGanhosHora > 0 && metaHoje > 0 ? metaHoje / mediaGanhosHora : 0;
+  const cardsVisiveis = cardsPorTipoMeta(metaAtiva?.tipo);
 
   async function carregarMetas() {
     setCarregando(true);
@@ -58,28 +75,71 @@ export default function Metas() {
     setCarregando(false);
   }
 
+  async function carregarMediaGanhosHora() {
+    const { data, error } = await supabase
+      .from("entradas")
+      .select(`
+        id,
+        horas_trabalhadas,
+        entrada_plataformas (
+          faturamento,
+          valor_reembolso
+        )
+      `);
+
+    if (error) {
+      console.error("Erro ao carregar média por hora:", error);
+      setMediaGanhosHora(null);
+      return;
+    }
+
+    const resumo = (data || []).reduce(
+      (acc, entrada) => {
+        const totalEntrada = (entrada.entrada_plataformas || []).reduce(
+          (soma, item) => soma + Number(item.faturamento || 0) + Number(item.valor_reembolso || 0),
+          0
+        );
+
+        acc.faturamento += totalEntrada;
+        acc.minutos += intervalParaMinutos(entrada.horas_trabalhadas);
+        return acc;
+      },
+      { faturamento: 0, minutos: 0 }
+    );
+
+    const horas = resumo.minutos / 60;
+    setMediaGanhosHora(horas > 0 && resumo.faturamento > 0 ? resumo.faturamento / horas : null);
+  }
+
   async function carregarRealizado(meta) {
-    const hojeTexto = dataISO(new Date());
+    const hojeTexto = dataISOApp(new Date());
     const semana = intervaloSemana(hojeTexto);
     const mes = intervaloMes(hojeTexto);
-    const ano = intervaloAno(hojeTexto);
+    const ano = intervaloAnoMeta(meta, hojeTexto);
 
     const [diaData, semanaData, mesData, anoData] = await Promise.all([
       buscarTotalEntradas(hojeTexto, hojeTexto),
       buscarTotalEntradas(maiorData(semana.inicio, meta.data_inicio || semana.inicio), semana.fim),
       buscarTotalEntradas(maiorData(mes.inicio, meta.data_inicio || mes.inicio), mes.fim),
-      buscarTotalEntradas(maiorData(ano.inicio, meta.data_inicio || ano.inicio), ano.fim),
+      buscarTotalEntradas(ano.inicio, ano.fim),
     ]);
+
+    const realizadoManual = Number(meta.valor_realizado_antes || 0);
+    const extraManual = await calcularExtraManualRealizado(meta, hojeTexto, realizadoManual);
 
     setRealizado({
       dia: diaData,
-      semana: semanaData,
-      mes: mesData,
-      ano: anoData + Number(meta.valor_realizado_antes || 0),
+      semana: semanaData + (meta.tipo === "semanal" ? extraManual : 0),
+      mes: mesData + (meta.tipo === "mensal" ? extraManual : 0),
+      ano: anoData + (meta.tipo === "anual" ? extraManual : 0),
     });
 
     const necessariaHoje = await calcularMetaNecessariaHoje(meta, hojeTexto);
     setMetaHoje(necessariaHoje);
+
+    const plano = await montarDistribuicaoDiasMeta(meta, hojeTexto);
+    setResumoPeriodoMeta(plano.resumo);
+    setDistribuicaoDiasMeta(plano.dias);
   }
 
   async function buscarTotalEntradas(inicio, fim) {
@@ -112,6 +172,47 @@ export default function Metas() {
     }, 0);
   }
 
+
+
+  async function buscarFaturamentoPeriodoDetalhado(inicio, fim) {
+    if (!inicio || !fim || inicio > fim) return { total: 0, porData: {} };
+
+    const { data, error } = await supabase
+      .from("entradas")
+      .select(`
+        id,
+        data,
+        entrada_plataformas (
+          faturamento,
+          valor_reembolso
+        )
+      `)
+      .gte("data", inicio)
+      .lte("data", fim);
+
+    if (error) {
+      console.error("Erro ao buscar faturamento do período:", error);
+      return { total: 0, porData: {} };
+    }
+
+    return (data || []).reduce(
+      (acc, entrada) => {
+        const totalEntrada = (entrada.entrada_plataformas || []).reduce(
+          (soma, item) => soma + Number(item.faturamento || 0) + Number(item.valor_reembolso || 0),
+          0
+        );
+
+        if (totalEntrada > 0 && entrada.data) {
+          acc.total += totalEntrada;
+          acc.porData[entrada.data] = Number(acc.porData[entrada.data] || 0) + totalEntrada;
+        }
+
+        return acc;
+      },
+      { total: 0, porData: {} }
+    );
+  }
+
   async function calcularMetaNecessariaHoje(meta, hojeTexto) {
     if (!meta) return 0;
     const valor = Number(meta.valor_base || 0);
@@ -119,18 +220,91 @@ export default function Metas() {
     if (meta.tipo === "diaria") return valor;
 
     const periodo = periodoBaseMeta(meta, hojeTexto);
-    const inicioCalculo = maiorData(periodo.inicio, meta.data_inicio || periodo.inicio);
+    const inicioCalculo = meta.tipo === "anual" ? periodo.inicio : maiorData(periodo.inicio, meta.data_inicio || periodo.inicio);
     const ontem = adicionarDiasISO(hojeTexto, -1);
     const realizadoAntesHoje = inicioCalculo <= ontem ? await buscarTotalEntradas(inicioCalculo, ontem) : 0;
-    const metaPeriodo = Number(meta.valor_base || 0);
-    const restante = Math.max(metaPeriodo - realizadoAntesHoje, 0);
+    const realizadoManual = Number(meta.valor_realizado_antes || 0);
+    const extraManual = Math.max(realizadoManual - realizadoAntesHoje, 0);
+    const restante = Math.max(valor - realizadoAntesHoje - extraManual, 0);
     const diasRestantes = diasTrabalhoNoPeriodo(meta, hojeTexto, periodo.fim);
 
     return diasRestantes.length > 0 ? restante / diasRestantes.length : restante;
   }
 
+  async function calcularExtraManualRealizado(meta, hojeTexto, realizadoManual) {
+    if (!meta || meta.tipo === "diaria" || !realizadoManual) return 0;
+
+    const periodo = periodoBaseMeta(meta, hojeTexto);
+    const inicioCalculo = meta.tipo === "anual" ? periodo.inicio : maiorData(periodo.inicio, meta.data_inicio || periodo.inicio);
+    const ontem = adicionarDiasISO(hojeTexto, -1);
+    const realizadoAntesHoje = inicioCalculo <= ontem ? await buscarTotalEntradas(inicioCalculo, ontem) : 0;
+
+    return Math.max(realizadoManual - realizadoAntesHoje, 0);
+  }
+
+  async function montarDistribuicaoDiasMeta(meta, hojeTexto) {
+    if (!meta || meta.tipo === "diaria") return { resumo: null, dias: [] };
+
+    const valor = Number(meta.valor_base || 0);
+    const periodo = periodoBaseMeta(meta, hojeTexto);
+    const inicioCalculo = periodo.inicio;
+    const diasTrabalho = diasTrabalhoNoPeriodo(meta, inicioCalculo, periodo.fim);
+
+    if (!diasTrabalho.length || valor <= 0) {
+      return {
+        resumo: { meta: valor, realizado: 0, falta: valor, diasTrabalho: 0, mediaDia: 0 },
+        dias: [],
+      };
+    }
+
+    const detalhado = await buscarFaturamentoPeriodoDetalhado(inicioCalculo, periodo.fim);
+    const porData = detalhado.porData || {};
+    const realizadoAntesHoje = somarValoresPorData(porData, (data) => data < hojeTexto);
+    const realizadoManual = Number(meta.valor_realizado_antes || 0);
+    const extraManual = Math.max(realizadoManual - realizadoAntesHoje, 0);
+    const realizadoPeriodo = Number(detalhado.total || 0) + extraManual;
+
+    const diasRestantesHoje = diasTrabalho.filter((data) => data >= hojeTexto);
+    const restanteHoje = Math.max(valor - realizadoAntesHoje - extraManual, 0);
+    const valorNecessarioHoje = diasRestantesHoje.length ? restanteHoje / diasRestantesHoje.length : 0;
+
+    const dias = diasTrabalho.map((data, index) => {
+      const realizadoDia = Number(porData[data] || 0);
+      const passado = data < hojeTexto;
+      const hoje = data === hojeTexto;
+      const realizadoAntesDaData = somarValoresPorData(porData, (itemData) => itemData < data) + extraManual;
+      const diasRestantesDaData = diasTrabalho.slice(index).length;
+      const metaDia = diasRestantesDaData > 0
+        ? Math.max(valor - realizadoAntesDaData, 0) / diasRestantesDaData
+        : 0;
+
+      return {
+        data,
+        mesChave: String(data).slice(0, 7),
+        mesRotulo: rotuloMesAno(data),
+        rotulo: rotuloDiaMeta(data, meta.tipo),
+        subtitulo: formatarDataBR(data),
+        realizado: realizadoDia,
+        meta: metaDia,
+        falta: Math.max(metaDia - realizadoDia, 0),
+        status: passado ? "passado" : hoje ? "hoje" : "futuro",
+      };
+    });
+
+    return {
+      resumo: {
+        meta: valor,
+        realizado: realizadoPeriodo,
+        falta: Math.max(valor - realizadoPeriodo, 0),
+        diasTrabalho: diasTrabalho.length,
+        mediaDia: valorNecessarioHoje,
+      },
+      dias,
+    };
+  }
+
   async function salvarMeta(payload) {
-    const dataInicio = payload.data_inicio || dataISO(new Date());
+    const dataInicio = payload.tipo === "diaria" ? dataISOApp(new Date()) : (payload.data_inicio || dataISOApp(new Date()));
     const dataRef = new Date(`${dataInicio}T00:00:00`);
 
     const dados = {
@@ -140,10 +314,10 @@ export default function Metas() {
       mes: dataRef.getMonth() + 1,
       ano: dataRef.getFullYear(),
       dias_trabalho: payload.tipo === "mensal" ? payload.dias_mes : [],
-      dias_semana: payload.dias_semana || [],
-      dias_mes: payload.dias_mes || [],
+      dias_semana: payload.tipo === "semanal" ? payload.dias_semana || [] : [],
+      dias_mes: payload.tipo === "mensal" ? payload.dias_mes || [] : [],
       data_inicio: dataInicio,
-      valor_realizado_antes: payload.valor_realizado_antes || 0,
+      valor_realizado_antes: payload.tipo === "diaria" ? 0 : payload.valor_realizado_antes || 0,
       ativa: true,
     };
 
@@ -210,7 +384,7 @@ export default function Metas() {
         <div>
           <h1 className="text-3xl font-bold">Metas</h1>
           <p className="text-gray-400 mt-2">
-            Defina uma meta principal. O app calcula quanto precisa fazer hoje e as visões diária, semanal, mensal e anual.
+            Defina uma meta principal. A tela mostra somente os indicadores ligados ao tipo de meta escolhido.
           </p>
         </div>
 
@@ -241,24 +415,13 @@ export default function Metas() {
 
       {metaAtiva && (
         <>
-          <section className="mt-8 bg-green-500 border border-green-400 rounded-3xl p-6 text-black">
-            <p className="text-sm font-black uppercase tracking-wide text-black/70">Meta necessária hoje</p>
-            <h2 className="text-4xl sm:text-5xl font-black mt-2">{formatarMoeda(metaHoje)}</h2>
-            <p className="text-sm text-black/75 mt-3">
-              Calculada com base na meta {textoTipo(metaAtiva.tipo).toLowerCase()}, no que já foi faturado e nos dias de trabalho restantes.
-            </p>
-          </section>
-
-          <section className="mt-6 bg-[#111827] border border-gray-800 rounded-2xl p-6">
+          <section className="mt-8 bg-[#111827] border border-gray-800 rounded-2xl p-6">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
               <div>
-                <p className="text-sm text-gray-400">Meta principal ativa</p>
+                <p className="text-sm text-gray-400">Tipo de meta escolhido</p>
                 <h2 className="text-3xl font-black mt-1">{textoTipo(metaAtiva.tipo)}</h2>
                 <p className="text-gray-500 text-sm mt-2">
-                  Início: <span className="text-white font-bold">{formatarDataBR(metaAtiva.data_inicio)}</span>
-                </p>
-                <p className="text-gray-500 text-sm mt-1">
-                  Regra de trabalho: <span className="text-white font-bold">{descricaoRegraTrabalho(metaAtiva)}</span>
+                  Dias escolhidos para trabalhar: <span className="text-white font-bold">{descricaoRegraTrabalho(metaAtiva)}</span>
                 </p>
               </div>
 
@@ -269,321 +432,100 @@ export default function Metas() {
             </div>
           </section>
 
-          <section className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            <MetaCard titulo="Hoje" meta={metaHoje} realizado={realizado.dia} formatarMoeda={formatarMoeda} percentual={percentual(realizado.dia, metaHoje)} faltante={faltante(realizado.dia, metaHoje)} />
-            <MetaCard titulo="Semana" meta={metasCalculadas.semanal} realizado={realizado.semana} formatarMoeda={formatarMoeda} percentual={percentual(realizado.semana, metasCalculadas.semanal)} faltante={faltante(realizado.semana, metasCalculadas.semanal)} />
-            <MetaCard titulo="Mês" meta={metasCalculadas.mensal} realizado={realizado.mes} formatarMoeda={formatarMoeda} percentual={percentual(realizado.mes, metasCalculadas.mensal)} faltante={faltante(realizado.mes, metasCalculadas.mensal)} />
-            <MetaCard titulo="Ano" meta={metasCalculadas.anual} realizado={realizado.ano} formatarMoeda={formatarMoeda} percentual={percentual(realizado.ano, metasCalculadas.anual)} faltante={faltante(realizado.ano, metasCalculadas.anual)} />
+          <section className={`mt-6 grid grid-cols-1 ${cardsVisiveis.length > 0 ? "xl:grid-cols-2" : ""} gap-4 items-stretch`}>
+            {cardsVisiveis.includes("semana") && (
+              <MetaCard titulo="Meta semanal" meta={resumoPeriodoMeta?.meta ?? metasCalculadas.semanal} realizado={resumoPeriodoMeta?.realizado ?? realizado.semana} formatarMoeda={formatarMoeda} percentual={percentual(resumoPeriodoMeta?.realizado ?? realizado.semana, resumoPeriodoMeta?.meta ?? metasCalculadas.semanal)} faltante={resumoPeriodoMeta?.falta ?? faltante(realizado.semana, metasCalculadas.semanal)} />
+            )}
+            {cardsVisiveis.includes("mes") && (
+              <MetaCard titulo="Meta mensal" meta={resumoPeriodoMeta?.meta ?? metasCalculadas.mensal} realizado={resumoPeriodoMeta?.realizado ?? realizado.mes} formatarMoeda={formatarMoeda} percentual={percentual(resumoPeriodoMeta?.realizado ?? realizado.mes, resumoPeriodoMeta?.meta ?? metasCalculadas.mensal)} faltante={resumoPeriodoMeta?.falta ?? faltante(realizado.mes, metasCalculadas.mensal)} />
+            )}
+            {cardsVisiveis.includes("ano") && (
+              <MetaCard titulo="Meta anual" meta={resumoPeriodoMeta?.meta ?? metasCalculadas.anual} realizado={resumoPeriodoMeta?.realizado ?? realizado.ano} formatarMoeda={formatarMoeda} percentual={percentual(resumoPeriodoMeta?.realizado ?? realizado.ano, resumoPeriodoMeta?.meta ?? metasCalculadas.anual)} faltante={resumoPeriodoMeta?.falta ?? faltante(realizado.ano, metasCalculadas.anual)} />
+            )}
+            <MetaHojeCard
+              metaHoje={metaHoje}
+              realizadoHoje={realizado.dia}
+              mediaGanhosHora={mediaGanhosHora}
+              horasNecessariasHoje={horasNecessariasHoje}
+              tipoMeta={metaAtiva.tipo}
+              formatarMoeda={formatarMoeda}
+              percentual={percentual(realizado.dia, metaHoje)}
+            />
           </section>
+
+          {metaAtiva.tipo !== "diaria" && (
+            <DistribuicaoDiasMeta
+              tipo={metaAtiva.tipo}
+              dias={distribuicaoDiasMeta}
+              resumo={resumoPeriodoMeta}
+              formatarMoeda={formatarMoeda}
+            />
+          )}
         </>
       )}
 
-      <MetaModal aberto={modalAberto} onClose={() => setModalAberto(false)} onSalvar={salvarMeta} metaAtual={metaAtiva} metas={metas} />
+      <MetaModal aberto={modalAberto} onClose={() => setModalAberto(false)} onSalvar={salvarMeta} metaAtual={metaAtiva} metas={metas} buscarFaturamentoPeriodo={buscarFaturamentoPeriodoDetalhado} />
     </div>
   );
 }
 
-function MetaModal({ aberto, onClose, onSalvar, metaAtual, metas }) {
-  const hojeTexto = dataISO(new Date());
-  const [tipo, setTipo] = useState(metaAtual?.tipo || "diaria");
-  const metaDoTipo = metas.find((meta) => meta.tipo === tipo) || (metaAtual?.tipo === tipo ? metaAtual : null);
-  const [valor, setValor] = useState("");
-  const [dataInicio, setDataInicio] = useState(hojeTexto);
-  const [diasSemana, setDiasSemana] = useState([1, 2, 3, 4, 5, 6]);
-  const [diasMes, setDiasMes] = useState([]);
-  const [valorRealizadoAntes, setValorRealizadoAntes] = useState("");
-
-  useEffect(() => {
-    if (!aberto) return;
-    const inicial = metaAtual?.tipo || "diaria";
-    setTipo(inicial);
-  }, [aberto, metaAtual]);
-
-  useEffect(() => {
-    if (!aberto) return;
-
-    const meta = metas.find((item) => item.tipo === tipo) || (metaAtual?.tipo === tipo ? metaAtual : null);
-    const inicio = meta?.data_inicio || hojeTexto;
-
-    setValor(meta?.valor_base ? numeroParaMoedaInput(meta.valor_base) : "");
-    setDataInicio(inicio);
-    setDiasSemana(normalizarDiasSemana(meta?.dias_semana).length ? normalizarDiasSemana(meta?.dias_semana) : [1, 2, 3, 4, 5, 6]);
-    setDiasMes(normalizarArrayNumerico(meta?.dias_mes || meta?.dias_trabalho).length ? normalizarArrayNumerico(meta?.dias_mes || meta?.dias_trabalho) : gerarDiasUteisMes(inicio));
-    setValorRealizadoAntes(meta?.valor_realizado_antes ? numeroParaMoedaInput(meta.valor_realizado_antes) : "");
-  }, [tipo, aberto]);
-
-  if (!aberto) return null;
-
-  function alternarDiaSemana(dia) {
-    setDiasSemana((lista) =>
-      lista.includes(dia)
-        ? lista.filter((item) => item !== dia)
-        : [...lista, dia].sort((a, b) => ordemDiaSemana(a) - ordemDiaSemana(b))
-    );
-  }
-
-  function alternarDiaMes(dia) {
-    setDiasMes((lista) =>
-      lista.includes(dia)
-        ? lista.filter((item) => item !== dia)
-        : [...lista, dia].sort((a, b) => a - b)
-    );
-  }
-
-  function selecionarSegundaSexta() {
-    setDiasSemana([1, 2, 3, 4, 5]);
-  }
-
-  function selecionarSegundaSabado() {
-    setDiasSemana([1, 2, 3, 4, 5, 6]);
-  }
-
-  function selecionarTodosDiasMes() {
-    setDiasMes(diasCalendario(dataInicio).map((dia) => dia.dia));
-  }
-
-  function selecionarDiasUteisMes() {
-    setDiasMes(gerarDiasUteisMes(dataInicio));
-  }
-
-  function salvar() {
-    const valorNumero = moedaParaNumero(valor);
-
-    if (valorNumero <= 0) {
-      alert("Informe o valor da meta.");
-      return;
-    }
-
-    if (!dataInicio) {
-      alert("Informe a data de início.");
-      return;
-    }
-
-    if (["semanal", "anual"].includes(tipo) && diasSemana.length === 0) {
-      alert("Selecione pelo menos um dia da semana.");
-      return;
-    }
-
-    if (tipo === "mensal" && diasMes.length === 0) {
-      alert("Selecione pelo menos um dia do mês.");
-      return;
-    }
-
-    onSalvar({
-      tipo,
-      valor_base: valorNumero,
-      data_inicio: dataInicio,
-      dias_semana: ["semanal", "anual"].includes(tipo) ? diasSemana : [],
-      dias_mes: tipo === "mensal" ? diasMes : [],
-      valor_realizado_antes: moedaParaNumero(valorRealizadoAntes),
-    });
-  }
-
-  const diasDoMes = diasCalendario(dataInicio);
+function MetaHojeCard({ metaHoje, realizadoHoje, mediaGanhosHora, horasNecessariasHoje, tipoMeta, formatarMoeda, percentual }) {
+  const faltaHoje = Math.max(Number(metaHoje || 0) - Number(realizadoHoje || 0), 0);
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="w-full max-w-4xl max-h-[92vh] overflow-y-auto bg-[#111827] border border-gray-800 rounded-2xl p-6 scrollbar-hide">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-bold">Configurar Meta</h2>
-            <p className="text-gray-400 mt-2">
-              Escolha o tipo de meta. O app mantém somente um registro por tipo e atualiza quando você alterar.
-            </p>
+    <section className="h-full bg-green-500 border border-green-400 rounded-2xl p-5 sm:p-6 text-black">
+      <div className="min-w-0">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs sm:text-sm font-black uppercase tracking-wide text-black/70">Meta necessária hoje</p>
+              <h2 className="text-4xl sm:text-5xl font-black mt-1">{formatarMoeda(metaHoje)}</h2>
+            </div>
+            <span className="rounded-full bg-yellow-400/90 text-black text-xs font-black px-3 py-1">{Math.round(percentual)}%</span>
           </div>
 
-          <button type="button" onClick={onClose} className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shrink-0">
-            ×
-          </button>
-        </div>
-
-        <div className="mt-6">
-          <p className="text-sm text-gray-300">Tipo de meta</p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-2">
-            {TIPOS_META.map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => setTipo(item)}
-                className={`rounded-xl border p-4 font-bold ${
-                  tipo === item
-                    ? "border-green-400 bg-green-500/10 text-green-400"
-                    : "border-gray-700 bg-[#0B1120] text-white hover:bg-white/5"
-                }`}
-              >
-                {textoTipo(item).replace("Meta ", "")}
-              </button>
-            ))}
+          <div className="mt-4 h-3 rounded-full bg-black/12 overflow-hidden">
+            <div className="h-full rounded-full bg-black/45 transition-all" style={{ width: `${Math.min(percentual, 100)}%` }} />
           </div>
-        </div>
 
-        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-sm text-gray-300">Valor da {textoTipo(tipo).toLowerCase()}</label>
-            <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
-              <span className="px-3 text-gray-400">R$</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={valor}
-                placeholder="0,00"
-                onChange={(e) => setValor(formatarMoedaDigitada(e.target.value))}
-                className="w-full bg-transparent p-3 outline-none"
-              />
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide text-black/60">Faturado hoje</p>
+              <p className="text-xl sm:text-2xl font-black mt-1">{formatarMoeda(realizadoHoje)}</p>
+            </div>
+            <div>
+              <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide text-black/60">Ainda falta hoje</p>
+              <p className="text-xl sm:text-2xl font-black mt-1">{formatarMoeda(faltaHoje)}</p>
             </div>
           </div>
 
-          <div>
-            <label className="text-sm text-gray-300">Data de início</label>
-            <input
-              type="date"
-              value={dataInicio}
-              onChange={(e) => {
-                setDataInicio(e.target.value);
-                if (tipo === "mensal") setDiasMes(gerarDiasUteisMes(e.target.value));
-              }}
-              className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 outline-none focus:border-green-400"
-            />
-          </div>
+          <p className="text-xs sm:text-sm text-black/75 mt-4">
+            Calculada com base na {textoTipo(tipoMeta).toLowerCase()}, no faturamento registrado e no restante do período.
+          </p>
+
+          {mediaGanhosHora > 0 && horasNecessariasHoje > 0 && (
+            <div className="mt-4 pt-4 border-t border-black/15 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-5">
+              <div className="flex items-center gap-3">
+                <span className="w-9 h-9 rounded-xl bg-black/10 flex items-center justify-center shrink-0">
+                  <FiDollarSign className="text-lg" />
+                </span>
+                <div>
+                  <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide text-black/60">Seu ganho médio por hora é de</p>
+                  <p className="text-xl sm:text-2xl font-black mt-0.5">{formatarMoeda(mediaGanhosHora)}/h</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="w-9 h-9 rounded-xl bg-black/10 flex items-center justify-center shrink-0">
+                  <FiClock className="text-lg" />
+                </span>
+                <div>
+                  <p className="text-[11px] sm:text-xs font-black uppercase tracking-wide text-black/60">Estimativa de horas para bater a meta</p>
+                  <p className="text-xl sm:text-2xl font-black mt-0.5">{formatarHorasDecimais(horasNecessariasHoje)}</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-
-        {tipo === "diaria" && (
-          <InfoBox
-            titulo="Meta diária simples"
-            texto="Aqui você informa somente quanto deseja fazer por dia. Semana, mês e ano serão calculados automaticamente pelo valor diário."
-          />
-        )}
-
-        {tipo === "semanal" && (
-          <section className="mt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-bold">Dias de trabalho da semana</h3>
-                <p className="text-sm text-gray-400 mt-1">O valor semanal será dividido apenas entre os dias escolhidos.</p>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={selecionarSegundaSexta} className="border border-gray-700 hover:border-green-400 rounded-xl px-3 py-2 text-xs font-bold">Seg-Sex</button>
-                <button type="button" onClick={selecionarSegundaSabado} className="border border-gray-700 hover:border-green-400 rounded-xl px-3 py-2 text-xs font-bold">Seg-Sáb</button>
-              </div>
-            </div>
-            <DiasSemanaCards diasSelecionados={diasSemana} alternarDia={alternarDiaSemana} />
-          </section>
-        )}
-
-        {tipo === "mensal" && (
-          <section className="mt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-bold">Dias de trabalho no mês</h3>
-                <p className="text-sm text-gray-400 mt-1">Selecione no calendário os dias em que pretende trabalhar.</p>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={selecionarDiasUteisMes} className="border border-gray-700 hover:border-green-400 rounded-xl px-3 py-2 text-xs font-bold">Dias úteis</button>
-                <button type="button" onClick={selecionarTodosDiasMes} className="border border-gray-700 hover:border-green-400 rounded-xl px-3 py-2 text-xs font-bold">Todos</button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-7 gap-2 mt-4">
-              {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((dia) => (
-                <div key={dia} className="text-center text-xs text-gray-500 font-bold py-1">{dia}</div>
-              ))}
-              {diasDoMes.map((item, index) =>
-                item.vazio ? (
-                  <div key={`vazio-${index}`} />
-                ) : (
-                  <button
-                    key={item.dia}
-                    type="button"
-                    onClick={() => alternarDiaMes(item.dia)}
-                    className={`rounded-xl border p-3 text-sm font-black ${
-                      diasMes.includes(item.dia)
-                        ? "border-green-400 bg-green-500/10 text-green-400"
-                        : "border-gray-800 bg-[#0B1120] text-gray-300 hover:bg-white/5"
-                    }`}
-                  >
-                    {item.dia}
-                  </button>
-                )
-              )}
-            </div>
-          </section>
-        )}
-
-        {tipo === "anual" && (
-          <section className="mt-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-bold">Dias de trabalho do ano</h3>
-                <p className="text-sm text-gray-400 mt-1">A meta anual será diluída pelos dias da semana escolhidos até o fim do ano.</p>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={selecionarSegundaSexta} className="border border-gray-700 hover:border-green-400 rounded-xl px-3 py-2 text-xs font-bold">Seg-Sex</button>
-                <button type="button" onClick={selecionarSegundaSabado} className="border border-gray-700 hover:border-green-400 rounded-xl px-3 py-2 text-xs font-bold">Seg-Sáb</button>
-              </div>
-            </div>
-            <DiasSemanaCards diasSelecionados={diasSemana} alternarDia={alternarDiaSemana} />
-          </section>
-        )}
-
-        <div className="mt-6">
-          <label className="text-sm text-gray-300">Valor já realizado antes desta meta, se houver</label>
-          <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
-            <span className="px-3 text-gray-400">R$</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={valorRealizadoAntes}
-              placeholder="0,00"
-              onChange={(e) => setValorRealizadoAntes(formatarMoedaDigitada(e.target.value))}
-              className="w-full bg-transparent p-3 outline-none"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 mt-6">
-          <button type="button" onClick={onClose} className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3">
-            Cancelar
-          </button>
-          <button type="button" onClick={salvar} className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3">
-            Salvar Meta
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DiasSemanaCards({ diasSelecionados, alternarDia }) {
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mt-4">
-      {DIAS_SEMANA.map((dia) => {
-        const ativo = diasSelecionados.includes(dia.valor);
-        return (
-          <button
-            key={dia.valor}
-            type="button"
-            onClick={() => alternarDia(dia.valor)}
-            className={`rounded-2xl border p-4 text-left transition ${
-              ativo
-                ? "border-green-400 bg-green-500/10 text-green-400"
-                : "border-gray-700 bg-[#0B1120] text-gray-300 hover:bg-white/5"
-            }`}
-          >
-            <p className="text-lg font-black">{dia.curto}</p>
-            <p className="text-xs text-gray-500 mt-1">{dia.nome}</p>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function InfoBox({ titulo, texto }) {
-  return (
-    <div className="mt-6 bg-[#0B1120] border border-gray-800 rounded-2xl p-4">
-      <p className="font-bold text-white">{titulo}</p>
-      <p className="text-sm text-gray-400 mt-1">{texto}</p>
-    </div>
+      </section>
   );
 }
 
@@ -620,74 +562,225 @@ function MetaCard({ titulo, meta, realizado, formatarMoeda, percentual, faltante
   );
 }
 
-function calcularMetasPlanejadas(meta, hojeTexto) {
-  if (!meta) return { diaria: 0, semanal: 0, mensal: 0, anual: 0 };
+function DistribuicaoDiasMeta({ tipo, dias, resumo, formatarMoeda }) {
+  const [aberto, setAberto] = useState(false);
+  const [mesesAbertos, setMesesAbertos] = useState({});
 
-  const semana = intervaloSemana(hojeTexto);
-  const mes = intervaloMes(hojeTexto);
-  const ano = intervaloAno(hojeTexto);
+  const grupos = useMemo(() => agruparDistribuicaoPorTipo(tipo, dias), [tipo, dias]);
+
+  useEffect(() => {
+    if (tipo !== "anual" || !grupos.length) return;
+    const hojeTexto = dataISOApp(new Date());
+    const grupoAtual = grupos.find((grupo) => grupo.dias.some((dia) => dia.data === hojeTexto)) || grupos[0];
+    setMesesAbertos((atual) => Object.keys(atual).length ? atual : { [grupoAtual.chave]: true });
+  }, [tipo, grupos]);
+
+  if (!dias.length) return null;
+
+  function alternarMes(chave) {
+    setMesesAbertos((atual) => ({ ...atual, [chave]: !atual[chave] }));
+  }
+
+  const titulo = tipo === "semanal"
+    ? "Distribuição da meta semanal"
+    : tipo === "mensal"
+      ? "Distribuição da meta mensal"
+      : "Distribuição da meta anual";
+
+  return (
+    <section className="mt-6 bg-[#111827] border border-gray-800 rounded-2xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setAberto((valor) => !valor)}
+        className="w-full flex items-center justify-between gap-4 p-5 text-left hover:bg-white/5 transition"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="w-10 h-10 rounded-xl border border-gray-800 bg-[#0B1120] flex items-center justify-center text-green-400 shrink-0">
+            {aberto ? <FiChevronDown /> : <FiChevronRight />}
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm text-gray-400">Projeção da meta</p>
+            <h3 className="text-2xl font-black mt-1 text-white truncate">{titulo}</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              Acompanhe os dias anteriores, o dia atual e os próximos dias do período.
+            </p>
+          </div>
+        </div>
+      </button>
+
+      {aberto && (
+        <div className="px-5 pb-5">
+          {tipo === "anual" ? (
+            <div className="space-y-3">
+              {grupos.map((grupo) => {
+                const mesAberto = mesesAbertos[grupo.chave] === true;
+                return (
+                  <div key={grupo.chave} className="bg-[#0B1120] border border-gray-800 rounded-2xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => alternarMes(grupo.chave)}
+                      className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-white/5 transition"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="w-9 h-9 rounded-xl border border-gray-800 bg-[#111827] flex items-center justify-center text-green-400 shrink-0">
+                          {mesAberto ? <FiChevronDown /> : <FiChevronRight />}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-lg font-black text-white truncate">{grupo.rotulo}</p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {grupo.dias.length} dia(s) • realizado {formatarMoeda(grupo.realizado)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-xs text-gray-500">Meta</p>
+                        <p className="text-sm font-black text-green-400">{formatarMoeda(grupo.meta)}</p>
+                      </div>
+                    </button>
+
+                    {mesAberto && (
+                      <div className="p-4 pt-0 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                        {grupo.dias.map((dia) => (
+                          <DiaMetaCard key={dia.data} dia={dia} formatarMoeda={formatarMoeda} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {dias.map((dia) => (
+                <DiaMetaCard key={dia.data} dia={dia} formatarMoeda={formatarMoeda} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+
+function DiaMetaCard({ dia, formatarMoeda }) {
+  const atingiu = Number(dia.realizado || 0) >= Number(dia.meta || 0);
+
+  const statusConfig = {
+    passado: {
+      label: atingiu ? "Meta atingida" : "Não atingiu",
+      classe: atingiu
+        ? "bg-green-500/15 text-green-400 border-green-500/35"
+        : "bg-red-500/15 text-red-300 border-red-500/35",
+      tituloValor: "Meta daquele dia",
+      valorPrincipal: dia.meta,
+      cardClasse: "bg-[#0B1120] border-gray-800",
+      valorClasse: "text-gray-100",
+      mostrarDetalhes: true,
+    },
+    hoje: {
+      label: "Hoje",
+      classe: "bg-green-500/15 text-green-400 border-green-500/40",
+      tituloValor: "Precisa fazer hoje",
+      valorPrincipal: dia.meta,
+      cardClasse: "bg-green-500/10 border-green-500/40 shadow-[0_0_0_1px_rgba(34,197,94,0.12)]",
+      valorClasse: "text-green-400",
+      mostrarDetalhes: true,
+    },
+    futuro: {
+      label: "Futuro",
+      classe: "bg-gray-800/70 text-gray-500 border-gray-700/70",
+      tituloValor: "Meta prevista",
+      valorPrincipal: dia.meta,
+      cardClasse: "bg-[#0B1120]/35 border-gray-800/60 opacity-45",
+      valorClasse: "text-blue-300",
+      mostrarDetalhes: false,
+    },
+  };
+
+  const config = statusConfig[dia.status] || statusConfig.futuro;
+  const saldoLabel = Number(dia.realizado || 0) > Number(dia.meta || 0) ? "Excedeu" : dia.status === "passado" ? "Faltou" : "Falta";
+  const saldoValor = Number(dia.realizado || 0) > Number(dia.meta || 0)
+    ? Number(dia.realizado || 0) - Number(dia.meta || 0)
+    : Number(dia.falta || 0);
+
+  return (
+    <div className={`border rounded-2xl p-4 transition ${config.cardClasse}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-lg font-black text-white">{dia.rotulo}</p>
+          <p className="text-xs text-gray-500 mt-1">{dia.subtitulo}</p>
+        </div>
+        <span className={`text-[11px] font-black rounded-full border px-2 py-1 ${config.classe}`}>
+          {config.label}
+        </span>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-xs text-gray-500">{config.tituloValor}</p>
+        <p className={`text-2xl font-black mt-1 ${config.valorClasse}`}>{formatarMoeda(config.valorPrincipal)}</p>
+      </div>
+
+      {config.mostrarDetalhes && (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="bg-[#111827] border border-gray-800 rounded-xl p-3">
+            <p className="text-[11px] text-gray-500">Faturamento</p>
+            <p className="text-sm font-bold text-white mt-1">{formatarMoeda(dia.realizado)}</p>
+          </div>
+          <div className="bg-[#111827] border border-gray-800 rounded-xl p-3">
+            <p className="text-[11px] text-gray-500">{saldoLabel}</p>
+            <p className={`text-sm font-bold mt-1 ${saldoLabel === "Excedeu" ? "text-green-400" : "text-red-400"}`}>
+              {formatarMoeda(saldoValor)}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function agruparDistribuicaoPorTipo(tipo, dias) {
+  if (tipo === "anual") return agruparDiasPorMes(dias);
+
+  const chave = tipo === "semanal" ? "semana-atual" : "mes-atual";
+  const rotulo = tipo === "semanal" ? "Semana atual" : "Mês atual";
+
+  return [{
+    chave,
+    rotulo,
+    dias,
+    meta: somarValoresDias(dias, "meta"),
+    realizado: somarValoresDias(dias, "realizado"),
+  }];
+}
+
+function somarValoresDias(dias, campo) {
+  return (dias || []).reduce((total, dia) => total + Number(dia?.[campo] || 0), 0);
+}
+
+function cardsPorTipoMeta(tipo) {
+  if (tipo === "semanal") return ["semana"];
+  if (tipo === "mensal") return ["mes"];
+  if (tipo === "anual") return ["ano"];
+  return [];
+}
+
+function calcularMetasPlanejadas(meta) {
+  if (!meta) return { diaria: 0, semanal: 0, mensal: 0, anual: 0 };
+  const valor = Number(meta.valor_base || 0);
 
   return {
-    diaria: Number(meta.valor_base || 0),
-    semanal: calcularMetaPlanejadaPeriodo(meta, semana.inicio, semana.fim),
-    mensal: calcularMetaPlanejadaPeriodo(meta, mes.inicio, mes.fim),
-    anual: calcularMetaPlanejadaPeriodo(meta, ano.inicio, ano.fim),
+    diaria: meta.tipo === "diaria" ? valor : 0,
+    semanal: meta.tipo === "semanal" ? valor : 0,
+    mensal: meta.tipo === "mensal" ? valor : 0,
+    anual: meta.tipo === "anual" ? valor : 0,
   };
-}
-
-function calcularMetaPlanejadaPeriodo(meta, inicio, fim) {
-  if (!meta || !inicio || !fim || inicio > fim) return 0;
-  const valor = Number(meta.valor_base || 0);
-  if (valor <= 0) return 0;
-
-  const inicioConsiderado = maiorData(inicio, meta.data_inicio || inicio);
-  if (inicioConsiderado > fim) return 0;
-
-  if (meta.tipo === "diaria") return valor * contarDiasCalendario(inicioConsiderado, fim);
-  if (meta.tipo === "semanal") return somarMetaSemanal(meta, inicioConsiderado, fim);
-  if (meta.tipo === "mensal") return somarMetaMensal(meta, inicioConsiderado, fim);
-  if (meta.tipo === "anual") return somarMetaAnual(meta, inicioConsiderado, fim);
-  return 0;
-}
-
-function somarMetaSemanal(meta, inicio, fim) {
-  return semanasEntre(inicio, fim).reduce((total, semana) => {
-    const diasSemanaCheia = diasTrabalhoNoPeriodo(meta, semana.inicio, semana.fim).length || 1;
-    const inicioCorte = maiorData(inicio, semana.inicio);
-    const fimCorte = menorData(fim, semana.fim);
-    const diasNoCorte = diasTrabalhoNoPeriodo(meta, inicioCorte, fimCorte).length;
-    return total + Number(meta.valor_base || 0) * (diasNoCorte / diasSemanaCheia);
-  }, 0);
-}
-
-function somarMetaMensal(meta, inicio, fim) {
-  return mesesEntre(inicio, fim).reduce((total, mesRef) => {
-    const inicioMes = `${mesRef.ano}-${String(mesRef.mes).padStart(2, "0")}-01`;
-    const fimMes = dataISO(new Date(mesRef.ano, mesRef.mes, 0));
-    const diasMesCheio = diasTrabalhoNoPeriodo(meta, inicioMes, fimMes).length || 1;
-    const inicioCorte = maiorData(inicio, inicioMes);
-    const fimCorte = menorData(fim, fimMes);
-    const diasNoCorte = diasTrabalhoNoPeriodo(meta, inicioCorte, fimCorte).length;
-    return total + Number(meta.valor_base || 0) * (diasNoCorte / diasMesCheio);
-  }, 0);
-}
-
-function somarMetaAnual(meta, inicio, fim) {
-  return anosEntre(inicio, fim).reduce((total, ano) => {
-    const inicioAno = `${ano}-01-01`;
-    const fimAno = `${ano}-12-31`;
-    const diasAnoCheio = diasTrabalhoNoPeriodo(meta, inicioAno, fimAno).length || 1;
-    const inicioCorte = maiorData(inicio, inicioAno);
-    const fimCorte = menorData(fim, fimAno);
-    const diasNoCorte = diasTrabalhoNoPeriodo(meta, inicioCorte, fimCorte).length;
-    return total + Number(meta.valor_base || 0) * (diasNoCorte / diasAnoCheio);
-  }, 0);
 }
 
 function periodoBaseMeta(meta, dataRef) {
   if (meta.tipo === "semanal") return intervaloSemana(dataRef);
   if (meta.tipo === "mensal") return intervaloMes(dataRef);
-  if (meta.tipo === "anual") return intervaloAno(dataRef);
+  if (meta.tipo === "anual") return intervaloAnoMeta(meta, dataRef);
   return { inicio: dataRef, fim: dataRef };
 }
 
@@ -706,9 +799,11 @@ function diasTrabalhoNoPeriodo(meta, inicio, fim) {
     const diaMes = data.getDate();
     let trabalha = true;
 
-    if (["semanal", "anual"].includes(meta.tipo)) {
+    if (meta.tipo === "semanal") {
       trabalha = diasSemana.length ? diasSemana.includes(diaSemana) : diaSemana >= 1 && diaSemana <= 6;
     }
+
+    if (meta.tipo === "anual") trabalha = true;
 
     if (meta.tipo === "mensal") {
       trabalha = diasMes.length ? diasMes.includes(diaMes) : diaSemana >= 1 && diaSemana <= 6;
@@ -725,12 +820,13 @@ function diasTrabalhoNoPeriodo(meta, inicio, fim) {
 
 function descricaoRegraTrabalho(meta) {
   if (!meta) return "-";
-  if (meta.tipo === "diaria") return "Todos os dias corridos";
-  if (["semanal", "anual"].includes(meta.tipo)) {
+  if (meta.tipo === "diaria") return "Meta fixa por dia";
+  if (meta.tipo === "semanal") {
     const dias = normalizarDiasSemana(meta.dias_semana);
     if (!dias.length) return "Segunda a sábado";
     return DIAS_SEMANA.filter((dia) => dias.includes(dia.valor)).map((dia) => dia.curto).join(", ");
   }
+  if (meta.tipo === "anual") return "Dias corridos até o fim do ano";
   const diasMes = normalizarArrayNumerico(meta.dias_mes || meta.dias_trabalho);
   return diasMes.length ? `${diasMes.length} dia(s) selecionado(s) no mês` : "Dias úteis do mês";
 }
@@ -745,25 +841,95 @@ function textoTipo(tipo) {
   return mapa[tipo] || "Meta";
 }
 
+function somarValoresPorData(porData, filtro) {
+  return Object.entries(porData || {}).reduce((total, [data, valor]) => {
+    if (!filtro || filtro(data)) return total + Number(valor || 0);
+    return total;
+  }, 0);
+}
+
+function agruparDiasPorMes(dias) {
+  const grupos = dias.reduce((acc, dia) => {
+    const chave = dia.mesChave || String(dia.data).slice(0, 7);
+    if (!acc[chave]) {
+      acc[chave] = {
+        chave,
+        rotulo: dia.mesRotulo || rotuloMesAno(dia.data),
+        dias: [],
+        meta: 0,
+        realizado: 0,
+      };
+    }
+
+    acc[chave].dias.push(dia);
+    acc[chave].meta += Number(dia.meta || 0);
+    acc[chave].realizado += Number(dia.realizado || 0);
+    return acc;
+  }, {});
+
+  return Object.values(grupos).sort((a, b) => String(a.chave).localeCompare(String(b.chave)));
+}
+
+function rotuloMesAno(dataISOTexto) {
+  const [ano, mes] = String(dataISOTexto).split("-");
+  const nomes = [
+    "Janeiro",
+    "Fevereiro",
+    "Março",
+    "Abril",
+    "Maio",
+    "Junho",
+    "Julho",
+    "Agosto",
+    "Setembro",
+    "Outubro",
+    "Novembro",
+    "Dezembro",
+  ];
+  return `${nomes[Number(mes) - 1] || mes} / ${ano}`;
+}
+
+function rotuloDiaMeta(dataISOTexto, tipo) {
+  if (tipo === "mensal" || tipo === "anual") {
+    return `${String(Number(String(dataISOTexto).slice(8, 10))).padStart(2, "0")} • ${nomeDiaSemanaCurto(dataISOTexto)}`;
+  }
+
+  return nomeDiaSemana(dataISOTexto);
+}
+
+function nomeDiaSemanaCurto(dataISOTexto) {
+  const data = new Date(`${dataISOTexto}T00:00:00`);
+  const nomes = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+  return nomes[data.getDay()];
+}
+
+function nomeDiaSemana(dataISOTexto) {
+  const data = new Date(`${dataISOTexto}T00:00:00`);
+  const nomes = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+  return nomes[data.getDay()];
+}
+
 function formatarDataBR(dataISOTexto) {
   if (!dataISOTexto) return "-";
   const [ano, mes, dia] = String(dataISOTexto).split("-");
   return `${dia}/${mes}/${ano}`;
 }
 
-function formatarMoedaDigitada(valor) {
-  let texto = String(valor || "").replace(/\D/g, "");
-  const numero = Number(texto || 0) / 100;
-  return numero.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function formatarHorasDecimais(horas) {
+  const totalMinutos = Math.ceil(Number(horas || 0) * 60);
+  const h = Math.floor(totalMinutos / 60);
+  const m = totalMinutos % 60;
+  if (h <= 0) return `${m}min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h${String(m).padStart(2, "0")}`;
 }
 
-function moedaParaNumero(valor) {
-  if (!valor) return 0;
-  return Number(String(valor).replace(/\./g, "").replace(",", "."));
-}
-
-function numeroParaMoedaInput(valor) {
-  return Number(valor || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function intervalParaMinutos(intervalo) {
+  if (!intervalo) return 0;
+  const partes = String(intervalo).split(":");
+  const horas = Number(partes[0] || 0);
+  const minutos = Number(partes[1] || 0);
+  return horas * 60 + minutos;
 }
 
 function normalizarArrayNumerico(valor) {
@@ -784,7 +950,7 @@ function normalizarDiasSemana(valor) {
 }
 
 function dataISO(data) {
-  return data.toISOString().split("T")[0];
+  return dataISOApp(data);
 }
 
 function adicionarDiasISO(dataISOTexto, quantidade) {
@@ -812,81 +978,19 @@ function intervaloMes(dataISOTexto) {
   };
 }
 
+function intervaloAnoMeta(meta, dataISOTexto) {
+  const ano = Number(String(dataISOTexto).slice(0, 4));
+  const dataInicio = meta?.data_inicio || dataISOTexto;
+  const anoInicio = Number(String(dataInicio).slice(0, 4));
+  const mesInicio = anoInicio === ano ? String(dataInicio).slice(5, 7) : "01";
+  return { inicio: `${ano}-${mesInicio}-01`, fim: `${ano}-12-31` };
+}
+
 function intervaloAno(dataISOTexto) {
   const ano = Number(String(dataISOTexto).slice(0, 4));
   return { inicio: `${ano}-01-01`, fim: `${ano}-12-31` };
 }
 
-function contarDiasCalendario(inicio, fim) {
-  if (!inicio || !fim || inicio > fim) return 0;
-  const a = new Date(`${inicio}T00:00:00`);
-  const b = new Date(`${fim}T00:00:00`);
-  return Math.max(Math.floor((b - a) / 86400000) + 1, 0);
-}
-
 function maiorData(a, b) {
   return String(a) > String(b) ? a : b;
-}
-
-function menorData(a, b) {
-  return String(a) < String(b) ? a : b;
-}
-
-function semanasEntre(inicio, fim) {
-  const semanas = [];
-  let inicioSemana = intervaloSemana(inicio).inicio;
-
-  while (inicioSemana <= fim) {
-    semanas.push({ inicio: inicioSemana, fim: adicionarDiasISO(inicioSemana, 6) });
-    inicioSemana = adicionarDiasISO(inicioSemana, 7);
-  }
-
-  return semanas;
-}
-
-function mesesEntre(inicio, fim) {
-  const meses = [];
-  const data = new Date(`${inicio.slice(0, 7)}-01T00:00:00`);
-  const fimMes = new Date(`${fim.slice(0, 7)}-01T00:00:00`);
-
-  while (data <= fimMes) {
-    meses.push({ ano: data.getFullYear(), mes: data.getMonth() + 1 });
-    data.setMonth(data.getMonth() + 1);
-  }
-
-  return meses;
-}
-
-function anosEntre(inicio, fim) {
-  const anoInicio = Number(inicio.slice(0, 4));
-  const anoFim = Number(fim.slice(0, 4));
-  const anos = [];
-  for (let ano = anoInicio; ano <= anoFim; ano++) anos.push(ano);
-  return anos;
-}
-
-function gerarDiasUteisMes(dataInicio) {
-  return diasCalendario(dataInicio)
-    .filter((item) => !item.vazio && item.diaSemana >= 1 && item.diaSemana <= 5)
-    .map((item) => item.dia);
-}
-
-function diasCalendario(dataInicio) {
-  const data = new Date(`${dataInicio}T00:00:00`);
-  const ano = data.getFullYear();
-  const mes = data.getMonth() + 1;
-  const total = new Date(ano, mes, 0).getDate();
-  const primeiro = new Date(ano, mes - 1, 1).getDay();
-  const dias = [];
-
-  for (let i = 0; i < primeiro; i++) dias.push({ vazio: true });
-  for (let dia = 1; dia <= total; dia++) {
-    dias.push({ dia, diaSemana: new Date(ano, mes - 1, dia).getDay() });
-  }
-
-  return dias;
-}
-
-function ordemDiaSemana(dia) {
-  return dia === 0 ? 7 : dia;
 }

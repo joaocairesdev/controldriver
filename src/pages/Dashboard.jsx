@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FiChevronDown, FiChevronRight, FiEye, FiEyeOff, FiSettings } from "react-icons/fi";
 import { supabase } from "../services/supabase";
 
@@ -14,22 +14,24 @@ import shopeeIcon from "../assets/plataformas/shopee.svg";
 const CONTAS_DASHBOARD_KEY = "controldriver_dashboard_contas_ativas_v1";
 const CONTAS_PAGAR_DIAS_KEY = "controldriver_dashboard_contas_pagar_dias_v1";
 const CONTAS_ATRASADAS_CONFIG_KEY = "controldriver_dashboard_contas_atrasadas_config_v1";
+const DASHBOARD_PREFERENCIAS_KEY = "controldriver_dashboard_preferencias_v1";
 
 export default function Dashboard() {
   const hoje = new Date();
   const hojeISO = dataISO(hoje);
+  const preferenciasDashboard = useMemo(() => carregarPreferenciasDashboardLocalStorage(), []);
 
-  const [periodo, setPeriodo] = useState("dia");
-  const [dataSelecionada, setDataSelecionada] = useState(hojeISO);
-  const [semanaSelecionada, setSemanaSelecionada] = useState(getSemanaDoAno(hoje));
-  const [mesSelecionado, setMesSelecionado] = useState(String(hoje.getMonth() + 1));
-  const [anoSelecionado, setAnoSelecionado] = useState(hoje.getFullYear());
+  const [periodo, setPeriodo] = useState(preferenciasDashboard.periodo || "dia");
+  const [dataSelecionada, setDataSelecionada] = useState(preferenciasDashboard.dataSelecionada || hojeISO);
+  const [semanaSelecionada, setSemanaSelecionada] = useState(preferenciasDashboard.semanaSelecionada || getSemanaDoAno(hoje));
+  const [mesSelecionado, setMesSelecionado] = useState(preferenciasDashboard.mesSelecionado || String(hoje.getMonth() + 1));
+  const [anoSelecionado, setAnoSelecionado] = useState(preferenciasDashboard.anoSelecionado || hoje.getFullYear());
 
-  const [periodoPessoal, setPeriodoPessoal] = useState("mes");
-  const [dataPessoalSelecionada, setDataPessoalSelecionada] = useState(hojeISO);
-  const [semanaPessoalSelecionada, setSemanaPessoalSelecionada] = useState(getSemanaDoAno(hoje));
-  const [mesPessoalSelecionado, setMesPessoalSelecionado] = useState(String(hoje.getMonth() + 1));
-  const [anoPessoalSelecionado, setAnoPessoalSelecionado] = useState(hoje.getFullYear());
+  const [periodoPessoal, setPeriodoPessoal] = useState(preferenciasDashboard.periodoPessoal || "mes");
+  const [dataPessoalSelecionada, setDataPessoalSelecionada] = useState(preferenciasDashboard.dataPessoalSelecionada || hojeISO);
+  const [semanaPessoalSelecionada, setSemanaPessoalSelecionada] = useState(preferenciasDashboard.semanaPessoalSelecionada || getSemanaDoAno(hoje));
+  const [mesPessoalSelecionado, setMesPessoalSelecionado] = useState(preferenciasDashboard.mesPessoalSelecionado || String(hoje.getMonth() + 1));
+  const [anoPessoalSelecionado, setAnoPessoalSelecionado] = useState(preferenciasDashboard.anoPessoalSelecionado || hoje.getFullYear());
 
   const [modalPeriodoAberto, setModalPeriodoAberto] = useState(false);
   const [modalPeriodoPessoalAberto, setModalPeriodoPessoalAberto] = useState(false);
@@ -52,10 +54,10 @@ export default function Dashboard() {
   const [configContasAtrasadas, setConfigContasAtrasadas] = useState(carregarConfigContasAtrasadasLocalStorage());
   const [modalContasAtrasadasAberto, setModalContasAtrasadasAberto] = useState(false);
 
-  const [financeiroAberto, setFinanceiroAberto] = useState(true);
-  const [performanceAberto, setPerformanceAberto] = useState(true);
-  const [pessoalAberto, setPessoalAberto] = useState(true);
-  const [valoresFinanceirosVisiveis, setValoresFinanceirosVisiveis] = useState(true);
+  const [financeiroAberto, setFinanceiroAberto] = useState(preferenciasDashboard.financeiroAberto !== false);
+  const [performanceAberto, setPerformanceAberto] = useState(preferenciasDashboard.performanceAberto !== false);
+  const [pessoalAberto, setPessoalAberto] = useState(preferenciasDashboard.pessoalAberto !== false);
+  const [valoresFinanceirosVisiveis, setValoresFinanceirosVisiveis] = useState(preferenciasDashboard.valoresFinanceirosVisiveis !== false);
 
   const meses = [
     "Janeiro",
@@ -92,6 +94,40 @@ export default function Dashboard() {
       carregarContasAtrasadas();
     }
   }, [diasContasPagar]);
+
+  useEffect(() => {
+    salvarPreferenciasDashboardLocalStorage({
+      periodo,
+      dataSelecionada,
+      semanaSelecionada,
+      mesSelecionado,
+      anoSelecionado,
+      periodoPessoal,
+      dataPessoalSelecionada,
+      semanaPessoalSelecionada,
+      mesPessoalSelecionado,
+      anoPessoalSelecionado,
+      financeiroAberto,
+      performanceAberto,
+      pessoalAberto,
+      valoresFinanceirosVisiveis,
+    });
+  }, [
+    periodo,
+    dataSelecionada,
+    semanaSelecionada,
+    mesSelecionado,
+    anoSelecionado,
+    periodoPessoal,
+    dataPessoalSelecionada,
+    semanaPessoalSelecionada,
+    mesPessoalSelecionado,
+    anoPessoalSelecionado,
+    financeiroAberto,
+    performanceAberto,
+    pessoalAberto,
+    valoresFinanceirosVisiveis,
+  ]);
 
   async function carregarTudo() {
     setCarregando(true);
@@ -422,12 +458,13 @@ export default function Dashboard() {
       resumoBase.rateioUsoVeiculo
     );
 
-    return { resumoBase, saidasData, categoriasData };
+    return { resumoBase, entradasData, saidasData, categoriasData };
   }
 
   async function carregarPerformance() {
     const { inicio, fim } = intervaloDatas();
-    const { resumoBase } = await buscarDadosOperacao(inicio, fim);
+    const { resumoBase, entradasData } = await buscarDadosOperacao(inicio, fim);
+
 
     const metaPeriodo = await calcularMetaPeriodo(metaAtiva, periodo, {
       dataSelecionada,
@@ -751,6 +788,23 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8 pb-10">
+      <style>{`
+        @keyframes abrirBlocoDashboard {
+          from { opacity: 0; transform: translateY(-6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes entrarGraficoAnel {
+          from { opacity: 0; transform: scale(0.86) rotate(-18deg); filter: blur(3px); }
+          to { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
+        }
+        @keyframes surgirDashboardElemento {
+          from { opacity: 0; transform: translateY(18px) scale(0.98); filter: blur(4px); }
+          to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        .dashboard-reveal {
+          animation: surgirDashboardElemento 0.7s ease-out both;
+        }
+      `}</style>
       <div>
         <h1 className="text-3xl font-bold">Dashboard</h1>
         <p className="text-gray-400 mt-2">Visão rápida da sua operação.</p>
@@ -1061,6 +1115,52 @@ export default function Dashboard() {
   );
 }
 
+
+function useReplayOnView() {
+  const ref = useRef(null);
+  const [replayKey, setReplayKey] = useState(0);
+  const ultimoScrollRef = useRef(typeof window !== "undefined" ? window.scrollY : 0);
+
+  useEffect(() => {
+    const elemento = ref.current;
+    if (!elemento || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const scrollAtual = typeof window !== "undefined" ? window.scrollY : 0;
+        const rolandoParaBaixo = scrollAtual > ultimoScrollRef.current + 2;
+        ultimoScrollRef.current = scrollAtual;
+
+        if (entry.isIntersecting && rolandoParaBaixo) {
+          setReplayKey((valor) => valor + 1);
+        }
+      },
+      { threshold: 0.28, rootMargin: "0px 0px -8% 0px" }
+    );
+
+    observer.observe(elemento);
+    return () => observer.disconnect();
+  }, []);
+
+  return { ref, replayKey, animar: replayKey > 0 };
+}
+
+function carregarPreferenciasDashboardLocalStorage() {
+  try {
+    return JSON.parse(localStorage.getItem(DASHBOARD_PREFERENCIAS_KEY) || "{}");
+  } catch (_) {
+    return {};
+  }
+}
+
+function salvarPreferenciasDashboardLocalStorage(preferencias) {
+  try {
+    localStorage.setItem(DASHBOARD_PREFERENCIAS_KEY, JSON.stringify(preferencias));
+  } catch (_) {
+    // Ignora erro de armazenamento local.
+  }
+}
+
 function criarMetricasPessoaisVazias() {
   return {
     entradas: 0,
@@ -1170,7 +1270,7 @@ function CustosCategoriaCard({ titulo, descricao, dados, baseComparacao, labelBa
   const percentualBase = Number(baseComparacao || 0) > 0 ? (total / Number(baseComparacao || 0)) * 100 : 0;
 
   return (
-    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
+    <div className="dashboard-reveal bg-[#111827] border border-gray-800 rounded-3xl p-5">
       <div>
         <h3 className="text-xl font-bold">{titulo}</h3>
         <p className="text-gray-400 text-sm mt-1">{descricao}</p>
@@ -1529,9 +1629,7 @@ async function calcularMetaPeriodo(meta, periodo, filtros) {
 
   if (periodo === "dia") {
     const dataRef = filtros?.dataSelecionada || hojeTexto;
-    if (dataRef === hojeTexto) {
-      return calcularMetaNecessariaHoje(meta, dataRef);
-    }
+    return calcularMetaNecessariaNoDia(meta, dataRef);
   }
 
   const { inicio, fim } = intervaloPorFiltros(periodo, filtros);
@@ -1562,6 +1660,10 @@ function intervaloPorFiltros(periodo, filtros) {
 }
 
 async function calcularMetaNecessariaHoje(meta, hojeTexto) {
+  return calcularMetaNecessariaNoDia(meta, hojeTexto);
+}
+
+async function calcularMetaNecessariaNoDia(meta, dataRef) {
   if (!meta) return 0;
 
   const valor = Number(meta.valor_base || 0);
@@ -1569,15 +1671,15 @@ async function calcularMetaNecessariaHoje(meta, hojeTexto) {
 
   if (meta.tipo === "diaria") return valor;
 
-  const periodo = periodoBaseMeta(meta, hojeTexto);
+  const periodo = periodoBaseMeta(meta, dataRef);
   if (!periodo) return 0;
 
   const inicioCalculo = maiorData(periodo.inicio, meta.data_inicio || periodo.inicio);
-  const ontem = adicionarDiasISO(hojeTexto, -1);
-  const realizadoAntesHoje = inicioCalculo <= ontem ? await buscarTotalEntradasDashboard(inicioCalculo, ontem) : 0;
-  const metaPeriodo = metaValorPeriodoBase(meta, periodo.inicio, periodo.fim);
-  const restante = Math.max(metaPeriodo - realizadoAntesHoje, 0);
-  const diasRestantes = diasTrabalhoNoPeriodo(meta, hojeTexto, periodo.fim);
+  const diaAnterior = adicionarDiasISO(dataRef, -1);
+  const realizadoAntesDia = inicioCalculo <= diaAnterior ? await buscarTotalEntradasDashboard(inicioCalculo, diaAnterior) : 0;
+  const realizadoManual = deveConsiderarRealizadoManual(meta, periodo) ? Number(meta.valor_realizado_antes || 0) : 0;
+  const restante = Math.max(Number(meta.valor_base || 0) - realizadoAntesDia - realizadoManual, 0);
+  const diasRestantes = diasTrabalhoNoPeriodo(meta, dataRef, periodo.fim);
 
   return diasRestantes.length > 0 ? restante / diasRestantes.length : restante;
 }
@@ -1588,23 +1690,20 @@ function calcularMetaPlanejadaPeriodo(meta, inicio, fim) {
   const valor = Number(meta.valor_base || 0);
   if (valor <= 0) return 0;
 
-  const inicioConsiderado = maiorData(inicio, meta.data_inicio || inicio);
-  if (inicioConsiderado > fim) return 0;
-
   if (meta.tipo === "diaria") {
-    return valor * contarDiasCalendario(inicioConsiderado, fim);
+    return valor * contarDiasCalendario(inicio, fim);
   }
 
   if (meta.tipo === "semanal") {
-    return somarMetaSemanalNoIntervalo(meta, inicioConsiderado, fim);
+    return somarMetaSemanalNoIntervalo(meta, inicio, fim);
   }
 
   if (meta.tipo === "mensal") {
-    return somarMetaMensalNoIntervalo(meta, inicioConsiderado, fim);
+    return somarMetaMensalNoIntervalo(meta, inicio, fim);
   }
 
   if (meta.tipo === "anual") {
-    return somarMetaAnualNoIntervalo(meta, inicioConsiderado, fim);
+    return somarMetaAnualNoIntervalo(meta, inicio, fim);
   }
 
   return 0;
@@ -1633,6 +1732,11 @@ function periodoBaseMeta(meta, dataRef) {
   }
 
   return { inicio: dataRef, fim: dataRef };
+}
+
+function deveConsiderarRealizadoManual(meta, periodo) {
+  if (!meta?.data_inicio || !periodo?.inicio || !periodo?.fim) return false;
+  return meta.data_inicio >= periodo.inicio && meta.data_inicio <= periodo.fim;
 }
 
 function metaValorPeriodoBase(meta, inicio, fim) {
@@ -1695,8 +1799,12 @@ function diasTrabalhoNoPeriodo(meta, inicio, fim) {
 
     let trabalha = true;
 
-    if (meta.tipo === "semanal" || meta.tipo === "anual") {
+    if (meta.tipo === "semanal") {
       trabalha = diasSemana.length ? diasSemana.includes(diaSemana) : diaSemana >= 1 && diaSemana <= 6;
+    }
+
+    if (meta.tipo === "anual") {
+      trabalha = true;
     }
 
     if (meta.tipo === "mensal") {
@@ -1822,28 +1930,74 @@ function anosEntre(inicio, fim) {
   return anos;
 }
 
+
+function listarDatasPeriodo(inicio, fim) {
+  if (!inicio || !fim || inicio > fim) return [];
+  const datas = [];
+  const data = new Date(`${inicio}T00:00:00`);
+  const fimData = new Date(`${fim}T00:00:00`);
+
+  while (data <= fimData) {
+    datas.push(dataISO(data));
+    data.setDate(data.getDate() + 1);
+  }
+
+  return datas;
+}
+
+function nomeDiaSemanaCurto(dataISOTexto) {
+  const data = new Date(`${dataISOTexto}T00:00:00`);
+  return ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"][data.getDay()];
+}
+
 function BlocoDashboard({ titulo, descricao, aberto, onToggle, acaoExtra, children }) {
+  if (!aberto) {
+    return (
+      <section className="bg-[#111827] border border-gray-800 rounded-3xl overflow-hidden transition-all duration-300">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="w-full p-5 flex items-center justify-between gap-4 text-left hover:bg-white/[0.02] transition"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-10 h-10 rounded-xl bg-[#0B1120] border border-gray-800 flex items-center justify-center text-green-400 shrink-0">
+              <FiChevronRight />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-xl font-black truncate">{titulo}</h2>
+              <p className="text-sm text-gray-500 mt-1 truncate">{descricao}</p>
+            </div>
+          </div>
+
+          {acaoExtra && <div className="shrink-0" onClick={(e) => e.stopPropagation()}>{acaoExtra}</div>}
+        </button>
+      </section>
+    );
+  }
+
   return (
-    <section className="bg-[#111827] border border-gray-800 rounded-3xl overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full p-5 flex items-center justify-between gap-4 text-left hover:bg-white/[0.02] transition"
-      >
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="w-10 h-10 rounded-xl bg-[#0B1120] border border-gray-800 flex items-center justify-center text-green-400 shrink-0">
-            {aberto ? <FiChevronDown /> : <FiChevronRight />}
+    <section className="space-y-4 transition-all duration-300">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex items-center gap-3 text-left group min-w-0"
+        >
+          <span className="w-10 h-10 rounded-xl bg-[#111827] border border-gray-800 flex items-center justify-center text-green-400 shrink-0 group-hover:border-green-400 transition">
+            <FiChevronDown />
           </span>
           <div className="min-w-0">
-            <h2 className="text-xl font-black truncate">{titulo}</h2>
-            <p className="text-sm text-gray-500 mt-1 truncate">{descricao}</p>
+            <h2 className="text-2xl font-black truncate">{titulo}</h2>
+            <p className="text-sm text-gray-500 mt-1">{descricao}</p>
           </div>
-        </div>
+        </button>
 
-        {acaoExtra && <div className="shrink-0" onClick={(e) => e.stopPropagation()}>{acaoExtra}</div>}
-      </button>
+        {acaoExtra && <div className="shrink-0">{acaoExtra}</div>}
+      </div>
 
-      {aberto && <div className="px-5 pb-5">{children}</div>}
+      <div className="animate-[abrirBlocoDashboard_0.22s_ease-out]">
+        {children}
+      </div>
     </section>
   );
 }
@@ -2031,6 +2185,7 @@ function ProximasContasCard({ contas, dias, abrirConfiguracao, formatarMoeda, fo
   );
 }
 
+
 function PlataformasCard({ plataformas, total, formatarMoeda }) {
   return (
     <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
@@ -2193,12 +2348,13 @@ function CustosPerformanceCard({ custos, aba, setAba, faturamento, rateio, forma
 }
 
 function GraficoAnelCategorias({ categorias }) {
+  const { ref, replayKey, animar } = useReplayOnView();
   const lista = (categorias || []).filter((categoria) => Number(categoria.valor || 0) > 0);
   const total = lista.reduce((soma, categoria) => soma + Number(categoria.valor || 0), 0);
 
   if (total <= 0) {
     return (
-      <div className="w-36 h-36 rounded-full flex items-center justify-center border border-gray-800 bg-[#0B1120]">
+      <div ref={ref} className={`${animar ? "dashboard-reveal" : ""} w-36 h-36 rounded-full flex items-center justify-center border border-gray-800 bg-[#0B1120]`}>
         <div className="w-24 h-24 rounded-full bg-[#111827] border border-gray-800 flex items-center justify-center">
           <span className="text-lg font-black text-gray-500">0%</span>
         </div>
@@ -2216,8 +2372,13 @@ function GraficoAnelCategorias({ categorias }) {
 
   return (
     <div
-      className="w-36 h-36 rounded-full flex items-center justify-center border border-gray-800"
-      style={{ background: `conic-gradient(${partes.join(", ")})` }}
+      ref={ref}
+      key={`anel-${replayKey}-${lista.length}-${Math.round(total)}`}
+      className={`${animar ? "dashboard-reveal" : ""} w-36 h-36 rounded-full flex items-center justify-center border border-gray-800 shadow-lg shadow-black/20`}
+      style={{
+        background: `conic-gradient(${partes.join(", ")})`,
+        animation: animar ? "entrarGraficoAnel 0.75s ease-out both" : "none",
+      }}
     >
       <div className="w-24 h-24 rounded-full bg-[#111827] border border-gray-800 flex items-center justify-center text-center px-2">
         <span className="text-lg font-black text-white">100%</span>
