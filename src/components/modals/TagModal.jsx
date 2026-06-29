@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FiCreditCard, FiPlus, FiTag, FiTrash2, FiTruck, FiX } from "react-icons/fi";
 import { supabase } from "../../services/supabase";
 
@@ -12,14 +12,17 @@ import SelecionarParcelasModal from "./SelecionarParcelasModal";
 import FeedbackModal from "./FeedbackModal";
 import ConfirmacaoModal from "./ConfirmacaoModal";
 
+const TAG_MODAL_CACHE_TTL = 30 * 1000;
+let tagModalCache = null;
+
 export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagInicialId = "", edicao = null, onSalvo = null }) {
   const hoje = new Date().toISOString().split("T")[0];
 
   const categorias = [
-    "Pedágio de uso a trabalho",
-    "Pedágio de uso pessoal",
-    "Estacionamento de uso a trabalho",
-    "Estacionamento de uso pessoal",
+    "Pedágio (Trabalho)",
+    "Pedágio (Pessoal)",
+    "Estacionamento (Trabalho)",
+    "Estacionamento (Pessoal)",
     "Mensalidade da TAG",
   ];
 
@@ -32,7 +35,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   ];
 
   const usoPadrao = {
-    categoria: "Pedágio de uso a trabalho",
+    categoria: "Pedágio (Trabalho)",
     valor: "",
     descricao: "",
   };
@@ -49,11 +52,18 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   const [cartoes, setCartoes] = useState([]);
   const [contaTagId, setContaTagId] = useState("");
   const [grupos, setGrupos] = useState([criarGrupo()]);
+  const gruposScrollRef = useRef(null);
+  const usoRefs = useRef({});
+  const swipeGrupoRef = useRef({ startX: 0, startY: 0, ativo: false, arrastando: false });
+  const [grupoAtivoIndex, setGrupoAtivoIndex] = useState(0);
+  const [scrollPendente, setScrollPendente] = useState(null);
 
   const [modalData, setModalData] = useState({
     aberto: false,
     grupoIndex: null,
   });
+
+  const [modalNovaDataAberto, setModalNovaDataAberto] = useState(false);
 
   const [modalCategoria, setModalCategoria] = useState({
     aberto: false,
@@ -88,6 +98,9 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     fecharDepois: false,
   });
   const [carregando, setCarregando] = useState(false);
+  const [dadosCarregados, setDadosCarregados] = useState(false);
+  const [animacaoGrupo, setAnimacaoGrupo] = useState("parado");
+  const [arrastoGrupoX, setArrastoGrupoX] = useState(0);
 
   const [confirmacaoAcao, setConfirmacaoAcao] = useState({
     aberto: false,
@@ -170,9 +183,54 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
   useEffect(() => {
     if (!aberto) return;
-    carregarDados();
+
     setEtapa(edicao?.id ? "uso" : etapaInicial || "menu");
+    if (!tagModalCache) setDadosCarregados(false);
+    carregarDados();
   }, [aberto, etapaInicial, tagInicialId, edicao?.id]);
+
+  useEffect(() => {
+    if (!aberto) return;
+
+    const overflowAnterior = document.body.style.overflow;
+    const overscrollAnterior = document.body.style.overscrollBehavior;
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "contain";
+
+    return () => {
+      document.body.style.overflow = overflowAnterior;
+      document.body.style.overscrollBehavior = overscrollAnterior;
+    };
+  }, [aberto]);
+
+  useEffect(() => {
+    if (!scrollPendente) return;
+
+    const timer = window.setTimeout(() => {
+      if (scrollPendente.tipo === "grupo") {
+        rolarParaGrupo(scrollPendente.index);
+      }
+
+      if (scrollPendente.tipo === "uso") {
+        rolarParaUso(scrollPendente.grupoId, scrollPendente.usoId);
+      }
+
+      setScrollPendente(null);
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [grupos, scrollPendente]);
+
+  useEffect(() => {
+    if (!aberto || etapa !== "uso") return;
+    if (scrollPendente?.tipo === "uso") return;
+
+    const timer = window.setTimeout(() => {
+      gruposScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    }, 40);
+
+    return () => window.clearTimeout(timer);
+  }, [grupoAtivoIndex, aberto, etapa]);
 
   useEffect(() => {
     if (!aberto || !edicao?.id || !edicao?.tag) return;
@@ -291,23 +349,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   }
 
 
-  async function carregarDados() {
-    setCarregando(true);
-
-    const { data: contasData } = await supabase
-      .from("contas")
-      .select("*")
-      .eq("ativo", true)
-      .order("nome");
-
-    const { data: cartoesData } = await supabase
-      .from("cartoes")
-      .select("*")
-      .eq("ativo", true)
-      .order("nome");
-
-    const cartoesComUso = await carregarUsoDosCartoes(cartoesData || []);
-    const contasComSaldo = await carregarContasComSaldo(contasData || []);
+  function aplicarDadosCarregados(contasComSaldo, cartoesComUso) {
     const tags = contasComSaldo.filter((conta) => conta.tipo_conta === "tag");
     const tagsPrePagasEncontradas = tags.filter(
       (conta) => (conta.tipo_tag || "pre_paga") === "pre_paga"
@@ -330,15 +372,60 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
         setTagRecargaId(String(tagInicial.id));
       }
     } else {
-      if (tags.length) setContaTagId(String(tags[0].id));
-      if (tagsPrePagasEncontradas.length) setTagRecargaId(String(tagsPrePagasEncontradas[0].id));
+      setContaTagId((atual) => atual || (tags[0] ? String(tags[0].id) : ""));
+      setTagRecargaId((atual) =>
+        atual || (tagsPrePagasEncontradas[0] ? String(tagsPrePagasEncontradas[0].id) : "")
+      );
     }
+
     if (contasOrigem.length) {
       const principal = contasOrigem.find((conta) => conta.principal);
       const contaPadrao = principal || contasOrigem[0];
-      if (contaPadrao) setContaOrigemRecargaId(String(contaPadrao.id));
+      if (contaPadrao) setContaOrigemRecargaId((atual) => atual || String(contaPadrao.id));
+    }
+  }
+
+  async function carregarDados() {
+    // O modal precisa abrir imediatamente. A atualização do Supabase acontece em segundo plano.
+    setCarregando(false);
+
+    const cacheValido =
+      tagModalCache && Date.now() - tagModalCache.timestamp < TAG_MODAL_CACHE_TTL;
+
+    if (cacheValido) {
+      aplicarDadosCarregados(tagModalCache.contasComSaldo, tagModalCache.cartoesComUso);
+      setDadosCarregados(true);
+      return;
     }
 
+    const [contasResponse, cartoesResponse] = await Promise.all([
+      supabase
+        .from("contas")
+        .select("*")
+        .eq("ativo", true)
+        .order("nome"),
+      supabase
+        .from("cartoes")
+        .select("*")
+        .eq("ativo", true)
+        .order("nome"),
+    ]);
+
+    const contasData = contasResponse.data || [];
+    const cartoesData = cartoesResponse.data || [];
+
+    const [cartoesComUso, contasComSaldo] = await Promise.all([
+      carregarUsoDosCartoes(cartoesData || []),
+      carregarContasComSaldo(contasData || []),
+    ]);
+    tagModalCache = {
+      timestamp: Date.now(),
+      contasComSaldo,
+      cartoesComUso,
+    };
+
+    aplicarDadosCarregados(contasComSaldo, cartoesComUso);
+    setDadosCarregados(true);
     setCarregando(false);
   }
 
@@ -368,6 +455,12 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     if (!dataISO) return "-";
     const [ano, mes, dia] = String(dataISO).split("-");
     return `${dia}/${mes}/${ano}`;
+  }
+
+  function formatarDataAbaCompacta(dataISO) {
+    if (!dataISO) return "-";
+    const [ano, mes, dia] = String(dataISO).split("-");
+    return `${dia}/${mes}`;
   }
 
   function formatarMoeda(valor) {
@@ -435,7 +528,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
         (uso) =>
           uso.valor ||
           uso.descricao ||
-          uso.categoria !== "Pedágio de uso a trabalho"
+          uso.categoria !== "Pedágio (Trabalho)"
       )
     );
   }
@@ -480,20 +573,70 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     );
   }
 
+  function usoPrecisaPreencher(uso) {
+    if (!uso) return false;
+    if (!uso.categoria) return true;
+    if (moedaParaNumero(uso.valor) <= 0) return true;
+    if (uso.categoria.includes("Estacionamento") && !String(uso.descricao || "").trim()) return true;
+    return false;
+  }
+
+  function chamarAtencaoUso(grupoId, usoId) {
+    const chave = `${grupoId}-${usoId}`;
+
+    rolarParaUso(grupoId, usoId);
+
+    window.setTimeout(() => {
+      const item = usoRefs.current[chave];
+      if (!item) return;
+
+      item.classList.remove("tag-uso-alerta");
+      void item.offsetWidth;
+      item.classList.add("tag-uso-alerta");
+
+      const campoValor = item.querySelector('input[inputmode="numeric"]');
+      campoValor?.focus?.({ preventScroll: true });
+
+      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(45);
+    }, 140);
+  }
+
+  function garantirUltimoUsoPreenchido(grupoIndex = grupoAtivoIndex) {
+    const grupo = grupos[grupoIndex];
+    const ultimoUso = grupo?.usos?.[grupo.usos.length - 1];
+
+    if (!grupo || !ultimoUso || !usoPrecisaPreencher(ultimoUso)) return true;
+
+    if (grupoIndex !== grupoAtivoIndex) {
+      setGrupoAtivoIndex(grupoIndex);
+    }
+
+    chamarAtencaoUso(grupo.id, ultimoUso.id);
+    return false;
+  }
+
   function adicionarUso(grupoIndex) {
+    const grupoDestinoId = grupos[grupoIndex]?.id;
+    const novoUsoId = crypto.randomUUID();
+
+    if (!grupoDestinoId) return;
+    if (!garantirUltimoUsoPreenchido(grupoIndex)) return;
+
     setGrupos((lista) =>
-      lista.map((grupo, index) =>
-        index === grupoIndex
-          ? {
-              ...grupo,
-              usos: [
-                ...grupo.usos,
-                { ...usoPadrao, id: crypto.randomUUID() },
-              ],
-            }
-          : grupo
-      )
+      lista.map((grupo, index) => {
+        if (index !== grupoIndex) return grupo;
+
+        return {
+          ...grupo,
+          usos: [
+            ...grupo.usos,
+            { ...usoPadrao, id: novoUsoId },
+          ],
+        };
+      })
     );
+
+    setScrollPendente({ tipo: "uso", grupoId: grupoDestinoId, usoId: novoUsoId });
   }
 
   function removerUso(grupoIndex, usoIndex) {
@@ -514,8 +657,30 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     );
   }
 
-  function adicionarNovaData() {
-    setGrupos((lista) => [...lista, criarGrupo()]);
+  function adicionarNovaData(data = hoje) {
+    const indexExistente = grupos.findIndex((grupo) => grupo.data === data);
+
+    if (indexExistente >= 0) {
+      setGrupoAtivoIndex(indexExistente);
+
+      const grupoExistente = grupos[indexExistente];
+      const ultimoUso = grupoExistente?.usos?.[grupoExistente.usos.length - 1];
+
+      if (ultimoUso && usoPrecisaPreencher(ultimoUso)) {
+        window.setTimeout(() => chamarAtencaoUso(grupoExistente.id, ultimoUso.id), 80);
+        return;
+      }
+
+      window.setTimeout(() => adicionarUso(indexExistente), 80);
+      return;
+    }
+
+    const novoGrupo = criarGrupo(data);
+    setGrupos((lista) => {
+      const novaLista = [...lista, novoGrupo];
+      setGrupoAtivoIndex(novaLista.length - 1);
+      return novaLista;
+    });
   }
 
   function removerGrupo(grupoIndex) {
@@ -527,6 +692,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
       mensagem: "Deseja remover esta data e seus usos?",
       onConfirmar: () => {
         setGrupos((lista) => lista.filter((_, index) => index !== grupoIndex));
+        setGrupoAtivoIndex((atual) => Math.max(0, Math.min(atual, grupos.length - 2)));
       },
     });
   }
@@ -534,12 +700,12 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   function descricaoAutomatica(uso) {
     const nomeTag = contaTagSelecionada?.nome || "TAG";
 
-    if (uso.categoria === "Pedágio de uso a trabalho") {
-      return `Pedágio de uso a trabalho - ${nomeTag}`;
+    if (uso.categoria === "Pedágio (Trabalho)") {
+      return `Pedágio (Trabalho) - ${nomeTag}`;
     }
 
-    if (uso.categoria === "Pedágio de uso pessoal") {
-      return `Pedágio de uso pessoal - ${nomeTag}`;
+    if (uso.categoria === "Pedágio (Pessoal)") {
+      return `Pedágio (Pessoal) - ${nomeTag}`;
     }
 
     if (uso.categoria === "Mensalidade da TAG") {
@@ -553,7 +719,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     if (uso.categoria.includes("Pedágio")) {
       return {
         tipo_uso: "pedagio",
-        uso: uso.categoria.includes("trabalho") ? "trabalho" : "pessoal",
+        uso: uso.categoria.includes("Trabalho") ? "trabalho" : "pessoal",
         descricao_local: null,
       };
     }
@@ -561,7 +727,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     if (uso.categoria.includes("Estacionamento")) {
       return {
         tipo_uso: "estacionamento",
-        uso: uso.categoria.includes("trabalho") ? "trabalho" : "pessoal",
+        uso: uso.categoria.includes("Trabalho") ? "trabalho" : "pessoal",
         descricao_local: uso.descricao || null,
       };
     }
@@ -1313,6 +1479,155 @@ async function atualizarValorFatura(faturaId, valorSomar) {
     );
   }
 
+  function saldoAtualTagSelecionada() {
+    return Number(contaTagSelecionada?.saldo_atual || 0);
+  }
+
+  function saldoPrevistoTagSelecionada() {
+    return saldoAtualTagSelecionada() - totalValor();
+  }
+
+  function limitarIndiceGrupo(index) {
+    return Math.max(0, Math.min(grupos.length - 1, Number(index || 0)));
+  }
+
+  function rolarParaGrupo(index) {
+    const proximo = limitarIndiceGrupo(index);
+    if (proximo === grupoAtivoIndex) return;
+
+    setAnimacaoGrupo(proximo > grupoAtivoIndex ? "direita" : "esquerda");
+    setGrupoAtivoIndex(proximo);
+
+    window.setTimeout(() => setAnimacaoGrupo("parado"), 240);
+  }
+
+  function rolarParaGrupoFinal() {
+    setGrupoAtivoIndex(limitarIndiceGrupo(grupos.length));
+  }
+
+  function rolarParaUso(grupoId, usoId) {
+    const chave = `${grupoId}-${usoId}`;
+    let tentativas = 0;
+
+    const tentarRolar = () => {
+      const item = usoRefs.current[chave];
+      const container = gruposScrollRef.current;
+
+      if (!item || !container) {
+        tentativas += 1;
+        if (tentativas <= 12) {
+          window.requestAnimationFrame(tentarRolar);
+        }
+        return;
+      }
+
+      const calcularAlvo = () => {
+        const itemRect = item.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const itemTopDentroDoContainer =
+          itemRect.top - containerRect.top + container.scrollTop;
+
+        return (
+          itemTopDentroDoContainer +
+          itemRect.height -
+          container.clientHeight +
+          18
+        );
+      };
+
+      const rolarParaAlvo = (behavior = "smooth") => {
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        const alvo = Math.min(Math.max(calcularAlvo(), 0), maxScroll);
+
+        container.scrollTo({
+          top: alvo,
+          behavior,
+        });
+      };
+
+      rolarParaAlvo("smooth");
+
+      window.setTimeout(() => {
+        const itemRect = item.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+
+        if (itemRect.bottom > containerRect.bottom - 12) {
+          rolarParaAlvo("auto");
+        }
+      }, 360);
+
+      window.setTimeout(() => {
+        const campoValor = item.querySelector('input[inputmode="numeric"]');
+        campoValor?.focus?.({ preventScroll: true });
+      }, 420);
+    };
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(tentarRolar);
+    });
+  }
+
+  function iniciarSwipeGrupo(event) {
+    const elementoInterativo = event.target?.closest?.("button, input, textarea, select, [role='button']");
+    if (elementoInterativo) return;
+
+    swipeGrupoRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      ativo: true,
+      arrastando: false,
+    };
+
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+  }
+
+  function moverSwipeGrupo(event) {
+    const swipe = swipeGrupoRef.current;
+    if (!swipe.ativo) return;
+
+    const deltaX = event.clientX - swipe.startX;
+    const deltaY = event.clientY - swipe.startY;
+
+    if (!swipe.arrastando) {
+      if (Math.abs(deltaX) < 8) return;
+      if (Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return;
+      swipe.arrastando = true;
+    }
+
+    event.preventDefault();
+
+    const limite = 90;
+    const travado = Math.max(-limite, Math.min(limite, deltaX));
+    setArrastoGrupoX(travado);
+  }
+
+  function finalizarSwipeGrupo(event) {
+    const swipe = swipeGrupoRef.current;
+    if (!swipe.ativo) return;
+
+    const deltaX = event.clientX - swipe.startX;
+    const deltaY = event.clientY - swipe.startY;
+    const estavaArrastando = swipe.arrastando;
+
+    swipeGrupoRef.current = { startX: 0, startY: 0, ativo: false, arrastando: false };
+    setArrastoGrupoX(0);
+
+    if (!estavaArrastando) return;
+    if (Math.abs(deltaX) < 55 || Math.abs(deltaX) < Math.abs(deltaY) * 1.15) return;
+
+    if (deltaX < 0) {
+      rolarParaGrupo(grupoAtivoIndex + 1);
+    } else {
+      rolarParaGrupo(grupoAtivoIndex - 1);
+    }
+  }
+
+  function cancelarSwipeGrupo() {
+    swipeGrupoRef.current = { startX: 0, startY: 0, ativo: false, arrastando: false };
+    setArrastoGrupoX(0);
+  }
+
+
   if (!aberto) return null;
 
   return (
@@ -1325,14 +1640,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
           onClose={onClose}
           largura="max-w-2xl"
         >
-          {carregando && (
-            <div className="bg-[#0B1120] border border-gray-800 rounded-2xl p-5">
-              <h3 className="text-gray-300 font-bold">Carregando TAGs...</h3>
-              <p className="text-gray-500 mt-2">Aguarde enquanto buscamos as TAGs cadastradas nos veículos.</p>
-            </div>
-          )}
-
-          {!carregando && contasTag.length === 0 && (
+          {dadosCarregados && !carregando && contasTag.length === 0 && (
             <div className="bg-[#0B1120] border border-yellow-500/40 rounded-2xl p-5">
               <h3 className="text-yellow-400 font-bold">
                 Nenhuma TAG cadastrada
@@ -1344,7 +1652,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
             </div>
           )}
 
-          {!carregando && contasTag.length > 0 && (
+          {dadosCarregados && !carregando && contasTag.length > 0 && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <button
                 type="button"
@@ -1385,8 +1693,8 @@ async function atualizarValorFatura(faturaId, valorSomar) {
       )}
 
       {etapa === "uso" && (
-        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-[100] overscroll-none">
-          <div className="w-full max-w-3xl max-h-[calc(100dvh-4rem)] sm:max-h-[90vh] bg-[#111827] border border-gray-800 rounded-t-3xl sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-[100] overscroll-none overflow-hidden">
+          <div className="w-full max-w-3xl h-[calc(100dvh-72px)] max-h-[calc(100dvh-72px)] sm:h-auto sm:max-h-[90vh] bg-[#111827] border border-gray-800 rounded-t-3xl sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl">
             <div className="shrink-0 p-5 border-b border-gray-800">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -1419,184 +1727,230 @@ async function atualizarValorFatura(faturaId, valorSomar) {
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 scrollbar-hide">
-              {grupos.map((grupo, grupoIndex) => {
-                const ultimoGrupo = grupoIndex === grupos.length - 1;
+            <style>{`
+              .tag-abas-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+              .tag-abas-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
+              .tag-usos-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+              .tag-usos-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
+              .tag-aba-data { min-width: 64px; }
+              .tag-aba-data + .tag-aba-data { margin-left: -1px; }
+              .tag-aba-data-ativa { width: 196px; min-width: 196px; max-width: 196px; }
+              .tag-aba-data-inativa { flex: 1 1 152px; max-width: 152px; min-width: 64px; }
+              @keyframes tagTrocaAba {
+                from { opacity: .55; transform: translateY(4px); }
+                to { opacity: 1; transform: translateY(0); }
+              }
+              @keyframes tagUsoChamarAtencao {
+                0%, 100% { transform: translateX(0); border-color: rgba(31, 41, 55, 1); }
+                25% { transform: translateX(-4px); border-color: rgba(34, 197, 94, .85); }
+                50% { transform: translateX(4px); border-color: rgba(34, 197, 94, .85); }
+                75% { transform: translateX(-3px); border-color: rgba(34, 197, 94, .85); }
+              }
+              .tag-card-aba-ativa { animation: tagTrocaAba .16s ease-out; }
+              .tag-uso-alerta { animation: tagUsoChamarAtencao .34s ease-in-out 0s 2; }
+            `}</style>
+
+            <div className="relative flex-1 min-h-0 overflow-hidden px-5 pt-5 pb-4 flex flex-col sm:flex-none sm:h-[430px] md:h-[450px] lg:h-[470px]">
+              {(() => {
+                const grupoIndex = limitarIndiceGrupo(grupoAtivoIndex);
+                const grupo = grupos[grupoIndex] || grupos[0];
+                if (!grupo) return null;
 
                 return (
-                  <div
-                    key={grupo.id}
-                    className="bg-[#0B1120] border border-gray-800 rounded-2xl p-4"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex-1 max-w-xs">
-                        <Campo label="Data">
-                          <ButtonField
-                            onClick={() =>
-                              setModalData({
-                                aberto: true,
-                                grupoIndex,
-                              })
-                            }
-                          >
-                            {formatarDataBR(grupo.data)}
-                          </ButtonField>
-                        </Campo>
-                      </div>
-
-                      <div className="flex items-center gap-2 pt-6">
-                        {grupos.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removerGrupo(grupoIndex)}
-                            className="h-[46px] w-[46px] rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10"
-                            title="Excluir esta data"
-                          >
-                            <FiTrash2 className="w-5 h-5 mx-auto" />
-                          </button>
-                        )}
-
-                        {ultimoGrupo && (
-                          <button
-                            type="button"
-                            onClick={adicionarNovaData}
-                            className="h-[46px] px-4 rounded-xl border border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold"
-                          >
-                            + Nova data
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 space-y-3">
-                      {grupo.usos.map((uso, usoIndex) => {
-                        const precisaDescricao =
-                          uso.categoria.includes("Estacionamento");
+                  <>
+                    <div className="tag-abas-scroll shrink-0 flex items-end overflow-hidden pr-1">
+                      {grupos.map((grupoAba, index) => {
+                        const ativo = index === grupoIndex;
 
                         return (
                           <div
-                            key={uso.id}
-                            className="border border-gray-800 rounded-2xl p-4 bg-[#111827]"
+                            key={grupoAba.id}
+                            className={`tag-aba-data h-10 sm:h-11 rounded-t-xl border border-b-0 text-sm sm:text-base font-bold whitespace-nowrap transition flex items-center overflow-hidden ${
+                              ativo
+                                ? "tag-aba-data-ativa bg-[#0B1120] border-green-500/70 border-b-[#0B1120] text-green-400 -mb-px relative z-20 shadow-[0_-1px_0_rgba(34,197,94,0.35)]"
+                                : "tag-aba-data-inativa bg-[#111827] border-gray-800 text-gray-500 hover:text-white hover:bg-[#0B1120] relative z-0"
+                            }`}
+                            title={formatarDataBR(grupoAba.data)}
                           >
-                            <div className="flex items-center justify-between gap-3 mb-3">
-                              <div>
-                                <p className="text-sm font-bold text-white">
-                                  Uso {usoIndex + 1}
-                                </p>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                ativo
+                                  ? setModalData({ aberto: true, grupoIndex: index })
+                                  : rolarParaGrupo(index)
+                              }
+                              className={`h-full min-w-0 flex-1 px-3 sm:px-4 flex items-center justify-center overflow-hidden transition ${ativo ? "hover:bg-green-500/10 hover:text-green-300 cursor-pointer" : "hover:cursor-pointer"}`}
+                            >
+                              <span className="block truncate">
+                                {formatarDataBR(grupoAba.data)}
+                              </span>
+                            </button>
 
-                                <p className="text-xs text-gray-500">
-                                  Categoria, valor e descrição quando necessário.
-                                </p>
-                              </div>
-
+                            {ativo && grupos.length > 1 && (
                               <button
                                 type="button"
-                                onClick={() => removerUso(grupoIndex, usoIndex)}
-                                disabled={grupo.usos.length === 1}
-                                className="h-10 w-10 rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10 disabled:opacity-30"
-                                title="Excluir este uso"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  removerGrupo(index);
+                                }}
+                                className="h-full px-3 text-red-400 hover:bg-red-500/10 border-l border-gray-800"
+                                title="Excluir esta data"
                               >
-                                <FiTrash2 className="w-5 h-5 mx-auto" />
+                                <FiTrash2 className="w-4 h-4" />
                               </button>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_150px] gap-3 items-end">
-                              <Campo label="Categoria">
-                                <ButtonField
-                                  onClick={() =>
-                                    setModalCategoria({
-                                      aberto: true,
-                                      grupoIndex,
-                                      usoIndex,
-                                    })
-                                  }
-                                >
-                                  {uso.categoria}
-                                </ButtonField>
-                              </Campo>
-
-                              <Campo label="Valor">
-                                <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
-                                  <span className="px-3 text-gray-400">R$</span>
-
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    value={uso.valor}
-                                    placeholder=""
-                                    onChange={(e) =>
-                                      atualizarUso(
-                                        grupoIndex,
-                                        usoIndex,
-                                        "valor",
-                                        e.target.value
-                                      )
-                                    }
-                                    className="w-full bg-transparent p-3 outline-none"
-                                  />
-                                </div>
-                              </Campo>
-
-                              <button
-                                type="button"
-                                onClick={() => adicionarUso(grupoIndex)}
-                                className="h-[50px] rounded-xl border border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold"
-                              >
-                                + Adicionar
-                              </button>
-                            </div>
-
-                            {precisaDescricao && (
-                              <div className="mt-4">
-                                <label className="text-sm text-gray-300">
-                                  Descrição do estacionamento
-                                </label>
-
-                                <input
-                                  type="text"
-                                  value={uso.descricao}
-                                  placeholder="Ex: Shopping Tamboré, Zona Azul, Estacionamento Centro..."
-                                  onChange={(e) =>
-                                    atualizarUso(
-                                      grupoIndex,
-                                      usoIndex,
-                                      "descricao",
-                                      e.target.value
-                                    )
-                                  }
-                                  className="w-full mt-2 bg-[#0B1120] border border-gray-600 focus:border-green-400 rounded-xl p-3 outline-none"
-                                />
-
-                                <p className="text-xs text-gray-500 mt-2">
-                                  Obrigatório para identificar onde você
-                                  estacionou.
-                                </p>
-                              </div>
                             )}
                           </div>
                         );
                       })}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!garantirUltimoUsoPreenchido(grupoIndex)) return;
+                          setModalNovaDataAberto(true);
+                        }}
+                        className="h-10 sm:h-11 px-4 rounded-t-xl border border-b-0 border-gray-800 bg-[#111827] text-green-400 hover:bg-green-500/10 font-bold whitespace-nowrap text-base flex-none -ml-px"
+                        title="Adicionar nova data"
+                      >
+                        +
+                      </button>
                     </div>
-                  </div>
+
+                    <div
+                      key={grupo.id}
+                      data-grupo-card="true"
+                      className="tag-card-aba-ativa bg-[#0B1120] border border-gray-800 rounded-b-2xl rounded-tr-2xl p-4 flex-1 min-h-0 overflow-hidden flex flex-col"
+                    >
+                      <div
+                        ref={gruposScrollRef}
+                        className="tag-usos-scroll flex-1 min-h-0 space-y-3 overflow-y-auto overscroll-contain pb-4 pr-1"
+                        style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
+                      >
+                        {grupo.usos.map((uso, usoIndex) => {
+                          const precisaDescricao =
+                            uso.categoria.includes("Estacionamento");
+
+                          return (
+                            <div
+                              key={uso.id}
+                              ref={(el) => { usoRefs.current[`${grupo.id}-${uso.id}`] = el; }}
+                              className="border border-gray-800 rounded-2xl p-4 bg-[#111827]"
+                            >
+                              <div className="flex items-center justify-between gap-3 mb-3">
+                                <div>
+                                  <p className="text-sm font-bold text-white">
+                                    Uso {usoIndex + 1}
+                                  </p>
+
+                                  <p className="text-xs text-gray-500">
+                                    Categoria, valor e descrição quando necessário.
+                                  </p>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => removerUso(grupoIndex, usoIndex)}
+                                  disabled={grupo.usos.length === 1}
+                                  className="h-10 w-10 rounded-xl border border-red-500/50 text-red-400 hover:bg-red-500/10 disabled:opacity-30"
+                                  title="Excluir este uso"
+                                >
+                                  <FiTrash2 className="w-5 h-5 mx-auto" />
+                                </button>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_150px] gap-3 items-end">
+                                <Campo label="Categoria">
+                                  <ButtonField
+                                    onClick={() =>
+                                      setModalCategoria({
+                                        aberto: true,
+                                        grupoIndex,
+                                        usoIndex,
+                                      })
+                                    }
+                                  >
+                                    {uso.categoria}
+                                  </ButtonField>
+                                </Campo>
+
+                                <Campo label="Valor">
+                                  <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+                                    <span className="px-3 text-gray-400">R$</span>
+
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      value={uso.valor}
+                                      placeholder=""
+                                      onChange={(e) =>
+                                        atualizarUso(
+                                          grupoIndex,
+                                          usoIndex,
+                                          "valor",
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full bg-transparent p-3 outline-none"
+                                    />
+                                  </div>
+                                </Campo>
+
+                                {usoIndex === grupo.usos.length - 1 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => adicionarUso(grupoIndex)}
+                                    className="h-[50px] rounded-xl border border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold"
+                                  >
+                                    + Adicionar
+                                  </button>
+                                ) : (
+                                  <div className="hidden md:block" />
+                                )}
+                              </div>
+
+                              {precisaDescricao && (
+                                <div className="mt-4">
+                                  <label className="text-sm text-gray-300">
+                                    Descrição do estacionamento
+                                  </label>
+
+                                  <input
+                                    type="text"
+                                    value={uso.descricao}
+                                    placeholder="Ex: Shopping Tamboré, Zona Azul, Estacionamento Centro..."
+                                    onChange={(e) =>
+                                      atualizarUso(
+                                        grupoIndex,
+                                        usoIndex,
+                                        "descricao",
+                                        e.target.value
+                                      )
+                                    }
+                                    className="w-full mt-2 bg-[#0B1120] border border-gray-600 focus:border-green-400 rounded-xl p-3 outline-none"
+                                  />
+
+                                  <p className="text-xs text-gray-500 mt-2">
+                                    Obrigatório para identificar onde você
+                                    estacionou.
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
                 );
-              })}
+              })()}
             </div>
 
             <div className="shrink-0 border-t border-gray-800 bg-[#111827]">
-              <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-center gap-8 text-sm">
-                <div>
-                  <p className="text-gray-500">Total de usos</p>
-                  <p className="font-bold text-green-400">{totalUsos()}</p>
-                </div>
-
-                <div className="w-px h-8 bg-gray-800" />
-
-                <div>
-                  <p className="text-gray-500">Total estimado</p>
-                  <p className="font-bold text-green-400">
-                    {formatarMoeda(totalValor())}
-                  </p>
-                </div>
+              <div className="px-5 py-3 border-b border-gray-800 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                <ResumoRodapeTag titulo="Saldo atual" valor={formatarMoeda(saldoAtualTagSelecionada())} destaque="text-white" />
+                <ResumoRodapeTag titulo="Saldo previsto" valor={formatarMoeda(saldoPrevistoTagSelecionada())} destaque={saldoPrevistoTagSelecionada() < 0 ? "text-red-400" : "text-green-400"} />
+                <ResumoRodapeTag titulo="Total de usos" valor={totalUsos()} destaque="text-green-400" />
+                <ResumoRodapeTag titulo="Uso total" valor={formatarMoeda(totalValor())} destaque="text-green-400" />
               </div>
 
               <div className="grid grid-cols-2 gap-4 p-5">
@@ -1819,6 +2173,18 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         descricao="Escolha a data dos pedágios, estacionamentos ou mensalidade."
       />
 
+      <DatePickerModal
+        aberto={modalNovaDataAberto}
+        valor={hoje}
+        onChange={(novaData) => {
+          adicionarNovaData(novaData);
+          setModalNovaDataAberto(false);
+        }}
+        onClose={() => setModalNovaDataAberto(false)}
+        titulo="Nova data de uso da TAG"
+        descricao="Escolha a data para o novo grupo de usos."
+      />
+
       <SelecionarCategoriaModal
         aberto={modalCategoria.aberto}
         categorias={categorias}
@@ -1828,7 +2194,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
             ? grupos[modalCategoria.grupoIndex]?.usos?.[
                 modalCategoria.usoIndex
               ]?.categoria
-            : "Pedágio de uso a trabalho"
+            : "Pedágio (Trabalho)"
         }
         onSelecionar={(categoria) =>
           atualizarUso(
@@ -2035,5 +2401,14 @@ function ButtonField({ children, onClick }) {
     >
       {children}
     </button>
+  );
+}
+
+function ResumoRodapeTag({ titulo, valor, destaque }) {
+  return (
+    <div className="bg-[#0B1120] border border-gray-800 rounded-xl p-3 text-center">
+      <p className="text-gray-500 text-xs">{titulo}</p>
+      <p className={`font-bold mt-1 ${destaque || "text-white"}`}>{valor}</p>
+    </div>
   );
 }

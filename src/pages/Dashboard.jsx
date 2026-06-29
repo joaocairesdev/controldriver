@@ -58,6 +58,7 @@ export default function Dashboard() {
   const [performanceAberto, setPerformanceAberto] = useState(preferenciasDashboard.performanceAberto !== false);
   const [pessoalAberto, setPessoalAberto] = useState(preferenciasDashboard.pessoalAberto !== false);
   const [valoresFinanceirosVisiveis, setValoresFinanceirosVisiveis] = useState(preferenciasDashboard.valoresFinanceirosVisiveis !== false);
+  const [abaDashboard, setAbaDashboard] = useState(preferenciasDashboard.abaDashboard || "financeiro");
 
   const meses = [
     "Janeiro",
@@ -111,6 +112,7 @@ export default function Dashboard() {
       performanceAberto,
       pessoalAberto,
       valoresFinanceirosVisiveis,
+      abaDashboard,
     });
   }, [
     periodo,
@@ -127,6 +129,7 @@ export default function Dashboard() {
     performanceAberto,
     pessoalAberto,
     valoresFinanceirosVisiveis,
+    abaDashboard,
   ]);
 
   async function carregarTudo() {
@@ -401,12 +404,18 @@ export default function Dashboard() {
     const categoriasData = categoriasRes.data || [];
     const saidaIds = saidasData.map((saida) => saida.id).filter(Boolean);
 
-    const { data: abastecimentosData = [] } = saidaIds.length
-      ? await supabase
-          .from("saidas_abastecimentos")
-          .select("saida_id, km_rodados, km_total_periodo")
-          .in("saida_id", saidaIds)
-      : { data: [] };
+    const [{ data: abastecimentosData = [] }, { data: saidasTagData = [] }] = saidaIds.length
+      ? await Promise.all([
+          supabase
+            .from("saidas_abastecimentos")
+            .select("saida_id, km_rodados, km_total_periodo")
+            .in("saida_id", saidaIds),
+          supabase
+            .from("saidas_tag")
+            .select("saida_id, tipo_uso, uso")
+            .in("saida_id", saidaIds),
+        ])
+      : [{ data: [] }, { data: [] }];
 
     const resumoBase = entradasData.reduce((acc, entrada) => {
       const plataformas = entrada.entrada_plataformas || [];
@@ -455,7 +464,8 @@ export default function Dashboard() {
       saidasData,
       categoriasData,
       resumoBase.faturamento,
-      resumoBase.rateioUsoVeiculo
+      resumoBase.rateioUsoVeiculo,
+      saidasTagData
     );
 
     return { resumoBase, entradasData, saidasData, categoriasData };
@@ -810,12 +820,33 @@ export default function Dashboard() {
         <p className="text-gray-400 mt-2">Visão rápida da sua operação.</p>
       </div>
 
+      <div className="-mx-4 sm:mx-0 overflow-x-auto scrollbar-hide px-4 sm:px-0 pb-1">
+        <div className="inline-flex w-max rounded-2xl border border-gray-800 bg-[#111827] p-1 gap-1">
+          {[
+            { id: "financeiro", titulo: "Financeiro" },
+            { id: "performance", titulo: "Performance" },
+            { id: "veiculo", titulo: "Veículo" },
+            { id: "pessoal", titulo: "Pessoal" },
+          ].map((aba) => (
+            <button
+              key={aba.id}
+              type="button"
+              onClick={() => setAbaDashboard(aba.id)}
+              className={`rounded-xl px-4 py-3 text-sm font-bold whitespace-nowrap transition ${abaDashboard === aba.id ? "bg-green-500 text-black" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
+            >
+              {aba.titulo}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {carregando ? (
         <div className="bg-[#111827] border border-gray-800 rounded-2xl p-6">
           <p className="text-gray-400">Carregando dashboard...</p>
         </div>
       ) : (
         <>
+          {abaDashboard === "financeiro" && (
           <BlocoDashboard
             titulo="Financeiro"
             descricao="Saldos, objetivos, contas atrasadas e contas a pagar."
@@ -864,7 +895,9 @@ export default function Dashboard() {
               />
             </div>
           </BlocoDashboard>
+          )}
 
+          {abaDashboard === "performance" && (
           <BlocoDashboard
             titulo="Performance"
             descricao="Faturamento, meta, produtividade, custos de trabalho e resultado operacional."
@@ -927,7 +960,23 @@ export default function Dashboard() {
               formatarMoeda={formatarMoeda}
             />
           </BlocoDashboard>
+          )}
 
+          {abaDashboard === "veiculo" && (
+            <BlocoDashboard
+              titulo="Veículo"
+              descricao="Resumo rápido de km, uso e custos do veículo."
+              aberto={true}
+              onToggle={() => {}}
+            >
+              <div className="rounded-2xl border border-gray-800 bg-[#111827] p-6">
+                <h3 className="text-xl font-bold">Área do veículo</h3>
+                <p className="text-gray-400 mt-2">Aqui vamos concentrar km, custos por km, abastecimentos, manutenções, TAG e indicadores do carro.</p>
+              </div>
+            </BlocoDashboard>
+          )}
+
+          {abaDashboard === "pessoal" && (
           <BlocoDashboard
             titulo="Finanças Pessoais"
             descricao="Entradas pessoais, custos pessoais e resultado do período."
@@ -961,6 +1010,7 @@ export default function Dashboard() {
               />
             </div>
           </BlocoDashboard>
+          )}
         </>
       )}
 
@@ -1411,10 +1461,11 @@ function calcularRateioUsoVeiculo(kmTotalVeiculoPeriodo, kmTrabalhoPeriodo) {
   };
 }
 
-function calcularCustosPorFinalidade(saidas, categorias, faturamentoPeriodo = 0, rateioUsoVeiculo = null) {
+function calcularCustosPorFinalidade(saidas, categorias, faturamentoPeriodo = 0, rateioUsoVeiculo = null, saidasTag = []) {
   const resumo = criarCustosVazios();
   const categoriasPorId = new Map((categorias || []).map((categoria) => [String(categoria.id), categoria]));
   const categoriasPorNome = new Map((categorias || []).map((categoria) => [normalizarTexto(categoria.nome), categoria]));
+  const saidasTagPorId = new Map((saidasTag || []).map((item) => [String(item.saida_id), item]));
   const rateio = rateioUsoVeiculo || {
     percentualTrabalho: 100,
     percentualPessoal: 0,
@@ -1433,6 +1484,16 @@ function calcularCustosPorFinalidade(saidas, categorias, faturamentoPeriodo = 0,
       if (tipoUso === "rateada") {
         const valorTrabalho = valor * (Number(rateio.percentualTrabalho || 0) / 100);
         const valorPessoal = valor * (Number(rateio.percentualPessoal || 0) / 100);
+
+        adicionarCustoCategoria(resumo, "trabalho", nomeCategoria, valorTrabalho, categoria, true);
+        adicionarCustoCategoria(resumo, "pessoal", nomeCategoria, valorPessoal, categoria, true);
+        return;
+      }
+
+      if (tipoUso === "proporcional") {
+        const percentualUsoTag = calcularRateioUsoTag(saidas, saidasTagPorId);
+        const valorTrabalho = valor * (percentualUsoTag.percentualTrabalho / 100);
+        const valorPessoal = valor * (percentualUsoTag.percentualPessoal / 100);
 
         adicionarCustoCategoria(resumo, "trabalho", nomeCategoria, valorTrabalho, categoria, true);
         adicionarCustoCategoria(resumo, "pessoal", nomeCategoria, valorPessoal, categoria, true);
@@ -1465,6 +1526,39 @@ function calcularCustosPorFinalidade(saidas, categorias, faturamentoPeriodo = 0,
   });
 
   return resumo;
+}
+
+function calcularRateioUsoTag(saidas, saidasTagPorId) {
+  const totais = (saidas || []).reduce(
+    (acc, saida) => {
+      const detalhe = saidasTagPorId.get(String(saida.id));
+      if (!detalhe) return acc;
+
+      const tipoUsoTag = String(detalhe.tipo_uso || "").toLowerCase();
+      const uso = String(detalhe.uso || "").toLowerCase();
+      const valor = Number(saida.valor_total || 0);
+
+      if (valor <= 0) return acc;
+      if (tipoUsoTag !== "pedagio" && tipoUsoTag !== "estacionamento") return acc;
+
+      if (uso === "pessoal") acc.pessoal += valor;
+      else acc.trabalho += valor;
+
+      return acc;
+    },
+    { trabalho: 0, pessoal: 0 }
+  );
+
+  const total = totais.trabalho + totais.pessoal;
+
+  if (total <= 0) {
+    return { percentualTrabalho: 100, percentualPessoal: 0 };
+  }
+
+  return {
+    percentualTrabalho: (totais.trabalho / total) * 100,
+    percentualPessoal: (totais.pessoal / total) * 100,
+  };
 }
 
 function adicionarCustoCategoria(resumo, finalidade, nome, valor, categoria, rateado) {
@@ -1501,11 +1595,15 @@ function obterCategoriaDaSaida(saida, categoriasPorId, categoriasPorNome) {
     abastecimento: { nome: "Abastecimento", tipo_uso: "rateada" },
     manutencao: { nome: "Manutenção", tipo_uso: "rateada" },
     seguro: { nome: "Seguro", tipo_uso: "rateada" },
-    "mensalidadedatag": { nome: "Mensalidade da TAG", tipo_uso: "rateada" },
-    "pedagiodeusoatrabalho": { nome: "Pedágio de uso a trabalho", tipo_uso: "trabalho" },
-    "pedagiodeusopessoal": { nome: "Pedágio de uso pessoal", tipo_uso: "pessoal" },
-    "estacionamentodeusoatrabalho": { nome: "Estacionamento de uso a trabalho", tipo_uso: "trabalho" },
-    "estacionamentodeusopessoal": { nome: "Estacionamento de uso pessoal", tipo_uso: "pessoal" },
+    "mensalidadedatag": { nome: "Mensalidade da TAG", tipo_uso: "proporcional" },
+    "pedagiotrabalho": { nome: "Pedágio (Trabalho)", tipo_uso: "trabalho" },
+    "pedagiodeusoatrabalho": { nome: "Pedágio (Trabalho)", tipo_uso: "trabalho" },
+    "pedagiopessoal": { nome: "Pedágio (Pessoal)", tipo_uso: "pessoal" },
+    "pedagiodeusopessoal": { nome: "Pedágio (Pessoal)", tipo_uso: "pessoal" },
+    "estacionamentotrabalho": { nome: "Estacionamento (Trabalho)", tipo_uso: "trabalho" },
+    "estacionamentodeusoatrabalho": { nome: "Estacionamento (Trabalho)", tipo_uso: "trabalho" },
+    "estacionamentopessoal": { nome: "Estacionamento (Pessoal)", tipo_uso: "pessoal" },
+    "estacionamentodeusopessoal": { nome: "Estacionamento (Pessoal)", tipo_uso: "pessoal" },
   };
 
   return categoriasFixas[nomeNormalizado] || null;
@@ -1517,6 +1615,7 @@ function normalizarTipoUsoCategoria(tipoUso) {
   if (["trabalho", "uso_trabalho", "uso a trabalho"].includes(valor)) return "trabalho";
   if (["pessoal", "uso_pessoal", "uso pessoal"].includes(valor)) return "pessoal";
   if (["rateada", "rateado", "calculada", "calculado", "calculada_pelo_uso", "uso_veiculo"].includes(valor)) return "rateada";
+  if (["proporcional", "uso_proporcional", "proporcao_tag"].includes(valor)) return "proporcional";
 
   return "opcional";
 }

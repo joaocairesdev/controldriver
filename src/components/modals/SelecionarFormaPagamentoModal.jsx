@@ -34,9 +34,6 @@ export default function SelecionarFormaPagamentoModal({
               }`}
             >
               <p className="font-bold">{item.titulo}</p>
-              {item.descricao ? (
-                <p className="text-xs text-gray-400 mt-1">{item.descricao}</p>
-              ) : null}
             </button>
           );
         })}

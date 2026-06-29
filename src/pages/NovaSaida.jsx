@@ -143,6 +143,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
 
   const isAbastecimento = categoria === "Abastecimento";
   const isManutencao = categoria === "Manutenção";
+  const isManutencaoCompleta = categoriaInicial === "Manutenção" && categoria === "Manutenção";
   const isCredito = formaPagamento === "credito_avista" || formaPagamento === "credito_parcelado";
   const isCreditoParcelado = formaPagamento === "credito_parcelado";
   const isBoleto = formaPagamento === "boleto";
@@ -884,7 +885,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         await salvarDetalhesAbastecimento(saidaCriada.id);
       }
 
-      if (isManutencao) {
+      if (isManutencaoCompleta) {
         await salvarDetalhesManutencao(saidaCriada.id);
       }
 
@@ -1238,7 +1239,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   }
 
   function renderCamposManutencao() {
-    if (!isManutencao) return null;
+    if (!isManutencaoCompleta) return null;
 
     return (
       <section className="mt-8 bg-[#111827] border border-gray-800 rounded-2xl p-6">
@@ -1327,13 +1328,15 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
 
         <div>
           <h1 className="text-3xl font-bold">
-            {isAbastecimento ? "Novo Abastecimento" : "Nova Saída"}
+            {isAbastecimento ? "Novo Abastecimento" : isManutencaoCompleta ? "Nova Manutenção" : "Nova Saída"}
           </h1>
 
           <p className="text-gray-400 mt-1">
             {isAbastecimento
               ? "Registre combustível e atualize km/odômetro do veículo"
-              : "Registre despesas gerais e manutenções"}
+              : isManutencaoCompleta
+              ? "Registre uma manutenção completa com histórico do veículo"
+              : "Registre despesas gerais"}
           </p>
         </div>
       </div>

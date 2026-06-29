@@ -6,12 +6,12 @@ import {
   FiSettings,
   FiShield,
   FiSmartphone,
-  FiTag,
   FiTrash2,
   FiUser,
   FiX,
 } from "react-icons/fi";
 import { supabase } from "../services/supabase";
+import { isCategoriaSistemaFixa, tipoUsoCategoriaFixa, normalizarCategoria } from "../utils/categoriasSistema";
 import ModalBase from "../components/modals/ModalBase";
 import FeedbackModal from "../components/modals/FeedbackModal";
 
@@ -38,11 +38,10 @@ const ABAS_CONFIGURACOES = [
   { id: "perfil", titulo: "Perfil", icone: <FiUser /> },
   { id: "seguranca", titulo: "Privacidade e segurança", icone: <FiShield /> },
   { id: "aplicativo", titulo: "Aplicativo", icone: <FiSmartphone /> },
-  { id: "categorias", titulo: "Categorias", icone: <FiTag /> },
 ];
 
 export default function Categorias() {
-  const [abaAtiva, setAbaAtiva] = useState("categorias");
+  const [abaAtiva, setAbaAtiva] = useState("aplicativo");
   const [categorias, setCategorias] = useState([]);
   const [carregando, setCarregando] = useState(true);
 
@@ -53,6 +52,8 @@ export default function Categorias() {
   const [nome, setNome] = useState("");
   const [tipoUso, setTipoUso] = useState("trabalho");
   const [salvando, setSalvando] = useState(false);
+  const [fusoHorario, setFusoHorario] = useState(() => localStorage.getItem("controldriver_fuso_horario") || Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo");
+  const [temaApp, setTemaApp] = useState(() => localStorage.getItem("controldriver_tema") || "escuro");
 
   const [modoGerenciamento, setModoGerenciamento] = useState("normal");
   const [selecionadas, setSelecionadas] = useState([]);
@@ -69,6 +70,15 @@ export default function Categorias() {
     carregarCategorias();
   }, []);
 
+  useEffect(() => {
+    localStorage.setItem("controldriver_fuso_horario", fusoHorario);
+  }, [fusoHorario]);
+
+  useEffect(() => {
+    localStorage.setItem("controldriver_tema", temaApp);
+    document.documentElement.dataset.theme = temaApp;
+  }, [temaApp]);
+
   const categoriasOrdenadas = useMemo(
     () =>
       [...categorias].sort((a, b) =>
@@ -79,14 +89,30 @@ export default function Categorias() {
     [categorias]
   );
 
+  const nomesAntigosCategoriasSistema = useMemo(
+    () =>
+      new Set([
+        "pedagio de uso a trabalho",
+        "pedagio de uso pessoal",
+        "estacionamento de uso a trabalho",
+        "estacionamento de uso pessoal",
+      ].map(normalizarCategoria)),
+    []
+  );
+
+  const categoriasSemDuplicadasAntigas = useMemo(
+    () => categoriasOrdenadas.filter((item) => !nomesAntigosCategoriasSistema.has(normalizarCategoria(item.nome))),
+    [categoriasOrdenadas, nomesAntigosCategoriasSistema]
+  );
+
   const categoriasAtivas = useMemo(
-    () => categoriasOrdenadas.filter((item) => item.ativo),
-    [categoriasOrdenadas]
+    () => categoriasSemDuplicadasAntigas.filter((item) => item.ativo),
+    [categoriasSemDuplicadasAntigas]
   );
 
   const categoriasGerenciamento = useMemo(
-    () => categoriasOrdenadas,
-    [categoriasOrdenadas]
+    () => categoriasSemDuplicadasAntigas,
+    [categoriasSemDuplicadasAntigas]
   );
 
   function normalizarTexto(valor) {
@@ -127,6 +153,7 @@ export default function Categorias() {
   }
 
   function dadosTipoUso(valor) {
+    if (valor === "proporcional") return { valor: "proporcional", titulo: "Uso proporcional" };
     return TIPOS_USO.find((item) => item.valor === valor) || TIPOS_USO[2];
   }
 
@@ -138,6 +165,7 @@ export default function Categorias() {
     if (valor === "trabalho") return "text-green-400";
     if (valor === "pessoal") return "text-blue-400";
     if (valor === "opcional") return "text-purple-400";
+    if (valor === "proporcional") return "text-cyan-400";
     return "text-yellow-400";
   }
 
@@ -151,7 +179,7 @@ export default function Categorias() {
   function abrirEditar(categoria) {
     setEditando(categoria);
     setNome(categoria.nome || "");
-    setTipoUso(categoria.tipo_uso || "rateada");
+    setTipoUso(isCategoriaSistemaFixa(categoria.nome) ? tipoUsoCategoriaFixa(categoria.nome) : categoria.tipo_uso || "rateada");
     setModalCadastroAberto(true);
   }
 
@@ -215,7 +243,7 @@ export default function Categorias() {
       if (editando) {
         const { error } = await supabase
           .from("categorias")
-          .update({ nome: nomeLimpo, tipo_uso: tipoUso })
+          .update({ nome: nomeLimpo, tipo_uso: isCategoriaSistemaFixa(editando.nome) ? tipoUsoCategoriaFixa(editando.nome) : tipoUso })
           .eq("id", editando.id);
 
         if (error) throw error;
@@ -425,7 +453,52 @@ export default function Categorias() {
         </div>
       </div>
 
-      {abaAtiva !== "categorias" && (
+      {abaAtiva === "aplicativo" && (
+        <div className="mt-6 rounded-2xl border border-gray-800 bg-[#111827] p-6 space-y-5">
+          <div>
+            <h2 className="text-xl font-bold">Aplicativo</h2>
+            <p className="text-gray-400 mt-1">Ajustes gerais de data, horário e visual do ControlDriver.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4">
+              <p className="text-sm font-bold text-white">Fuso horário</p>
+              <p className="text-xs text-gray-500 mt-1">Usado como base para datas e horários do aplicativo.</p>
+              <select
+                value={fusoHorario}
+                onChange={(e) => setFusoHorario(e.target.value)}
+                className="w-full mt-3 bg-[#111827] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
+              >
+                <option value="America/Sao_Paulo">America/Sao_Paulo</option>
+                <option value="America/Manaus">America/Manaus</option>
+                <option value="America/Cuiaba">America/Cuiaba</option>
+                <option value="America/Rio_Branco">America/Rio_Branco</option>
+                <option value="UTC">UTC</option>
+              </select>
+            </div>
+
+            <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4">
+              <p className="text-sm font-bold text-white">Tema</p>
+              <p className="text-xs text-gray-500 mt-1">Escolha entre modo escuro ou claro.</p>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                {[{ valor: "escuro", titulo: "Escuro" }, { valor: "claro", titulo: "Claro" }].map((tema) => (
+                  <button
+                    key={tema.valor}
+                    type="button"
+                    onClick={() => setTemaApp(tema.valor)}
+                    className={`rounded-xl border p-3 font-bold transition ${temaApp === tema.valor ? "border-green-400 bg-green-500/10 text-green-400" : "border-gray-700 text-gray-300 hover:bg-white/5"}`}
+                  >
+                    {tema.titulo}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-yellow-400 mt-3">O seletor já fica salvo. A aplicação visual completa do tema claro entra na próxima etapa de layout.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {abaAtiva !== "aplicativo" && (
         <div className="mt-6 rounded-2xl border border-gray-800 bg-[#111827] p-6">
           <div className="w-12 h-12 rounded-xl bg-gray-500/10 border border-gray-700 flex items-center justify-center text-gray-400">
             <FiLock />
@@ -524,6 +597,9 @@ export default function Categorias() {
 
           <div>
             <p className="text-sm text-gray-300">Tipo de uso padrão</p>
+            {editando && isCategoriaSistemaFixa(editando.nome) && (
+              <p className="text-xs text-yellow-400 mt-1">Categoria fixa do sistema: o tipo de uso não pode ser alterado.</p>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
               {TIPOS_USO.map((tipo) => {
                 const ativo = tipoUso === tipo.valor;
@@ -532,8 +608,9 @@ export default function Categorias() {
                   <button
                     key={tipo.valor}
                     type="button"
-                    onClick={() => setTipoUso(tipo.valor)}
-                    className={`rounded-xl border p-4 text-left transition ${
+                    onClick={() => !(editando && isCategoriaSistemaFixa(editando.nome)) && setTipoUso(tipo.valor)}
+                    disabled={editando && isCategoriaSistemaFixa(editando.nome)}
+                    className={`rounded-xl border p-4 text-left transition disabled:opacity-60 disabled:cursor-not-allowed ${
                       ativo
                         ? "border-green-400 bg-green-500/10"
                         : "border-gray-700 bg-[#0B1120] hover:bg-white/5"

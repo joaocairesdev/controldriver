@@ -1496,26 +1496,15 @@ export default function Veiculos() {
                 </div>
               </div>
 
-              <div className="mt-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <ResumoCard titulo="KM inicial" valor={`${kmInicial.toLocaleString("pt-BR")} km`} pequeno />
-                <ResumoCard titulo="KM atual" valor={`${kmAtual.toLocaleString("pt-BR")} km`} pequeno />
-
-                <div className="sm:col-span-2 bg-[#0B1120] border border-gray-800 rounded-2xl p-4 sm:p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-sm text-gray-400">Total de KM rodados</p>
-                      <p className="text-2xl font-bold mt-1">{totalRodado.toLocaleString("pt-BR")} km</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3 mt-5">
-                    <MiniCard titulo="Uso pessoal" valor={`${kmPessoal.toLocaleString("pt-BR")} km`} />
-                    <MiniCard titulo="Uso trabalho" valor={`${kmTrabalho.toLocaleString("pt-BR")} km`} />
-                  </div>
+              <div className="mt-7 rounded-2xl border border-gray-800 bg-[#0B1120] p-4 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm text-gray-400">Resumo interno</p>
+                  <p className="text-sm text-gray-500 mt-1">KM, uso pessoal/trabalho e histórico ficam nos detalhes.</p>
                 </div>
+                <span className="text-green-400 font-bold text-sm whitespace-nowrap">Ver detalhes</span>
               </div>
 
-              <p className="text-xs text-gray-500 mt-6">Clique para ver o histórico do carro.</p>
+              <p className="text-xs text-gray-500 mt-6">Clique para abrir os dados completos do carro.</p>
             </div>
           );
         })}

@@ -10,11 +10,11 @@ export const TIPOS_USO_CATEGORIA = [
 export const CATEGORIAS_SISTEMA_FIXAS = [
   { nome: "Abastecimento", tipo_uso: "rateada" },
   { nome: "Manutenção", tipo_uso: "rateada" },
-  { nome: "Pedágio de uso pessoal", tipo_uso: "pessoal" },
-  { nome: "Pedágio de uso a trabalho", tipo_uso: "trabalho" },
-  { nome: "Estacionamento de uso pessoal", tipo_uso: "pessoal" },
-  { nome: "Estacionamento de uso a trabalho", tipo_uso: "trabalho" },
-  { nome: "Mensalidade da TAG", tipo_uso: "rateada" },
+  { nome: "Pedágio (Pessoal)", tipo_uso: "pessoal" },
+  { nome: "Pedágio (Trabalho)", tipo_uso: "trabalho" },
+  { nome: "Estacionamento (Pessoal)", tipo_uso: "pessoal" },
+  { nome: "Estacionamento (Trabalho)", tipo_uso: "trabalho" },
+  { nome: "Mensalidade da TAG", tipo_uso: "proporcional" },
 ];
 
 export function normalizarCategoria(valor) {
@@ -46,7 +46,7 @@ export function tipoUsoCategoriaFixa(nome) {
 export function tituloTipoUsoCategoria(valor) {
   return (
     TIPOS_USO_CATEGORIA.find((item) => item.valor === valor)?.titulo ||
-    "Escolher no lançamento"
+    (valor === "proporcional" ? "Uso proporcional" : "Escolher no lançamento")
   );
 }
 
@@ -54,5 +54,6 @@ export function corTextoTipoUsoCategoria(valor) {
   if (valor === "trabalho") return "text-green-400";
   if (valor === "pessoal") return "text-blue-400";
   if (valor === "opcional") return "text-purple-400";
+  if (valor === "proporcional") return "text-cyan-400";
   return "text-yellow-400";
 }
