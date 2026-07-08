@@ -15,8 +15,9 @@ import DatePickerModal from "../components/modals/DatePickerModal";
 import SelecionarContaModal from "../components/modals/SelecionarContaModal";
 import FeedbackModal from "../components/modals/FeedbackModal";
 import ConfirmacaoModal from "../components/modals/ConfirmacaoModal";
-import DetalheFaturaModal from "../components/modals/DetalheFaturaModal";
-import RegistrarPagamentoModal from "../components/modals/RegistrarPagamentoModal";
+import DetalheFaturaModal from "../cartoes/components/DetalheFaturaModal";
+import RegistrarPagamentoModal from "../contas/components/RegistrarPagamentoModal";
+import { detalheCartao } from "../cartoes/cartoesUtils";
 
 const HOJE = new Date().toISOString().split("T")[0];
 const PROXIMOS_DIAS = 7;
@@ -158,7 +159,8 @@ export default function ContasPagar() {
         cartoes (
           id,
           nome,
-          final_cartao
+          final_cartao,
+          tipo_cartao
         )
       `)
       .in("status", ["aberta", "fechada", "parcial"])
@@ -318,7 +320,7 @@ export default function ContasPagar() {
           id: `fatura-${fatura.id}`,
           tipo: "fatura",
           titulo: fatura.cartoes?.nome || "Cartão",
-          detalhe: `Final ${fatura.cartoes?.final_cartao || "-"}`,
+          detalhe: detalheCartao(fatura.cartoes),
           valor: saldo,
           data: fatura.data_vencimento,
           dias,
@@ -462,6 +464,7 @@ export default function ContasPagar() {
       id: item.original.cartao_id,
       nome: item.original.cartoes?.nome || "Cartão",
       final_cartao: item.original.cartoes?.final_cartao,
+      tipo_cartao: item.original.cartoes?.tipo_cartao,
     };
   }
 

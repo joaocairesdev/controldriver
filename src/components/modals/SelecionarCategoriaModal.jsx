@@ -29,7 +29,7 @@ export default function SelecionarCategoriaModal({
       <ModalBase
         aberto={aberto}
         titulo="Escolher categoria"
-        descricao="Primeiro escolha a categoria da despesa. Ela define como o app vai classificar o lançamento."
+        descricao="Escolha a categoria da despesa. Ela define como o app vai classificar o lançamento."
         onClose={fechar}
         z="z-[300]"
         acaoCabecalho={

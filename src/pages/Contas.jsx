@@ -9,7 +9,7 @@ import {
 } from "react-icons/fi";
 import { supabase } from "../services/supabase";
 import ModalBase from "../components/modals/ModalBase";
-import ModalExtratoConta from "../components/modals/ModalExtratoConta";
+import ModalExtratoConta from "../contas/components/ModalExtratoConta";
 import { formatarDataBR } from "../utils/data";
 
 export default function Contas() {
@@ -266,24 +266,6 @@ export default function Contas() {
     const limiteNumero = permitirSaldoNegativo
       ? moedaParaNumero(limiteChequeEspecial)
       : 0;
-
-    if (saldoInicialNumero < 0 && !permitirSaldoNegativo) {
-      abrirAviso(
-        "Saldo negativo",
-        "Para criar uma conta bancária já negativa, ative o cheque especial.",
-        "erro",
-      );
-      return;
-    }
-
-    if (permitirSaldoNegativo && limiteNumero <= 0) {
-      abrirAviso(
-        "Limite obrigatório",
-        "Informe o limite do cheque especial ou desative a opção de saldo negativo.",
-        "erro",
-      );
-      return;
-    }
 
     const { data: contasMesmoNome } = await supabase
       .from("contas")
@@ -858,17 +840,12 @@ export default function Contas() {
               onChange={(e) => {
                 const valorFormatado = formatarMoedaDigitada(e.target.value, true);
                 setSaldoInicial(valorFormatado);
-
-                const valorNumero = moedaParaNumero(valorFormatado);
-                if (valorNumero < 0 && !permitirSaldoNegativo) {
-                  setPermitirSaldoNegativo(true);
-                }
               }}
               className="w-full bg-transparent p-3 outline-none"
             />
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Para banco já negativo, digite com sinal de menos e configure o cheque especial.
+            Para banco já negativo, digite com sinal de menos. O cheque especial é opcional.
           </p>
         </div>
 
@@ -876,7 +853,7 @@ export default function Contas() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="font-black text-white">Permitir saldo negativo</p>
-              <p className="text-xs text-gray-400 mt-1">Use para contas com cheque especial.</p>
+              <p className="text-xs text-gray-400 mt-1">Ative somente se quiser informar um limite de cheque especial.</p>
             </div>
 
             <button
@@ -900,7 +877,7 @@ export default function Contas() {
 
           {permitirSaldoNegativo && (
             <div className="mt-4">
-              <label className="text-sm text-gray-300 font-semibold">Limite do Cheque Especial</label>
+              <label className="text-sm text-gray-300 font-semibold">Limite do Cheque Especial (opcional)</label>
               <div className="flex items-center mt-2 bg-[#111827] border border-gray-700 focus-within:border-yellow-500 rounded-xl overflow-hidden transition">
                 <span className="px-3 text-gray-400">R$</span>
                 <input
@@ -985,7 +962,7 @@ export default function Contas() {
       )}
 
       {modalAviso.aberto && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100]">
           <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-2xl p-6">
             <h2
               className={`text-2xl font-bold ${
@@ -1028,7 +1005,7 @@ function ModalConfirmacao({
   const corTitulo = cor === "red" ? "text-red-400" : "text-green-400";
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100]">
       <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-2xl p-6">
         <h2 className={`text-2xl font-bold ${corTitulo}`}>{titulo}</h2>
         <p className="text-gray-300 mt-4">{texto}</p>

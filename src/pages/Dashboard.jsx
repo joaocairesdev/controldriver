@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FiChevronDown, FiChevronRight, FiEye, FiEyeOff, FiSettings } from "react-icons/fi";
 import { supabase } from "../services/supabase";
+import { detalheCartao } from "../cartoes/cartoesUtils";
 
 import uberIcon from "../assets/plataformas/uber.png";
 import noveNoveIcon from "../assets/plataformas/99.png";
@@ -271,7 +272,8 @@ export default function Dashboard() {
         status,
         cartoes (
           nome,
-          final_cartao
+          final_cartao,
+          tipo_cartao
         )
       `)
       .in("status", ["aberta", "fechada", "parcial"])
@@ -293,7 +295,7 @@ export default function Dashboard() {
       id: `fatura-${fatura.id}`,
       tipo: "Fatura",
       titulo: fatura.cartoes?.nome || "Cartão",
-      subtitulo: fatura.cartoes?.final_cartao ? `Final ${fatura.cartoes.final_cartao}` : "Cartão de crédito",
+      subtitulo: detalheCartao(fatura.cartoes),
       data: fatura.data_vencimento,
       valor: Math.max(Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0), 0),
     }));
@@ -328,7 +330,8 @@ export default function Dashboard() {
         status,
         cartoes (
           nome,
-          final_cartao
+          final_cartao,
+          tipo_cartao
         )
       `)
       .in("status", ["aberta", "fechada", "parcial"])
@@ -349,7 +352,7 @@ export default function Dashboard() {
       id: `fatura-atrasada-${fatura.id}`,
       tipo: "Fatura",
       titulo: fatura.cartoes?.nome || "Cartão",
-      subtitulo: fatura.cartoes?.final_cartao ? `Final ${fatura.cartoes.final_cartao}` : "Cartão de crédito",
+      subtitulo: detalheCartao(fatura.cartoes),
       data: fatura.data_vencimento,
       valor: Math.max(Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0), 0),
     }));

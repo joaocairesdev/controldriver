@@ -11,15 +11,17 @@ import {
   FiMoreHorizontal,
   FiPlusCircle,
   FiCalendar,
+  FiClipboard,
 } from "react-icons/fi";
 
-import TagModal from "../components/modals/TagModal";
-import TransferenciaModal from "../components/modals/TransferenciaModal";
-import EntradaAvulsaModal from "../components/modals/EntradaAvulsaModal";
-import SaidaModal from "../components/modals/SaidaModal";
-import AbastecimentoOuRecargaModal from "../components/modals/AbastecimentoOuRecargaModal";
-import ManutencaoModal from "../components/modals/ManutencaoModal";
-import GanhosPlataformaModal from "../components/modals/GanhosPlataformaModal";
+import TagModal from "../tag/components/TagModal";
+import TransferenciaModal from "../transferencias/components/TransferenciaModal";
+import EntradaAvulsaModal from "../entradas/components/EntradaAvulsaModal";
+import SaidaModal from "../saidas/components/SaidaModal";
+import AbastecimentoOuRecargaModal from "../abastecimentos/components/AbastecimentoOuRecargaModal";
+import ManutencaoModal from "../manutencoes/components/ManutencaoModal";
+import GanhosPlataformaModal from "../entradas/components/GanhosPlataformaModal";
+import ModalBase from "../components/modals/ModalBase";
 
 export default function NovoLancamento({
   abrirVendaProdutos,
@@ -36,6 +38,8 @@ export default function NovoLancamento({
   const [carregandoTag, setCarregandoTag] = useState(true);
 
   const [modalAbastecimentoAberto, setModalAbastecimentoAberto] = useState(false);
+  const [modalEscolhaManutencaoAberto, setModalEscolhaManutencaoAberto] = useState(false);
+  const [modalManutencaoSimplesAberto, setModalManutencaoSimplesAberto] = useState(false);
   const [modalManutencaoAberto, setModalManutencaoAberto] = useState(false);
 
   const [modalOutrasDespesasAberto, setModalOutrasDespesasAberto] =
@@ -121,7 +125,7 @@ export default function NovoLancamento({
       descricao: "Serviços, revisões e peças",
       icon: <FiTool />,
       cor: "yellow",
-      acao: () => setModalManutencaoAberto(true),
+      acao: () => setModalEscolhaManutencaoAberto(true),
     },
     ...(!carregandoTag && possuiTagCadastrada
       ? [
@@ -213,6 +217,28 @@ slate: "border-slate-500 bg-slate-500/10 text-slate-300",
         onClose={() => setModalAbastecimentoAberto(false)}
       />
 
+      <EscolhaManutencaoModal
+        aberto={modalEscolhaManutencaoAberto}
+        onClose={() => setModalEscolhaManutencaoAberto(false)}
+        onRegistroSimples={() => {
+          setModalEscolhaManutencaoAberto(false);
+          setModalManutencaoSimplesAberto(true);
+        }}
+        onRegistroCompleto={() => {
+          setModalEscolhaManutencaoAberto(false);
+          setModalManutencaoAberto(true);
+        }}
+      />
+
+      <SaidaModal
+        aberto={modalManutencaoSimplesAberto}
+        onClose={() => setModalManutencaoSimplesAberto(false)}
+        titulo="Manutenção (Registrar Despesa)"
+        descricaoModal="Registre os gastos com peças, mão de obra e outros custos relacionados à manutenção."
+        categoriaInicial="Manutenção"
+        categoriaBloqueada={true}
+      />
+
       <ManutencaoModal
         aberto={modalManutencaoAberto}
         onClose={() => setModalManutencaoAberto(false)}
@@ -233,6 +259,55 @@ slate: "border-slate-500 bg-slate-500/10 text-slate-300",
         modo="futura"
       />
     </div>
+  );
+}
+
+function EscolhaManutencaoModal({
+  aberto,
+  onClose,
+  onRegistroSimples,
+  onRegistroCompleto,
+}) {
+  if (!aberto) return null;
+
+  return (
+    <ModalBase
+      aberto={aberto}
+      titulo="Manutenção"
+      descricao="Escolha entre registrar uma despesa ou atualizar o histórico de manutenções do veículo."
+      onClose={onClose}
+      largura="max-w-2xl"
+    >
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <button
+          type="button"
+          onClick={onRegistroSimples}
+          className="rounded-2xl border border-yellow-500 bg-yellow-500/10 p-5 text-left hover:scale-[1.02] transition"
+        >
+          <div className="w-12 h-12 rounded-xl border border-yellow-500/60 bg-yellow-500/10 text-yellow-400 flex items-center justify-center text-2xl mb-4">
+            <FiClipboard />
+          </div>
+          <h3 className="text-lg font-black text-white">Registrar Despesa</h3>
+          <p className="text-sm text-gray-400 mt-2">
+            Registre os gastos com peças, mão de obra e outros custos relacionados à manutenção.
+          </p>
+        </button>
+
+        <button
+          type="button"
+          onClick={onRegistroCompleto}
+          className="rounded-2xl border border-green-500 bg-green-500/10 p-5 text-left hover:scale-[1.02] transition"
+        >
+          <div className="w-12 h-12 rounded-xl border border-green-500/60 bg-green-500/10 text-green-400 flex items-center justify-center text-2xl mb-4">
+            <FiTool />
+          </div>
+          <h3 className="text-lg font-black text-white">Atualizar Histórico</h3>
+          <p className="text-sm text-gray-400 mt-2">
+            Informe os serviços realizados para manter o histórico de manutenções do veículo atualizado.
+          </p>
+        </button>
+      </div>
+    </ModalBase>
   );
 }
 

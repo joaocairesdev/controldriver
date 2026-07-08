@@ -3,16 +3,17 @@ import { FiArrowDown, FiArrowRight, FiArrowUp, FiFilter, FiSearch, FiSettings } 
 import { supabase } from "../services/supabase";
 import SelecionarCategoriaModal from "../components/modals/SelecionarCategoriaModal";
 import SelecionarFormaPagamentoModal from "../components/modals/SelecionarFormaPagamentoModal";
-import DetalhesLancamentoModal from "../components/modals/DetalhesLancamentoModal";
+import DetalhesLancamentoModal from "../extrato/components/DetalhesLancamentoModal";
 import ConfirmacaoModal from "../components/modals/ConfirmacaoModal";
 import FeedbackModal from "../components/modals/FeedbackModal";
-import EntradaAvulsaModal from "../components/modals/EntradaAvulsaModal";
-import TransferenciaModal from "../components/modals/TransferenciaModal";
-import GanhosPlataformaModal from "../components/modals/GanhosPlataformaModal";
-import SaidaModal from "../components/modals/SaidaModal";
-import AbastecimentoOuRecargaModal from "../components/modals/AbastecimentoOuRecargaModal";
-import ManutencaoModal from "../components/modals/ManutencaoModal";
-import TagModal from "../components/modals/TagModal";
+import EntradaAvulsaModal from "../entradas/components/EntradaAvulsaModal";
+import TransferenciaModal from "../transferencias/components/TransferenciaModal";
+import GanhosPlataformaModal from "../entradas/components/GanhosPlataformaModal";
+import SaidaModal from "../saidas/components/SaidaModal";
+import AbastecimentoOuRecargaModal from "../abastecimentos/components/AbastecimentoOuRecargaModal";
+import ManutencaoModal from "../manutencoes/components/ManutencaoModal";
+import TagModal from "../tag/components/TagModal";
+import { nomeCartaoComFinal } from "../cartoes/cartoesUtils";
 
 const ITENS_POR_PAGINA_PADRAO = 30;
 
@@ -189,7 +190,7 @@ export default function Extrato() {
       conta_pagar_origem_id,
       fatura_pagamento_id,
       contas ( nome ),
-      cartoes ( nome, final_cartao )
+      cartoes ( nome, final_cartao, tipo_cartao )
     `);
 
     const idsSaidas = (saidasData || []).map((s) => s.id);
@@ -326,9 +327,7 @@ export default function Extrato() {
           : ["credito", "credito_avista", "credito_parcelado"].includes(
               saida.forma_pagamento
             )
-          ? `${saida.cartoes?.nome || "Cartão"} final ${
-              saida.cartoes?.final_cartao || ""
-            }`
+          ? nomeCartaoComFinal(saida.cartoes)
           : saida.contas?.nome || "Conta";
 
       return {

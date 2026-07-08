@@ -8,6 +8,8 @@ export default function DatePickerModal({
   onClose,
   titulo = "Selecionar data",
   descricao = "Escolha a data do lançamento.",
+  minDate = null,
+  maxDate = null,
 }) {
   const meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
   const diasSemana = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -31,6 +33,13 @@ export default function DatePickerModal({
 
   function dataISO(date) {
     return date.toISOString().split("T")[0];
+  }
+
+  function dataBloqueada(data) {
+    if (!data) return false;
+    if (minDate && data < minDate) return true;
+    if (maxDate && data > maxDate) return true;
+    return false;
   }
 
   function alterarMes(delta) {
@@ -66,14 +75,16 @@ export default function DatePickerModal({
   }
 
   function selecionarDia(dia) {
-    const data = new Date(ano, mes, dia);
-    onChange(dataISO(data));
+    const data = dataISO(new Date(ano, mes, dia));
+    if (dataBloqueada(data)) return;
+    onChange(data);
     onClose();
   }
 
   function selecionarHoje() {
-    const hoje = new Date();
-    onChange(dataISO(hoje));
+    const hoje = dataISO(new Date());
+    if (dataBloqueada(hoje)) return;
+    onChange(hoje);
     onClose();
   }
 
@@ -105,7 +116,7 @@ export default function DatePickerModal({
 
       {modo === "calendario" && (
         <>
-          <button type="button" onClick={selecionarHoje} className="mt-3 text-sm text-green-400 hover:text-green-300 font-semibold">Hoje</button>
+          <button type="button" onClick={selecionarHoje} disabled={dataBloqueada(dataISO(new Date()))} className="mt-3 text-sm text-green-400 hover:text-green-300 disabled:text-gray-600 disabled:cursor-not-allowed font-semibold">Hoje</button>
 
           <div className="grid grid-cols-7 gap-1.5 mt-4 min-h-[292px]">
             {diasSemana.map((dia) => (
@@ -116,14 +127,18 @@ export default function DatePickerModal({
               if (!dia) return <div key={`vazio-${index}`} className="h-10" />;
               const dataDia = dataISO(new Date(ano, mes, dia));
               const ativo = valor === dataDia;
+              const bloqueado = dataBloqueada(dataDia);
 
               return (
                 <button
                   key={dataDia}
                   type="button"
                   onClick={() => selecionarDia(dia)}
+                  disabled={bloqueado}
                   className={`h-10 rounded-lg border text-xs font-bold transition ${
-                    ativo
+                    bloqueado
+                      ? "border-gray-800 bg-[#0B1120]/40 text-gray-700 cursor-not-allowed"
+                      : ativo
                       ? "border-green-400 bg-green-500/10 text-green-400"
                       : "border-gray-700 bg-[#0B1120] text-white hover:bg-white/5"
                   }`}

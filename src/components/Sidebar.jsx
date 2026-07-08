@@ -8,6 +8,7 @@ import {
   FiTruck,
   FiAlertTriangle,
   FiSettings,
+  FiRefreshCw,
 } from "react-icons/fi";
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.0.0";
@@ -35,6 +36,7 @@ export default function Sidebar({ setPagina, paginaAtual }) {
     { nome: "Dashboard", pagina: "dashboard", icone: <FiHome /> },
     { nome: "Extrato", pagina: "extrato", icone: <FiFileText /> },
     { nome: "Contas a Pagar", pagina: "contas-pagar", icone: <FiAlertTriangle /> },
+    { nome: "Renegociações", pagina: "renegociacoes", icone: <FiRefreshCw /> },
     { nome: "Metas", pagina: "metas", icone: <FiTarget /> },
     { nome: "Contas", pagina: "contas", icone: <FiBriefcase /> },
     { nome: "Cartões", pagina: "cartoes", icone: <FiCreditCard /> },

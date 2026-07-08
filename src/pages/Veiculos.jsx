@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import TagModal from "../components/modals/TagModal";
-import VeiculoModal from "../components/modals/VeiculoModal";
+import TagModal from "../tag/components/TagModal";
+import VeiculoModal from "../veiculos/components/VeiculoModal";
 
 import SelecionarFormaPagamentoModal from "../components/modals/SelecionarFormaPagamentoModal";
 import SelecionarContaModal from "../components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../components/modals/SelecionarCartaoModal";
 import { FiArrowDown, FiArrowLeft, FiArrowUp, FiEdit2, FiShield, FiStar, FiTag, FiTrash2, FiX } from "react-icons/fi";
+import { nomeCartaoComFinal, ajustarVencimentoFimDeSemana } from "../cartoes/cartoesUtils";
 
 export default function Veiculos() {
   const [veiculos, setVeiculos] = useState([]);
@@ -134,7 +135,7 @@ export default function Veiculos() {
   function textoCartaoRecargaTag(id) {
     const cartao = cartoes.find((item) => String(item.id) === String(id));
     if (!cartao) return "Selecionar cartão";
-    return `${cartao.nome} final ${cartao.final_cartao || "-"}`;
+    return nomeCartaoComFinal(cartao);
   }
 
   function textoFormaPagamentoProtecao(valor) {
@@ -148,7 +149,7 @@ export default function Veiculos() {
   function textoCartaoProtecao(id) {
     const cartao = cartoes.find((item) => String(item.id) === String(id));
     if (!cartao) return "Selecionar cartão";
-    return `${cartao.nome} final ${cartao.final_cartao || "-"}`;
+    return nomeCartaoComFinal(cartao);
   }
 
   function formatarMoeda(valor) {
@@ -683,10 +684,12 @@ export default function Veiculos() {
 
   async function buscarOuCriarFaturaProtecao({ cartao, dataBase }) {
     const competencia = calcularCompetenciaFaturaProtecao(dataBase, cartao);
-    const dataFechamento = dataComDiaSeguroProtecao(
-      competencia.anoFechamento,
-      competencia.mesFechamento,
-      cartao.dia_fechamento
+    const dataFechamento = ajustarVencimentoFimDeSemana(
+      dataComDiaSeguroProtecao(
+        competencia.anoFechamento,
+        competencia.mesFechamento,
+        cartao.dia_fechamento
+      )
     );
     const dataVencimento = dataComDiaSeguroProtecao(
       competencia.ano,
@@ -2152,7 +2155,7 @@ function ConfigurarTagModal({
   function textoCartao(id) {
     const cartao = cartoes.find((item) => String(item.id) === String(id));
     if (!cartao) return "Selecionar cartão";
-    return `${cartao.nome} final ${cartao.final_cartao || "-"}`;
+    return nomeCartaoComFinal(cartao);
   }
 
   function formatarMoedaLocal(valor) {

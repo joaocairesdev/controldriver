@@ -10,6 +10,7 @@ import SelecionarCartaoModal from "../components/modals/SelecionarCartaoModal";
 import SelecionarCombustivelModal from "../components/modals/SelecionarCombustivelModal";
 import SelecionarCategoriaModal from "../components/modals/SelecionarCategoriaModal";
 import SelecionarParcelasModal from "../components/modals/SelecionarParcelasModal";
+import { nomeCartaoComFinal, ajustarVencimentoFimDeSemana } from "../cartoes/cartoesUtils";
 
 export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   const hoje = new Date().toISOString().split("T")[0];
@@ -451,7 +452,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   function textoContaCartao() {
     if (isCredito) {
       if (!cartaoSelecionado) return "Selecionar cartão";
-      return `${cartaoSelecionado.nome} final ${cartaoSelecionado.final_cartao}`;
+      return nomeCartaoComFinal(cartaoSelecionado);
     }
 
     if (isDinheiro) {
@@ -627,10 +628,12 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   async function buscarOuCriarFatura({ cartao, dataBase }) {
     const competencia = calcularCompetenciaFatura(dataBase, cartao);
 
-    const dataFechamento = dataComDiaSeguro(
-      competencia.anoFechamento,
-      competencia.mesFechamento,
-      cartao.dia_fechamento
+    const dataFechamento = ajustarVencimentoFimDeSemana(
+      dataComDiaSeguro(
+        competencia.anoFechamento,
+        competencia.mesFechamento,
+        cartao.dia_fechamento
+      )
     );
 
     const dataVencimento = dataComDiaSeguro(

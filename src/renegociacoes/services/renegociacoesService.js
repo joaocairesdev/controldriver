@@ -1,0 +1,419 @@
+import { supabase } from "../../services/supabase";
+import { adicionarMeses } from "../utils/renegociacoesUtils";
+
+export async function carregarRenegociacoes() {
+  const { data, error } = await supabase
+    .from("renegociacoes")
+    .select("*")
+    .order("data_renegociacao", { ascending: false })
+    .order("id", { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function carregarItensRenegociacao(renegociacaoId) {
+  const { data, error } = await supabase
+    .from("renegociacoes_itens")
+    .select("*")
+    .eq("renegociacao_id", renegociacaoId)
+    .order("id");
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function carregarContasComSaldo() {
+  const { data: contasData, error } = await supabase
+    .from("contas")
+    .select("*")
+    .eq("ativo", true)
+    .order("nome");
+
+  if (error) throw error;
+
+  return Promise.all(
+    (contasData || []).map(async (conta) => {
+      const contaId = conta.id;
+
+      const { data: entradas } = await supabase
+        .from("entradas")
+        .select(`
+          entrada_plataformas (
+            faturamento,
+            valor_reembolso
+          )
+        `)
+        .eq("conta_id", contaId);
+
+      const totalEntradas = (entradas || []).reduce((total, entrada) => {
+        const totalPlataformas = (entrada.entrada_plataformas || []).reduce(
+          (soma, item) =>
+            soma +
+            Number(item.faturamento || 0) +
+            Number(item.valor_reembolso || 0),
+          0
+        );
+
+        return total + totalPlataformas;
+      }, 0);
+
+      const { data: entradasAvulsas } = await supabase
+        .from("entradas_avulsas")
+        .select("valor")
+        .eq("conta_id", contaId);
+
+      const totalEntradasAvulsas = (entradasAvulsas || []).reduce(
+        (total, entrada) => total + Number(entrada.valor || 0),
+        0
+      );
+
+      const { data: transferenciasRecebidas } = await supabase
+        .from("transferencias")
+        .select("valor")
+        .eq("conta_destino_id", contaId);
+
+      const totalTransferenciasRecebidas = (transferenciasRecebidas || []).reduce(
+        (total, transferencia) => total + Number(transferencia.valor || 0),
+        0
+      );
+
+      const { data: transferenciasEnviadas } = await supabase
+        .from("transferencias")
+        .select("valor")
+        .eq("conta_origem_id", contaId);
+
+      const totalTransferenciasEnviadas = (transferenciasEnviadas || []).reduce(
+        (total, transferencia) => total + Number(transferencia.valor || 0),
+        0
+      );
+
+      const { data: saidas } = await supabase
+        .from("saidas")
+        .select("valor_total, tipo_movimentacao")
+        .eq("conta_id", contaId);
+
+      const totalSaidas = (saidas || [])
+        .filter((saida) => saida.tipo_movimentacao !== "conta_pagar")
+        .reduce((total, saida) => total + Number(saida.valor_total || 0), 0);
+
+      const saldoAtual =
+        Number(conta.saldo_inicial || 0) +
+        totalEntradas +
+        totalEntradasAvulsas +
+        totalTransferenciasRecebidas -
+        totalSaidas -
+        totalTransferenciasEnviadas;
+
+      return {
+        ...conta,
+        tipo_conta: conta.tipo_conta || "banco",
+        saldo_atual: saldoAtual,
+      };
+    })
+  );
+}
+
+export async function carregarDividasDisponiveis() {
+  const [contas, cartoesResposta, faturasResposta, contasPagarResposta] = await Promise.all([
+    carregarContasComSaldo(),
+    supabase
+      .from("cartoes")
+      .select("*")
+      .order("nome"),
+    supabase
+      .from("faturas_cartao")
+      .select(`
+        *,
+        cartoes (
+          id,
+          nome,
+          final_cartao,
+          tipo_cartao,
+          limite_total
+        )
+      `)
+      .in("status", ["aberta", "fechada", "parcial"])
+      .order("data_vencimento", { ascending: true }),
+    supabase
+      .from("saidas")
+      .select("*")
+      .eq("tipo_movimentacao", "conta_pagar")
+      .in("status", ["aberto", "pendente", "parcial"])
+      .order("data_vencimento", { ascending: true }),
+  ]);
+
+  if (cartoesResposta.error) throw cartoesResposta.error;
+  if (faturasResposta.error) throw faturasResposta.error;
+  if (contasPagarResposta.error) throw contasPagarResposta.error;
+
+  const faturas = (faturasResposta.data || [])
+    .map((fatura) => {
+      const valorAberto = Math.max(
+        Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0),
+        0
+      );
+
+      return {
+        chave: `fatura-${fatura.id}`,
+        tipo: "fatura",
+        origem_id: fatura.id,
+        titulo: fatura.cartoes?.nome || "Cartão",
+        detalhe:
+          fatura.cartoes?.tipo_cartao === "terceiro"
+            ? "Cartão de terceiro"
+            : fatura.cartoes?.final_cartao
+            ? `Final ${fatura.cartoes.final_cartao}`
+            : "Cartão de crédito",
+        valor_aberto: valorAberto,
+        data_referencia: fatura.data_vencimento,
+        original: fatura,
+      };
+    })
+    .filter((item) => item.valor_aberto > 0);
+
+  const contasPagar = (contasPagarResposta.data || [])
+    .map((conta) => {
+      const valorAberto = Math.max(
+        Number(conta.valor_total || 0) - Number(conta.valor_pago || 0),
+        0
+      );
+
+      return {
+        chave: `conta-${conta.id}`,
+        tipo: "conta",
+        origem_id: conta.id,
+        titulo: conta.descricao || conta.categoria || "Conta a pagar",
+        detalhe: conta.categoria || "Boleto/conta",
+        valor_aberto: valorAberto,
+        data_referencia: conta.data_vencimento,
+        original: conta,
+      };
+    })
+    .filter((item) => item.valor_aberto > 0);
+
+  const contasNegativas = (contas || [])
+    .filter((conta) => {
+      const isTagPrePaga =
+        conta.tipo_conta === "tag" && (conta.tipo_tag || "pre_paga") === "pre_paga";
+
+      return !isTagPrePaga && Number(conta.saldo_atual || 0) < 0;
+    })
+    .map((conta) => ({
+      chave: `conta-negativa-${conta.id}`,
+      tipo: "conta_negativa",
+      origem_id: conta.id,
+      titulo: conta.nome || "Conta",
+      detalhe: "Saldo negativo",
+      valor_aberto: Math.abs(Number(conta.saldo_atual || 0)),
+      data_referencia: null,
+      original: conta,
+    }));
+
+  return {
+    contas,
+    cartoes: cartoesResposta.data || [],
+    dividas: [...contasNegativas, ...faturas, ...contasPagar],
+  };
+}
+
+export async function criarRenegociacao(payload) {
+  const {
+    credor,
+    dataRenegociacao,
+    formaPagamento,
+    contaDebitoId,
+    cartaoPagamentoId,
+    contaAjusteId,
+    saldoContaApos,
+    valorOriginal,
+    valorRenegociado,
+    valorEntrada,
+    numeroParcelas,
+    primeiroVencimento,
+    itens,
+  } = payload;
+
+  const { data: renegociacao, error: erroRenegociacao } = await supabase
+    .from("renegociacoes")
+    .insert({
+      credor,
+      data_renegociacao: dataRenegociacao,
+      forma_pagamento: formaPagamento,
+      conta_debito_id: contaDebitoId ? Number(contaDebitoId) : null,
+      conta_ajuste_id: contaAjusteId ? Number(contaAjusteId) : null,
+      saldo_conta_apos: saldoContaApos,
+      valor_original: valorOriginal,
+      valor_renegociado: valorRenegociado,
+      valor_entrada: valorEntrada,
+      numero_parcelas: numeroParcelas,
+      primeiro_vencimento: primeiroVencimento,
+      observacoes: null,
+      status: "ativa",
+    })
+    .select()
+    .single();
+
+  if (erroRenegociacao) throw erroRenegociacao;
+
+  const itensParaInserir = itens.map((item) => ({
+    renegociacao_id: renegociacao.id,
+    tipo_origem: item.tipo,
+    origem_id: item.origem_id,
+    titulo: item.titulo,
+    detalhe: item.detalhe,
+    tipo_renegociacao: item.tipo_renegociacao,
+    valor_original: Number(item.valor_aberto || 0),
+    valor_renegociado: Number(item.valor_renegociado || 0),
+    payload: item.original || null,
+  }));
+
+  const { error: erroItens } = await supabase
+    .from("renegociacoes_itens")
+    .insert(itensParaInserir);
+
+  if (erroItens) throw erroItens;
+
+  await marcarDividasComoRenegociadas(itens, renegociacao.id);
+
+  if (contaAjusteId && saldoContaApos !== null && saldoContaApos !== undefined) {
+    await ajustarSaldoConta(contaAjusteId, saldoContaApos, dataRenegociacao, credor, renegociacao.id);
+  }
+
+  await criarParcelasRenegociacao({
+    renegociacao,
+    credor,
+    valorRenegociado,
+    valorEntrada,
+    numeroParcelas,
+    primeiroVencimento,
+    formaPagamento,
+    contaDebitoId,
+    cartaoPagamentoId,
+  });
+
+  return renegociacao;
+}
+
+async function marcarDividasComoRenegociadas(itens, renegociacaoId) {
+  for (const item of itens) {
+    if (item.tipo === "fatura") {
+      await supabase
+        .from("faturas_cartao")
+        .update({ status: "renegociada", renegociacao_id: renegociacaoId })
+        .eq("id", item.origem_id);
+
+      const cartao = item.original?.cartoes;
+      const limiteInformado = item.novo_limite_total;
+
+      if (item.ajustar_limite && cartao?.id && limiteInformado !== null && limiteInformado !== undefined) {
+        await supabase
+          .from("cartoes")
+          .update({ limite_total: Number(limiteInformado || 0) })
+          .eq("id", cartao.id);
+      }
+    }
+
+    if (item.tipo === "conta") {
+      await supabase
+        .from("saidas")
+        .update({ status: "renegociada", renegociacao_id: renegociacaoId })
+        .eq("id", item.origem_id);
+    }
+  }
+}
+
+async function ajustarSaldoConta(contaId, saldoContaApos, dataRenegociacao, credor, renegociacaoId) {
+  const contas = await carregarContasComSaldo();
+  const conta = contas.find((item) => String(item.id) === String(contaId));
+  if (!conta) return;
+
+  const saldoAtual = Number(conta.saldo_atual || 0);
+  const saldoDesejado = Number(saldoContaApos || 0);
+  const diferenca = saldoDesejado - saldoAtual;
+
+  if (Math.abs(diferenca) < 0.01) return;
+
+  if (diferenca > 0) {
+    await supabase.from("entradas_avulsas").insert({
+      data: dataRenegociacao,
+      conta_id: Number(contaId),
+      valor: diferenca,
+      descricao: `Ajuste de saldo após renegociação - ${credor}`,
+      finalidade: "pessoal",
+      renegociacao_id: renegociacaoId,
+    });
+  } else {
+    await supabase.from("saidas").insert({
+      data_compra: dataRenegociacao,
+      data_efetivacao: dataRenegociacao,
+      conta_id: Number(contaId),
+      valor_total: Math.abs(diferenca),
+      categoria: "Ajuste de saldo",
+      descricao: `Ajuste de saldo após renegociação - ${credor}`,
+      forma_pagamento: "debito_conta",
+      tipo_movimentacao: "saida",
+      status: "pago",
+      finalidade: "pessoal",
+      renegociacao_id: renegociacaoId,
+    });
+  }
+}
+
+async function criarParcelasRenegociacao({
+  renegociacao,
+  credor,
+  valorRenegociado,
+  valorEntrada,
+  numeroParcelas,
+  primeiroVencimento,
+  formaPagamento,
+  contaDebitoId,
+  cartaoPagamentoId,
+}) {
+  const saldoParcelar = Math.max(Number(valorRenegociado || 0) - Number(valorEntrada || 0), 0);
+  const parcelas = Math.max(Number(numeroParcelas || 1), 1);
+  const valorParcela = parcelas > 0 ? saldoParcelar / parcelas : saldoParcelar;
+
+  if (Number(valorEntrada || 0) > 0) {
+    await supabase.from("saidas").insert({
+      data_compra: renegociacao.data_renegociacao,
+      data_efetivacao: renegociacao.data_renegociacao,
+      data_vencimento: renegociacao.data_renegociacao,
+      valor_total: Number(valorEntrada || 0),
+      valor_pago: Number(valorEntrada || 0),
+      categoria: "Renegociação",
+      descricao: `Entrada da renegociação - ${credor}`,
+      forma_pagamento: formaPagamento,
+      tipo_movimentacao: "renegociacao_entrada",
+      status: "pago",
+      conta_id: contaDebitoId ? Number(contaDebitoId) : null,
+      ...(cartaoPagamentoId ? { cartao_id: Number(cartaoPagamentoId) } : {}),
+      finalidade: "pessoal",
+      renegociacao_id: renegociacao.id,
+    });
+  }
+
+  if (saldoParcelar <= 0) return;
+
+  const saidas = Array.from({ length: parcelas }).map((_, indice) => ({
+    data_compra: renegociacao.data_renegociacao,
+    data_vencimento: adicionarMeses(primeiroVencimento, indice),
+    valor_total: valorParcela,
+    valor_pago: 0,
+    categoria: "Renegociação",
+    descricao: `Renegociação ${credor} - parcela ${indice + 1}/${parcelas}`,
+    forma_pagamento: formaPagamento,
+    tipo_movimentacao: "conta_pagar",
+    status: "pendente",
+    conta_id: contaDebitoId ? Number(contaDebitoId) : null,
+    ...(cartaoPagamentoId ? { cartao_id: Number(cartaoPagamentoId) } : {}),
+    finalidade: "pessoal",
+    numero_parcelas: parcelas,
+    valor_parcela: valorParcela,
+    renegociacao_id: renegociacao.id,
+  }));
+
+  const { error } = await supabase.from("saidas").insert(saidas);
+  if (error) throw error;
+}

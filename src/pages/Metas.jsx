@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FiChevronDown, FiChevronRight, FiClock, FiDollarSign } from "react-icons/fi";
 import { supabase } from "../services/supabase";
-import MetaModal from "../components/modals/MetaModal";
+import MetaModal from "../metas/components/MetaModal";
 
 const TIPOS_META = ["diaria", "semanal", "mensal", "anual"];
 const DIAS_SEMANA = [

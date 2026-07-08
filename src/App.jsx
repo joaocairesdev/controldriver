@@ -16,6 +16,7 @@ import Extrato from "./pages/Extrato";
 import ContasPagar from "./pages/ContasPagar";
 import Metas from "./pages/Metas";
 import Categorias from "./pages/Categorias";
+import Renegociacoes from "./renegociacoes/Renegociacoes";
 
 export default function App() {
   const [pagina, setPagina] = useState(() => {
@@ -278,6 +279,8 @@ export default function App() {
           {pagina === "contas" && <Contas />}
 
           {pagina === "contas-pagar" && <ContasPagar />}
+
+          {pagina === "renegociacoes" && <Renegociacoes />}
 
           {pagina === "metas" && <Metas />}
 
