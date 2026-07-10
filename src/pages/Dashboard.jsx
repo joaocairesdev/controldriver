@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { FiChevronDown, FiChevronRight, FiEye, FiEyeOff, FiSettings } from "react-icons/fi";
+import { useEffect, useMemo, useState } from "react";
+import { FiEye, FiEyeOff, FiInfo, FiSettings } from "react-icons/fi";
 import { supabase } from "../services/supabase";
 import { detalheCartao } from "../cartoes/cartoesUtils";
 
@@ -54,12 +54,10 @@ export default function Dashboard() {
   const [diasContasPagar, setDiasContasPagar] = useState(carregarDiasContasPagarLocalStorage());
   const [configContasAtrasadas, setConfigContasAtrasadas] = useState(carregarConfigContasAtrasadasLocalStorage());
   const [modalContasAtrasadasAberto, setModalContasAtrasadasAberto] = useState(false);
+  const [modalRateioAberto, setModalRateioAberto] = useState(false);
 
-  const [financeiroAberto, setFinanceiroAberto] = useState(preferenciasDashboard.financeiroAberto !== false);
-  const [performanceAberto, setPerformanceAberto] = useState(preferenciasDashboard.performanceAberto !== false);
-  const [pessoalAberto, setPessoalAberto] = useState(preferenciasDashboard.pessoalAberto !== false);
   const [valoresFinanceirosVisiveis, setValoresFinanceirosVisiveis] = useState(preferenciasDashboard.valoresFinanceirosVisiveis !== false);
-  const [abaDashboard, setAbaDashboard] = useState(preferenciasDashboard.abaDashboard || "financeiro");
+  const [abaDashboard, setAbaDashboard] = useState(preferenciasDashboard.abaDashboard || "performance");
 
   const meses = [
     "Janeiro",
@@ -109,9 +107,6 @@ export default function Dashboard() {
       semanaPessoalSelecionada,
       mesPessoalSelecionado,
       anoPessoalSelecionado,
-      financeiroAberto,
-      performanceAberto,
-      pessoalAberto,
       valoresFinanceirosVisiveis,
       abaDashboard,
     });
@@ -126,9 +121,6 @@ export default function Dashboard() {
     semanaPessoalSelecionada,
     mesPessoalSelecionado,
     anoPessoalSelecionado,
-    financeiroAberto,
-    performanceAberto,
-    pessoalAberto,
     valoresFinanceirosVisiveis,
     abaDashboard,
   ]);
@@ -800,34 +792,12 @@ export default function Dashboard() {
   const formatarValorFinanceiro = (valor) => valoresFinanceirosVisiveis ? formatarMoeda(valor) : "••••";
 
   return (
-    <div className="space-y-8 pb-10">
-      <style>{`
-        @keyframes abrirBlocoDashboard {
-          from { opacity: 0; transform: translateY(-6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes entrarGraficoAnel {
-          from { opacity: 0; transform: scale(0.86) rotate(-18deg); filter: blur(3px); }
-          to { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0); }
-        }
-        @keyframes surgirDashboardElemento {
-          from { opacity: 0; transform: translateY(18px) scale(0.98); filter: blur(4px); }
-          to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-        }
-        .dashboard-reveal {
-          animation: surgirDashboardElemento 0.7s ease-out both;
-        }
-      `}</style>
-      <div>
-        <h1 className="text-3xl font-bold">Dashboard</h1>
-        <p className="text-gray-400 mt-2">Visão rápida da sua operação.</p>
-      </div>
-
-      <div className="-mx-4 sm:mx-0 overflow-x-auto scrollbar-hide px-4 sm:px-0 pb-1">
-        <div className="inline-flex w-max rounded-2xl border border-gray-800 bg-[#111827] p-1 gap-1">
+    <div className="space-y-6 pb-10">
+      <div className="overflow-x-auto scrollbar-hide">
+        <div className="inline-flex min-w-max rounded-2xl border border-gray-800 bg-[#0B1120] p-1.5">
           {[
-            { id: "financeiro", titulo: "Financeiro" },
             { id: "performance", titulo: "Performance" },
+            { id: "financeiro", titulo: "Financeiro" },
             { id: "veiculo", titulo: "Veículo" },
             { id: "pessoal", titulo: "Pessoal" },
           ].map((aba) => (
@@ -835,7 +805,11 @@ export default function Dashboard() {
               key={aba.id}
               type="button"
               onClick={() => setAbaDashboard(aba.id)}
-              className={`rounded-xl px-4 py-3 text-sm font-bold whitespace-nowrap transition ${abaDashboard === aba.id ? "bg-green-500 text-black" : "text-gray-400 hover:text-white hover:bg-white/5"}`}
+              className={`min-w-[112px] rounded-xl px-4 py-2.5 text-sm font-black transition ${
+                abaDashboard === aba.id
+                  ? "bg-green-500 text-black"
+                  : "text-gray-400 hover:text-white hover:bg-white/5"
+              }`}
             >
               {aba.titulo}
             </button>
@@ -849,172 +823,130 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          {abaDashboard === "financeiro" && (
-          <BlocoDashboard
-            titulo="Financeiro"
-            descricao="Saldos, objetivos, contas atrasadas e contas a pagar."
-            aberto={financeiroAberto}
-            onToggle={() => setFinanceiroAberto(!financeiroAberto)}
-            acaoExtra={
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setValoresFinanceirosVisiveis((valor) => !valor);
-                }}
-                className="w-10 h-10 rounded-xl border border-gray-700 hover:border-green-400 hover:bg-white/5 flex items-center justify-center text-gray-300 hover:text-green-400 transition"
-                title={valoresFinanceirosVisiveis ? "Ocultar valores" : "Mostrar valores"}
-                aria-label={valoresFinanceirosVisiveis ? "Ocultar valores" : "Mostrar valores"}
-              >
-                {valoresFinanceirosVisiveis ? <FiEyeOff /> : <FiEye />}
-              </button>
-            }
-          >
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              <SaldoGeralCard
-                saldoGeral={saldoGeral}
-                contas={contasAtivasDashboard}
-                abrirConfiguracao={() => setModalContasAberto(true)}
-                formatarMoeda={formatarValorFinanceiro}
-              />
-
-              <InvestimentosObjetivosCard formatarMoeda={formatarValorFinanceiro} />
-
-              <ContasAtrasadasCard
-                contas={itensContasAtrasadasCard}
-                total={totalContasAtrasadas}
-                abrirConfiguracao={() => setModalContasAtrasadasAberto(true)}
-                formatarMoeda={formatarValorFinanceiro}
-                formatarDataBR={formatarDataBR}
-              />
-
-              <ProximasContasCard
-                contas={proximasContas}
-                dias={diasContasPagar}
-                abrirConfiguracao={() => setModalContasPagarAberto(true)}
-                formatarMoeda={formatarValorFinanceiro}
-                formatarDataBR={formatarDataBR}
-                total={totalProximasContas}
-              />
-            </div>
-          </BlocoDashboard>
-          )}
-
           {abaDashboard === "performance" && (
-          <BlocoDashboard
-            titulo="Performance"
-            descricao="Faturamento, meta, produtividade, custos de trabalho e resultado operacional."
-            aberto={performanceAberto}
-            onToggle={() => setPerformanceAberto(!performanceAberto)}
-          >
-            <PeriodoControle
-              titulo="Performance"
-              descricao="Filtros aplicados em faturamento, meta, plataformas e custos de trabalho."
-              periodo={periodo}
-              setPeriodo={setPeriodo}
-              textoPeriodo={textoPeriodoSelecionado()}
-              abrirPeriodo={() => setModalPeriodoAberto(true)}
-            />
-
-            <div className="mt-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
-              <FaturamentoMetaCard
-                titulo={`Faturamento bruto ${periodoTexto}`}
-                valor={formatarMoeda(metricas.faturamento)}
-                metaLabel={metaTexto}
-                metaValor={formatarMoeda(metricas.meta)}
-                percentual={metricas.percentualMeta}
-                faltaMeta={metricas.faltaMeta}
-                formatarMoeda={formatarMoeda}
+            <section className="space-y-4">
+              <PeriodoControle
+                periodo={periodo}
+                setPeriodo={setPeriodo}
+                textoPeriodo={textoPeriodoSelecionado()}
+                abrirPeriodo={() => setModalPeriodoAberto(true)}
               />
 
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <MetricCard titulo={`KM rodados ${periodoTexto}`} valor={formatarNumero(metricas.km)} />
-                <MetricCard titulo={`Horas ${periodoTexto}`} valor={formatarHoras(metricas.minutosTrabalhados)} />
-                <MetricCard titulo={`Corridas ${periodoTexto}`} valor={formatarNumero(metricas.corridas)} />
-                <MetricCard titulo={`Ganho/KM ${periodoTexto}`} valor={formatarMoeda(ganhoPorKm)} />
-                <MetricCard titulo={`Ganho/Hora ${periodoTexto}`} valor={formatarMoeda(ganhoPorHora)} />
-                <MetricCard titulo={`Ganho/Corrida ${periodoTexto}`} valor={formatarMoeda(ganhoPorCorrida)} />
-                {mostrarMetricasPorDia && (
-                  <>
-                    <MetricCard titulo={`Dias trabalhados ${periodoTexto}`} valor={formatarNumero(metricas.diasTrabalhados)} />
-                    <MetricCard titulo={`Média por dia trabalhado ${periodoTexto}`} valor={formatarMoeda(mediaPorDiaTrabalhado)} />
-                  </>
-                )}
-              </div>
-            </div>
+              <div className="grid grid-cols-1 xl:grid-cols-6 gap-3 items-stretch">
+                <div className="xl:col-span-2 grid grid-cols-1 gap-3">
+                  <FaturamentoCard titulo={`Faturamento bruto ${periodoTexto}`} valor={formatarMoeda(metricas.faturamento)} />
+                  <MetaCard
+                    metaLabel={metaTexto}
+                    metaValor={formatarMoeda(metricas.meta)}
+                    percentual={metricas.percentualMeta}
+                    faltaMeta={metricas.faltaMeta}
+                    formatarMoeda={formatarMoeda}
+                  />
+                </div>
 
-            <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="xl:col-span-4 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
+                  <MetricCard titulo={`KM rodados ${periodoTexto}`} valor={formatarNumero(metricas.km)} />
+                  <MetricCard titulo={`Horas ${periodoTexto}`} valor={formatarHoras(metricas.minutosTrabalhados)} />
+                  <MetricCard titulo={`Corridas ${periodoTexto}`} valor={formatarNumero(metricas.corridas)} />
+                  <MetricCard titulo={`Ganho/KM ${periodoTexto}`} valor={formatarMoeda(ganhoPorKm)} />
+                  <MetricCard titulo={`Ganho/Hora ${periodoTexto}`} valor={formatarMoeda(ganhoPorHora)} />
+                  <MetricCard titulo={`Ganho/Corrida ${periodoTexto}`} valor={formatarMoeda(ganhoPorCorrida)} />
+                  {mostrarMetricasPorDia && (
+                    <>
+                      <MetricCard titulo={`Dias trabalhados ${periodoTexto}`} valor={formatarNumero(metricas.diasTrabalhados)} />
+                      <MetricCard titulo={`Média por dia trabalhado ${periodoTexto}`} valor={formatarMoeda(mediaPorDiaTrabalhado)} />
+                    </>
+                  )}
+                </div>
+              </div>
+
               <PlataformasCard plataformas={plataformas} total={metricas.faturamento} formatarMoeda={formatarMoeda} />
+
               <CustosCategoriaCard
                 titulo="Custos de trabalho"
-                descricao="Somente a parte de trabalho, incluindo categorias rateadas pelo uso do veículo."
                 dados={custoTrabalho}
                 baseComparacao={metricas.faturamento}
                 labelBase="do faturamento"
                 rateio={metricas.rateioUsoVeiculo}
+                abrirRateio={() => setModalRateioAberto(true)}
                 formatarMoeda={formatarMoeda}
               />
-            </div>
 
-            <ResultadoOperacionalCard
-              faturamento={metricas.faturamento}
-              custos={custoTrabalho.total}
-              resultado={resultadoOperacional}
-              formatarMoeda={formatarMoeda}
-            />
-          </BlocoDashboard>
+              <ResultadoOperacionalCard
+                faturamento={metricas.faturamento}
+                custos={custoTrabalho.total}
+                resultado={resultadoOperacional}
+                formatarMoeda={formatarMoeda}
+              />
+            </section>
+          )}
+
+          {abaDashboard === "financeiro" && (
+            <section className="space-y-4">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setValoresFinanceirosVisiveis((valor) => !valor)}
+                  className="w-10 h-10 rounded-xl border border-gray-700 hover:border-green-400 hover:bg-white/5 flex items-center justify-center text-gray-300 hover:text-green-400 transition"
+                  title={valoresFinanceirosVisiveis ? "Ocultar valores" : "Mostrar valores"}
+                  aria-label={valoresFinanceirosVisiveis ? "Ocultar valores" : "Mostrar valores"}
+                >
+                  {valoresFinanceirosVisiveis ? <FiEyeOff /> : <FiEye />}
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch">
+                <SaldoGeralCard saldoGeral={saldoGeral} contas={contasAtivasDashboard} abrirConfiguracao={() => setModalContasAberto(true)} formatarMoeda={formatarValorFinanceiro} />
+                <ContasAtrasadasCard contas={itensContasAtrasadasCard} total={totalContasAtrasadas} abrirConfiguracao={() => setModalContasAtrasadasAberto(true)} formatarMoeda={formatarValorFinanceiro} formatarDataBR={formatarDataBR} />
+                <ProximasContasCard contas={proximasContas} dias={diasContasPagar} abrirConfiguracao={() => setModalContasPagarAberto(true)} formatarMoeda={formatarValorFinanceiro} formatarDataBR={formatarDataBR} total={totalProximasContas} />
+                <InvestimentosObjetivosCard formatarMoeda={formatarValorFinanceiro} />
+              </div>
+            </section>
           )}
 
           {abaDashboard === "veiculo" && (
-            <BlocoDashboard
-              titulo="Veículo"
-              descricao="Resumo rápido de km, uso e custos do veículo."
-              aberto={true}
-              onToggle={() => {}}
-            >
+            <section>
               <div className="rounded-2xl border border-gray-800 bg-[#111827] p-6">
                 <h3 className="text-xl font-bold">Área do veículo</h3>
                 <p className="text-gray-400 mt-2">Aqui vamos concentrar km, custos por km, abastecimentos, manutenções, TAG e indicadores do carro.</p>
               </div>
-            </BlocoDashboard>
+            </section>
           )}
 
           {abaDashboard === "pessoal" && (
-          <BlocoDashboard
-            titulo="Finanças Pessoais"
-            descricao="Entradas pessoais, custos pessoais e resultado do período."
-            aberto={pessoalAberto}
-            onToggle={() => setPessoalAberto(!pessoalAberto)}
-          >
-            <PeriodoControle
-              titulo="Finanças Pessoais"
-              descricao="Filtro independente da performance para enxergar vida pessoal separada da operação."
-              periodo={periodoPessoal}
-              setPeriodo={setPeriodoPessoal}
-              textoPeriodo={textoPeriodoPessoalSelecionado()}
-              abrirPeriodo={() => setModalPeriodoPessoalAberto(true)}
-            />
+            <section className="space-y-4">
+              <PeriodoControle
+                periodo={periodoPessoal}
+                setPeriodo={setPeriodoPessoal}
+                textoPeriodo={textoPeriodoPessoalSelecionado()}
+                abrirPeriodo={() => setModalPeriodoPessoalAberto(true)}
+              />
 
-            <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <ResumoFinanceiroCard titulo="Entradas pessoais" valor={metricasPessoais.entradas} destaque="green" formatarMoeda={formatarMoeda} />
-              <ResumoFinanceiroCard titulo="Custos pessoais" valor={metricasPessoais.custos.total} destaque="red" formatarMoeda={formatarMoeda} />
-              <ResumoFinanceiroCard titulo="Resultado pessoal" valor={metricasPessoais.resultado} destaque={metricasPessoais.resultado >= 0 ? "green" : "red"} formatarMoeda={formatarMoeda} />
-            </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <ResumoFinanceiroCard titulo="Entradas pessoais" valor={metricasPessoais.entradas} destaque="green" formatarMoeda={formatarMoeda} />
+                <ResumoFinanceiroCard titulo="Custos pessoais" valor={metricasPessoais.custos.total} destaque="red" formatarMoeda={formatarMoeda} />
+                <ResumoFinanceiroCard titulo="Resultado pessoal" valor={metricasPessoais.resultado} destaque={metricasPessoais.resultado >= 0 ? "green" : "red"} formatarMoeda={formatarMoeda} />
+              </div>
 
-            <div className="mt-4">
               <CustosCategoriaCard
                 titulo="Custos pessoais"
-                descricao="Categorias pessoais diretas e parte pessoal das categorias rateadas."
                 dados={metricasPessoais.custos}
                 baseComparacao={metricasPessoais.entradas}
                 labelBase="das entradas pessoais"
                 rateio={metricasPessoais.rateioUsoVeiculo}
+                abrirRateio={() => setModalRateioAberto(true)}
                 formatarMoeda={formatarMoeda}
               />
-            </div>
-          </BlocoDashboard>
+            </section>
           )}
         </>
+      )}
+
+      {modalRateioAberto && (
+        <ModalRateioDashboard
+          rateio={abaDashboard === "pessoal" ? metricasPessoais.rateioUsoVeiculo : metricas.rateioUsoVeiculo}
+          fechar={() => setModalRateioAberto(false)}
+        />
       )}
 
       {modalContasAberto && (
@@ -1169,35 +1101,6 @@ export default function Dashboard() {
 }
 
 
-function useReplayOnView() {
-  const ref = useRef(null);
-  const [replayKey, setReplayKey] = useState(0);
-  const ultimoScrollRef = useRef(typeof window !== "undefined" ? window.scrollY : 0);
-
-  useEffect(() => {
-    const elemento = ref.current;
-    if (!elemento || typeof IntersectionObserver === "undefined") return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        const scrollAtual = typeof window !== "undefined" ? window.scrollY : 0;
-        const rolandoParaBaixo = scrollAtual > ultimoScrollRef.current + 2;
-        ultimoScrollRef.current = scrollAtual;
-
-        if (entry.isIntersecting && rolandoParaBaixo) {
-          setReplayKey((valor) => valor + 1);
-        }
-      },
-      { threshold: 0.28, rootMargin: "0px 0px -8% 0px" }
-    );
-
-    observer.observe(elemento);
-    return () => observer.disconnect();
-  }, []);
-
-  return { ref, replayKey, animar: replayKey > 0 };
-}
-
 function carregarPreferenciasDashboardLocalStorage() {
   try {
     return JSON.parse(localStorage.getItem(DASHBOARD_PREFERENCIAS_KEY) || "{}");
@@ -1246,16 +1149,16 @@ function entradaAvulsaPessoal(entrada) {
   return true;
 }
 
-function PeriodoControle({ titulo, descricao, periodo, setPeriodo, textoPeriodo, abrirPeriodo }) {
+function PeriodoControle({ periodo, setPeriodo, textoPeriodo, abrirPeriodo }) {
   return (
-    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+    <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4 sm:p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
       <div>
-        <h2 className="text-xl font-bold">{titulo}</h2>
-        <p className="text-gray-400 text-sm mt-1">{descricao}</p>
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-green-400">Seleção de período</p>
+        <p className="text-sm text-gray-500 mt-1">Escolha o intervalo usado nos indicadores.</p>
       </div>
 
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="grid grid-cols-4 gap-2">
+      <div className="w-full md:w-auto flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2.5">
+        <div className="grid grid-cols-4 gap-1 rounded-xl border border-gray-800 bg-[#111827] p-1 sm:w-[330px]">
           {[
             ["dia", "Dia"],
             ["semana", "Semana"],
@@ -1266,10 +1169,8 @@ function PeriodoControle({ titulo, descricao, periodo, setPeriodo, textoPeriodo,
               key={valor}
               type="button"
               onClick={() => setPeriodo(valor)}
-              className={`px-3 py-2 rounded-xl border text-sm font-black transition ${
-                periodo === valor
-                  ? "border-green-400 bg-green-500/10 text-green-400"
-                  : "border-gray-700 text-gray-300 hover:bg-white/5"
+              className={`min-w-0 px-2 py-2 rounded-lg text-sm font-black transition ${
+                periodo === valor ? "bg-green-500 text-black" : "text-gray-400 hover:text-white hover:bg-white/5"
               }`}
             >
               {label}
@@ -1280,7 +1181,7 @@ function PeriodoControle({ titulo, descricao, periodo, setPeriodo, textoPeriodo,
         <button
           type="button"
           onClick={abrirPeriodo}
-          className="w-full sm:w-auto bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl px-4 py-3 text-gray-200 font-semibold text-center sm:text-left"
+          className="w-full sm:w-[170px] bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl px-3 py-2.5 text-gray-200 text-sm font-bold text-center transition"
         >
           {textoPeriodo}
         </button>
@@ -1304,99 +1205,84 @@ function ResultadoOperacionalCard({ faturamento, custos, resultado, formatarMoed
   const positivo = Number(resultado || 0) >= 0;
 
   return (
-    <div className="mt-4 bg-[#111827] border border-gray-800 rounded-3xl p-5">
-      <p className="text-sm text-gray-400">Resultado operacional</p>
-      <h3 className={`text-4xl sm:text-5xl font-black mt-2 ${positivo ? "text-green-400" : "text-red-400"}`}>
-        {formatarMoeda(resultado)}
-      </h3>
-      <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5 text-sm text-gray-400">
-        <span>Faturamento: <strong className="text-green-400">{formatarMoeda(faturamento)}</strong></span>
-        <span>Custos: <strong className="text-red-400">{formatarMoeda(custos)}</strong></span>
+    <div className={`rounded-3xl p-5 sm:p-6 border ${positivo ? "bg-green-500 border-green-400 text-black" : "bg-red-500 border-red-400 text-white"}`}>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5">
+        <div>
+          <p className={`text-sm font-black ${positivo ? "text-black/70" : "text-white/75"}`}>Resultado operacional</p>
+          <div className={`mt-3 flex flex-col gap-1.5 text-sm ${positivo ? "text-black/70" : "text-white/80"}`}>
+            <span>Faturamento: <strong>{formatarMoeda(faturamento)}</strong></span>
+            <span>Custos: <strong>{formatarMoeda(custos)}</strong></span>
+          </div>
+        </div>
+
+        <h3 className="text-4xl sm:text-5xl font-black sm:text-right whitespace-nowrap">{formatarMoeda(resultado)}</h3>
       </div>
     </div>
   );
 }
 
-function CustosCategoriaCard({ titulo, descricao, dados, baseComparacao, labelBase, rateio, formatarMoeda }) {
+function CustosCategoriaCard({ titulo, dados, baseComparacao, labelBase, rateio, abrirRateio, formatarMoeda }) {
   const categorias = dados?.categorias || [];
   const total = Number(dados?.total || 0);
   const percentualBase = Number(baseComparacao || 0) > 0 ? (total / Number(baseComparacao || 0)) * 100 : 0;
 
   return (
-    <div className="dashboard-reveal bg-[#111827] border border-gray-800 rounded-3xl p-5">
-      <div>
+    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
+      <div className="flex items-center justify-between gap-4">
         <h3 className="text-xl font-bold">{titulo}</h3>
-        <p className="text-gray-400 text-sm mt-1">{descricao}</p>
+        {rateio && (
+          <button
+            type="button"
+            onClick={abrirRateio}
+            className="w-9 h-9 rounded-xl border border-gray-700 hover:border-blue-400 hover:text-blue-300 flex items-center justify-center text-gray-400 transition"
+            title="Entender o rateio por uso do veículo"
+            aria-label="Entender o rateio por uso do veículo"
+          >
+            <FiInfo />
+          </button>
+        )}
       </div>
 
-      {rateio && (
-        <div className="mt-4 bg-[#0B1120] border border-gray-800 rounded-2xl p-3 grid grid-cols-3 gap-3 text-center">
-          <div>
-            <p className="text-[11px] text-gray-500">KM total</p>
-            <p className="font-black text-white mt-1">{Number(rateio?.kmTotal || 0).toLocaleString("pt-BR")}</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-gray-500">Trabalho</p>
-            <p className="font-black text-green-400 mt-1">{Math.round(rateio?.percentualTrabalho || 0)}%</p>
-          </div>
-          <div>
-            <p className="text-[11px] text-gray-500">Pessoal</p>
-            <p className="font-black text-blue-400 mt-1">{Math.round(rateio?.percentualPessoal || 0)}%</p>
-          </div>
-        </div>
-      )}
+      <div className="mt-5 flex flex-col items-center">
+        <GraficoAnelCategorias categorias={categorias} total={total} formatarMoeda={formatarMoeda} />
+        <p className="text-xs text-gray-500 mt-3">{Math.round(percentualBase)}% {labelBase}</p>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {categorias.length === 0 ? (
+          <p className="text-sm text-gray-500 md:col-span-2 xl:col-span-3">Nenhum custo encontrado neste período.</p>
+        ) : (
+          categorias.map((categoria) => (
+            <div key={categoria.nome} className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-3 h-3 rounded-full shrink-0 mt-1" style={{ backgroundColor: categoria.cor }} />
+                  <span className="font-bold truncate" style={{ color: categoria.cor }}>{categoria.nome}</span>
+                </div>
+                <span className="font-black whitespace-nowrap">{formatarMoeda(categoria.valor)}</span>
+              </div>
+              <div className="mt-3 h-2.5 bg-[#111827] rounded-full overflow-hidden border border-gray-800">
+                <div
+                  className="h-full rounded-full transition-[width] duration-300"
+                  style={{
+                    width: `${Math.min(Number(categoria.percentualDoFaturamento || 0), 100)}%`,
+                    backgroundColor: categoria.cor,
+                  }}
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {Math.round(categoria.percentualDoCusto)}% dos custos • {Math.round(categoria.percentualDoFaturamento || 0)}% do faturamento
+              </p>
+            </div>
+          ))
+        )}
+      </div>
 
       {rateio && !rateio?.calculado && (
-        <p className="text-xs text-yellow-400 mt-2">
+        <p className="text-xs text-yellow-400 mt-4">
           Sem KM total de abastecimento no período. Categorias rateadas foram consideradas como trabalho até existir abastecimento no período.
         </p>
       )}
-
-      <div className="mt-5 grid grid-cols-1 md:grid-cols-[180px_1fr] gap-5 items-center">
-        <div className="flex flex-col items-center justify-center">
-          <GraficoAnelCategorias categorias={categorias} />
-          <p className="text-sm text-gray-400 mt-3">Total</p>
-          <p className="text-2xl font-black text-white">{formatarMoeda(total)}</p>
-          <p className="text-xs text-gray-500 mt-1">{Math.round(percentualBase)}% {labelBase}</p>
-        </div>
-
-        <div className="space-y-4 min-w-0">
-          {categorias.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhum custo encontrado neste período.</p>
-          ) : (
-            categorias.map((categoria) => (
-              <div key={categoria.nome}>
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: categoria.cor }} />
-                    <span className="font-bold truncate" style={{ color: categoria.cor }}>{categoria.nome}</span>
-                    {categoria.rateado && (
-                      <span className="text-[10px] rounded-full px-2 py-0.5 bg-blue-500/10 text-blue-300 border border-blue-500/30 shrink-0">
-                        rateado
-                      </span>
-                    )}
-                  </div>
-                  <span className="font-black whitespace-nowrap">{formatarMoeda(categoria.valor)}</span>
-                </div>
-
-                <div className="mt-2 h-3 bg-[#0B1120] rounded-full overflow-hidden border border-gray-800">
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${Math.min(categoria.percentualDoCusto, 100)}%`,
-                      backgroundColor: categoria.cor,
-                    }}
-                  />
-                </div>
-
-                <p className="text-xs text-gray-500 mt-1">
-                  {Math.round(categoria.percentualDoCusto)}% dos custos • {Math.round(categoria.percentualDoFaturamento || 0)}% do faturamento
-                </p>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
     </div>
   );
 }
@@ -2052,58 +1938,6 @@ function nomeDiaSemanaCurto(dataISOTexto) {
   return ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"][data.getDay()];
 }
 
-function BlocoDashboard({ titulo, descricao, aberto, onToggle, acaoExtra, children }) {
-  if (!aberto) {
-    return (
-      <section className="bg-[#111827] border border-gray-800 rounded-3xl overflow-hidden transition-all duration-300">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="w-full p-5 flex items-center justify-between gap-4 text-left hover:bg-white/[0.02] transition"
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="w-10 h-10 rounded-xl bg-[#0B1120] border border-gray-800 flex items-center justify-center text-green-400 shrink-0">
-              <FiChevronRight />
-            </span>
-            <div className="min-w-0">
-              <h2 className="text-xl font-black truncate">{titulo}</h2>
-              <p className="text-sm text-gray-500 mt-1 truncate">{descricao}</p>
-            </div>
-          </div>
-
-          {acaoExtra && <div className="shrink-0" onClick={(e) => e.stopPropagation()}>{acaoExtra}</div>}
-        </button>
-      </section>
-    );
-  }
-
-  return (
-    <section className="space-y-4 transition-all duration-300">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex items-center gap-3 text-left group min-w-0"
-        >
-          <span className="w-10 h-10 rounded-xl bg-[#111827] border border-gray-800 flex items-center justify-center text-green-400 shrink-0 group-hover:border-green-400 transition">
-            <FiChevronDown />
-          </span>
-          <div className="min-w-0">
-            <h2 className="text-2xl font-black truncate">{titulo}</h2>
-            <p className="text-sm text-gray-500 mt-1">{descricao}</p>
-          </div>
-        </button>
-
-        {acaoExtra && <div className="shrink-0">{acaoExtra}</div>}
-      </div>
-
-      <div className="animate-[abrirBlocoDashboard_0.22s_ease-out]">
-        {children}
-      </div>
-    </section>
-  );
-}
-
 function InvestimentosObjetivosCard({ formatarMoeda }) {
   return (
     <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
@@ -2197,42 +2031,40 @@ function SaldoGeralCard({ saldoGeral, contas, abrirConfiguracao, formatarMoeda }
   );
 }
 
-function FaturamentoMetaCard({ titulo, valor, metaLabel, metaValor, percentual, faltaMeta, formatarMoeda }) {
+function FaturamentoCard({ titulo, valor }) {
+  return (
+    <div className="bg-gradient-to-br from-green-500/15 to-[#111827] border border-green-500/30 rounded-3xl p-5 sm:p-6 min-h-[138px] flex flex-col justify-between">
+      <p className="text-sm font-bold text-green-300">{titulo}</p>
+      <h3 className="text-3xl sm:text-4xl font-black mt-4 text-white">{valor}</h3>
+    </div>
+  );
+}
+
+function MetaCard({ metaLabel, metaValor, percentual, faltaMeta, formatarMoeda }) {
   const percentualSeguro = Math.max(Number(percentual || 0), 0);
 
   return (
-    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-6">
-      <p className="text-sm text-gray-400">{titulo}</p>
-      <h3 className="text-4xl font-black mt-2 text-white">{valor}</h3>
-
-      <div className="mt-6">
-        <p className="text-sm text-gray-400">
-          {metaLabel}: <span className="text-white font-semibold">{metaValor}</span>
-        </p>
-
-        <div className="mt-2 h-4 rounded-full bg-[#0B1120] overflow-hidden border border-gray-800">
-          <div
-            className="h-full bg-green-500 rounded-full transition-all"
-            style={{ width: `${Math.min(percentualSeguro, 100)}%` }}
-          />
-        </div>
-
-        <p className="text-xs sm:text-sm mt-2 text-gray-500 leading-relaxed">
-          {percentualSeguro > 0 ? `${Math.round(percentualSeguro)}% concluído` : "0% concluído"}
-          {faltaMeta > 0
-            ? ` / Falta ${formatarMoeda(faltaMeta)} para concluir.`
-            : " / Meta concluída."}
-        </p>
+    <div className="bg-gradient-to-br from-blue-500/10 to-[#111827] border border-blue-500/25 rounded-3xl p-5 sm:p-6 min-h-[138px]">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-xs text-gray-400">{metaLabel}</p>
+        <span className="text-sm font-black text-green-400">{Math.round(percentualSeguro)}%</span>
       </div>
+      <p className="text-lg font-black mt-2">{metaValor}</p>
+      <div className="mt-3 h-2.5 rounded-full bg-[#0B1120] overflow-hidden border border-gray-800">
+        <div className="h-full bg-green-500 rounded-full" style={{ width: `${Math.min(percentualSeguro, 100)}%` }} />
+      </div>
+      <p className="text-[11px] text-gray-500 mt-2">
+        {faltaMeta > 0 ? `Falta ${formatarMoeda(faltaMeta)}` : "Meta concluída"}
+      </p>
     </div>
   );
 }
 
 function MetricCard({ titulo, valor }) {
   return (
-    <div className="bg-[#111827] border border-gray-800 rounded-2xl p-4 min-w-0">
-      <p className="text-xs text-gray-400">{titulo}</p>
-      <h3 className="text-xl font-black mt-2 truncate">{valor}</h3>
+    <div className="bg-[#111827] border border-gray-800 rounded-2xl p-4 min-h-[104px] flex flex-col justify-between min-w-0">
+      <p className="text-xs text-gray-400 leading-snug">{titulo}</p>
+      <h3 className="text-xl font-black mt-3 truncate">{valor}</h3>
     </div>
   );
 }
@@ -2292,9 +2124,8 @@ function PlataformasCard({ plataformas, total, formatarMoeda }) {
   return (
     <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
       <h3 className="text-xl font-bold">Ganhos por plataforma</h3>
-      <p className="text-gray-400 text-sm mt-1">Participação no faturamento do período selecionado.</p>
 
-      <div className="mt-5 space-y-4">
+      <div className="mt-5 flex gap-3 overflow-x-auto pb-1 scrollbar-hide xl:grid xl:grid-cols-4 xl:overflow-visible">
         {plataformas.length === 0 ? (
           <p className="text-sm text-gray-500">Nenhuma plataforma no período selecionado.</p>
         ) : (
@@ -2303,34 +2134,22 @@ function PlataformasCard({ plataformas, total, formatarMoeda }) {
             const icone = iconePlataforma(item.nome);
 
             return (
-              <div key={item.nome}>
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {icone ? (
-                      <img
-                        src={icone}
-                        alt={item.nome}
-                        className="w-12 h-12 object-contain rounded-lg shrink-0"
-                      />
-                    ) : (
-                      <div className="w-11 h-11 rounded-xl bg-[#0B1120] border border-gray-800 flex items-center justify-center text-xs font-black shrink-0">
-                        {String(item.nome || "?").slice(0, 2).toUpperCase()}
-                      </div>
-                    )}
-
-                    <span className="font-bold truncate">{item.nome}</span>
+              <div key={item.nome} className="min-w-[180px] rounded-2xl border border-gray-800 bg-[#0B1120] p-4">
+                <div className="flex items-center gap-3">
+                  {icone ? (
+                    <img src={icone} alt={item.nome} className="w-10 h-10 object-contain rounded-lg shrink-0" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-xl bg-[#111827] border border-gray-800 flex items-center justify-center text-xs font-black shrink-0">
+                      {String(item.nome || "?").slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-bold truncate">{item.nome}</p>
+                    <p className="text-xs text-gray-500">{item.corridas} corrida(s)</p>
                   </div>
-
-                  <span className="font-black whitespace-nowrap">{formatarMoeda(item.valor)}</span>
                 </div>
-
-                <div className="mt-2 h-3 bg-[#0B1120] rounded-full overflow-hidden border border-gray-800">
-                  <div className="h-full bg-green-500 rounded-full" style={{ width: `${Math.min(percentual, 100)}%` }} />
-                </div>
-
-                <p className="text-xs text-gray-500 mt-1">
-                  {Math.round(percentual)}% • {item.corridas} corrida(s)
-                </p>
+                <p className="text-xl font-black mt-4">{formatarMoeda(item.valor)}</p>
+                <p className="text-xs text-gray-500 mt-1">{Math.round(percentual)}% do faturamento</p>
               </div>
             );
           })
@@ -2340,125 +2159,15 @@ function PlataformasCard({ plataformas, total, formatarMoeda }) {
   );
 }
 
-
-function CustosPerformanceCard({ custos, aba, setAba, faturamento, rateio, formatarMoeda }) {
-  const dados = custos?.[aba] || { total: 0, categorias: [] };
-  const percentualFaturamento = Number(faturamento || 0) > 0 ? (Number(dados.total || 0) / Number(faturamento || 0)) * 100 : 0;
-
-  return (
-    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-xl font-bold">Custos operacionais</h3>
-          <p className="text-gray-400 text-sm mt-1">
-            Categorias diretas e rateadas pelo uso do veículo.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 bg-[#0B1120] border border-gray-800 rounded-xl p-1 shrink-0">
-          {[
-            ["trabalho", "Trabalho"],
-            ["pessoal", "Pessoal"],
-          ].map(([valor, label]) => (
-            <button
-              key={valor}
-              type="button"
-              onClick={() => setAba(valor)}
-              className={`px-3 py-2 rounded-lg text-xs font-black transition ${
-                aba === valor ? "bg-green-500 text-black" : "text-gray-400 hover:text-white"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-4 bg-[#0B1120] border border-gray-800 rounded-2xl p-3 grid grid-cols-3 gap-3 text-center">
-        <div>
-          <p className="text-[11px] text-gray-500">KM total</p>
-          <p className="font-black text-white mt-1">{Number(rateio?.kmTotal || 0).toLocaleString("pt-BR")}</p>
-        </div>
-        <div>
-          <p className="text-[11px] text-gray-500">Trabalho</p>
-          <p className="font-black text-green-400 mt-1">{Math.round(rateio?.percentualTrabalho || 0)}%</p>
-        </div>
-        <div>
-          <p className="text-[11px] text-gray-500">Pessoal</p>
-          <p className="font-black text-blue-400 mt-1">{Math.round(rateio?.percentualPessoal || 0)}%</p>
-        </div>
-      </div>
-
-      {!rateio?.calculado && (
-        <p className="text-xs text-yellow-400 mt-2">
-          Sem KM total de abastecimento no período. Categorias rateadas foram consideradas como trabalho até existir abastecimento no período.
-        </p>
-      )}
-
-      <div className="mt-5 grid grid-cols-1 md:grid-cols-[180px_1fr] gap-5 items-center">
-        <div className="flex flex-col items-center justify-center">
-          <GraficoAnelCategorias categorias={dados.categorias} />
-          <p className="text-sm text-gray-400 mt-3">Total de custos</p>
-          <p className="text-2xl font-black text-white">{formatarMoeda(dados.total)}</p>
-          <p className="text-xs text-gray-500 mt-1">{Math.round(percentualFaturamento)}% do faturamento</p>
-        </div>
-
-        <div className="space-y-4 min-w-0">
-          {dados.categorias.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhum custo encontrado neste período.</p>
-          ) : (
-            dados.categorias.map((categoria) => (
-              <div key={categoria.nome}>
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className="w-3 h-3 rounded-full shrink-0"
-                      style={{ backgroundColor: categoria.cor }}
-                    />
-                    <span className="font-bold truncate" style={{ color: categoria.cor }}>
-                      {categoria.nome}
-                    </span>
-                    {categoria.rateado && (
-                      <span className="text-[10px] rounded-full px-2 py-0.5 bg-blue-500/10 text-blue-300 border border-blue-500/30 shrink-0">
-                        rateado
-                      </span>
-                    )}
-                  </div>
-                  <span className="font-black whitespace-nowrap">{formatarMoeda(categoria.valor)}</span>
-                </div>
-
-                <div className="mt-2 h-3 bg-[#0B1120] rounded-full overflow-hidden border border-gray-800">
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${Math.min(categoria.percentualDoFaturamento, 100)}%`,
-                      backgroundColor: categoria.cor,
-                    }}
-                  />
-                </div>
-
-                <p className="text-xs text-gray-500 mt-1">
-                  {Math.round(categoria.percentualDoFaturamento)}% do faturamento • {Math.round(categoria.percentualDoCusto)}% dos custos
-                </p>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function GraficoAnelCategorias({ categorias }) {
-  const { ref, replayKey, animar } = useReplayOnView();
+function GraficoAnelCategorias({ categorias, total = 0, formatarMoeda }) {
   const lista = (categorias || []).filter((categoria) => Number(categoria.valor || 0) > 0);
-  const total = lista.reduce((soma, categoria) => soma + Number(categoria.valor || 0), 0);
+  const totalCategorias = lista.reduce((soma, categoria) => soma + Number(categoria.valor || 0), 0);
 
-  if (total <= 0) {
+  if (totalCategorias <= 0) {
     return (
-      <div ref={ref} className={`${animar ? "dashboard-reveal" : ""} w-36 h-36 rounded-full flex items-center justify-center border border-gray-800 bg-[#0B1120]`}>
-        <div className="w-24 h-24 rounded-full bg-[#111827] border border-gray-800 flex items-center justify-center">
-          <span className="text-lg font-black text-gray-500">0%</span>
+      <div className="w-48 h-48 rounded-full flex items-center justify-center border border-gray-800 bg-[#0B1120]">
+        <div className="w-32 h-32 rounded-full bg-[#111827] border border-gray-800 flex items-center justify-center text-center px-2">
+          <span className="text-lg font-black text-gray-500">{formatarMoeda ? formatarMoeda(0) : "R$ 0,00"}</span>
         </div>
       </div>
     );
@@ -2467,23 +2176,15 @@ function GraficoAnelCategorias({ categorias }) {
   let acumulado = 0;
   const partes = lista.map((categoria) => {
     const inicio = acumulado;
-    const percentual = (Number(categoria.valor || 0) / total) * 100;
+    const percentual = (Number(categoria.valor || 0) / totalCategorias) * 100;
     acumulado += percentual;
     return `${categoria.cor} ${inicio}% ${acumulado}%`;
   });
 
   return (
-    <div
-      ref={ref}
-      key={`anel-${replayKey}-${lista.length}-${Math.round(total)}`}
-      className={`${animar ? "dashboard-reveal" : ""} w-36 h-36 rounded-full flex items-center justify-center border border-gray-800 shadow-lg shadow-black/20`}
-      style={{
-        background: `conic-gradient(${partes.join(", ")})`,
-        animation: animar ? "entrarGraficoAnel 0.75s ease-out both" : "none",
-      }}
-    >
-      <div className="w-24 h-24 rounded-full bg-[#111827] border border-gray-800 flex items-center justify-center text-center px-2">
-        <span className="text-lg font-black text-white">100%</span>
+    <div className="w-48 h-48 rounded-full flex items-center justify-center border border-gray-800 shadow-lg shadow-black/20" style={{ background: `conic-gradient(${partes.join(", ")})` }}>
+      <div className="w-32 h-32 rounded-full bg-[#111827] border border-gray-800 flex items-center justify-center text-center px-2">
+        <span className="text-lg font-black text-white leading-tight">{formatarMoeda ? formatarMoeda(total) : total}</span>
       </div>
     </div>
   );
@@ -2514,6 +2215,34 @@ function normalizarNomePlataforma(nome) {
     .replace(/[^a-z0-9]/g, "");
 }
 
+
+function ModalRateioDashboard({ rateio, fechar }) {
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[90] p-4" onMouseDown={fechar}>
+      <div className="w-full max-w-lg bg-[#111827] border border-gray-800 rounded-3xl p-6 shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-black">Rateio pelo uso do veículo</h2>
+            <p className="text-gray-400 text-sm mt-2">Custos rateados são divididos entre trabalho e uso pessoal conforme os quilômetros do período.</p>
+          </div>
+          <button type="button" onClick={fechar} className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-black">×</button>
+        </div>
+
+        <div className="mt-5 space-y-3 rounded-2xl border border-gray-800 bg-[#0B1120] p-4 text-sm">
+          <p>KM total: <strong>{Number(rateio?.kmTotal || 0).toLocaleString("pt-BR")}</strong></p>
+          <p>KM de trabalho: <strong>{Number(rateio?.kmTrabalho || 0).toLocaleString("pt-BR")}</strong></p>
+          <p>KM pessoal: <strong>{Number(rateio?.kmPessoal || 0).toLocaleString("pt-BR")}</strong></p>
+          <p>Parte de trabalho: <strong className="text-green-400">{Math.round(rateio?.percentualTrabalho || 0)}%</strong></p>
+          <p>Parte pessoal: <strong className="text-blue-400">{Math.round(rateio?.percentualPessoal || 0)}%</strong></p>
+        </div>
+
+        {!rateio?.calculado && (
+          <p className="text-sm text-yellow-400 mt-4">Ainda não existe KM total suficiente para calcular o rateio deste período.</p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function ModalContasAtrasadasDashboard({ config, alterarConfig, fechar }) {
   const opcoes = [

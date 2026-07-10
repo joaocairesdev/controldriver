@@ -6,16 +6,23 @@ import {
   FiChevronRight,
   FiCreditCard,
   FiFileText,
+  FiInfo,
+  FiEdit2,
   FiPlus,
   FiRefreshCw,
+  FiTrash2,
 } from "react-icons/fi";
 
 import ModalBase from "../components/modals/ModalBase";
 import DatePickerModal from "../components/modals/DatePickerModal";
 import FeedbackModal from "../components/modals/FeedbackModal";
+import ConfirmacaoModal from "../components/modals/ConfirmacaoModal";
 import SelecionarFormaPagamentoModal from "../components/modals/SelecionarFormaPagamentoModal";
 import SelecionarContaModal from "../components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../components/modals/SelecionarCartaoModal";
+import SelecionarParcelasModal from "../components/modals/SelecionarParcelasModal";
+import SelecionarTipoAcordoModal from "../components/modals/SelecionarTipoAcordoModal";
+import ToggleSwitch from "../components/ui/ToggleSwitch";
 import useDirtyForm from "../hooks/useDirtyForm";
 
 import {
@@ -23,6 +30,8 @@ import {
   carregarItensRenegociacao,
   carregarRenegociacoes,
   criarRenegociacao,
+  excluirRenegociacao,
+  editarRenegociacao,
 } from "./services/renegociacoesService";
 import {
   formatarDataBR,
@@ -46,6 +55,7 @@ const FORM_INICIAL = {
   saldoContaApos: "",
   valorRenegociado: "",
   valorEntrada: "",
+  valorParcela: "",
   numeroParcelas: "",
   primeiroVencimento: "",
 };
@@ -162,11 +172,40 @@ export default function Renegociacoes() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 mt-5">
-                <MiniInfo titulo="Original" valor={formatarMoeda(renegociacao.valor_original)} />
-                <MiniInfo titulo="Acordo" valor={formatarMoeda(renegociacao.valor_renegociado)} />
-                <MiniInfo titulo="Parcelas" valor={`${renegociacao.numero_parcelas || 1}x`} />
-                <MiniInfo titulo="1º vencimento" valor={formatarDataBR(renegociacao.primeiro_vencimento)} />
+              <div className="mt-5">
+                <div className="flex items-end justify-between gap-4">
+                  <div>
+                    <p className="text-xs text-gray-500 font-bold uppercase tracking-wide">Valor total</p>
+                    <p className="text-2xl font-black mt-1">{formatarMoeda(renegociacao.valor_renegociado)}</p>
+                    <p className="text-sm text-gray-400 mt-1">
+                      {Math.max(Number(renegociacao.numero_parcelas || 1), 1)}x de {formatarMoeda(Number(renegociacao.valor_renegociado || 0) / Math.max(Number(renegociacao.numero_parcelas || 1), 1))}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500">Acordo em</p>
+                    <p className="font-bold">{formatarDataBR(renegociacao.data_renegociacao)}</p>
+                  </div>
+                </div>
+
+                <div className="mt-5">
+                  <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 rounded-full transition-all"
+                      style={{ width: `${Math.min((Number(renegociacao.parcelas_pagas || 0) / Math.max(Number(renegociacao.numero_parcelas || 1), 1)) * 100, 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 mt-2 text-sm">
+                    <p className="text-gray-400">{renegociacao.parcelas_pagas || 0} de {renegociacao.numero_parcelas || 1} parcelas pagas</p>
+                    <p className="font-bold">Restante: {formatarMoeda(Math.max(Number(renegociacao.valor_renegociado || 0) - Number(renegociacao.valor_pago_acordo || 0), 0))}</p>
+                  </div>
+                </div>
+
+                {renegociacao.proximo_vencimento && (
+                  <div className="mt-4 rounded-xl border border-gray-800 bg-[#0B1120] px-4 py-3 flex items-center justify-between gap-3 text-sm">
+                    <span className="text-gray-400">Próxima parcela</span>
+                    <span className="font-black">{formatarMoeda(renegociacao.proxima_parcela_valor)} em {formatarDataBR(renegociacao.proximo_vencimento)}</span>
+                  </div>
+                )}
               </div>
             </button>
           ))}
@@ -198,6 +237,19 @@ export default function Renegociacoes() {
             setRenegociacaoDetalhe(null);
             setItensDetalhe([]);
           }}
+          onExcluido={async () => {
+            setRenegociacaoDetalhe(null);
+            setItensDetalhe([]);
+            await carregarTudo();
+            abrirFeedback("sucesso", "Renegociação excluída", "O acordo foi removido e as dívidas originais foram restauradas.");
+          }}
+          onAtualizado={async (renegociacaoAtualizada) => {
+            setRenegociacaoDetalhe(renegociacaoAtualizada);
+            const itens = await carregarItensRenegociacao(renegociacaoAtualizada.id);
+            setItensDetalhe(itens);
+            await carregarTudo();
+            abrirFeedback("sucesso", "Renegociação atualizada", "As informações do acordo foram atualizadas.");
+          }}
         />
       )}
 
@@ -221,8 +273,12 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   const [origensAbertas, setOrigensAbertas] = useState({});
   const [modalData, setModalData] = useState(null);
   const [modalFormaPagamento, setModalFormaPagamento] = useState(false);
+  const [modalTipoAcordo, setModalTipoAcordo] = useState(false);
   const [modalConta, setModalConta] = useState(false);
   const [modalCartao, setModalCartao] = useState(false);
+  const [modalParcelas, setModalParcelas] = useState(false);
+  const [dadosItens, setDadosItens] = useState({});
+  const [infoValorBancoAberto, setInfoValorBancoAberto] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
@@ -266,12 +322,6 @@ function RenegociacaoModal({ fechar, onSalvo }) {
     { valor: "transferencia", titulo: "Transferência" },
     { valor: "credito", titulo: "Cartão de crédito" },
   ];
-  const tiposAcordo = [
-    { valor: "avista", titulo: "À vista" },
-    { valor: "entrada_avista", titulo: "Entrada + à vista" },
-    { valor: "parcelado", titulo: "Só parcelas" },
-    { valor: "entrada_parcelado", titulo: "Entrada + parcelas" },
-  ];
   const exigeContaPagamento = ["debito_conta", "pix", "transferencia"].includes(form.formaPagamento);
   const exigeCartaoPagamento = form.formaPagamento === "credito";
   const temEntrada = ["entrada_avista", "entrada_parcelado"].includes(form.tipoAcordo);
@@ -303,18 +353,72 @@ function RenegociacaoModal({ fechar, onSalvo }) {
     0
   );
 
-  const valorBaseRenegociado = itensSelecionados.reduce(
-    (total, item) => total + Number(item.valor_renegociado || 0),
-    0
-  );
-
-  const valorRenegociado = moedaParaNumero(form.valorRenegociado) || valorBaseRenegociado;
+  const valorRenegociado = moedaParaNumero(form.valorRenegociado);
   const valorEntrada = moedaParaNumero(form.valorEntrada);
   const numeroParcelas = temParcelas ? Math.max(Number(form.numeroParcelas || 1), 1) : 1;
-  const valorParcela = Math.max(valorRenegociado - valorEntrada, 0) / numeroParcelas;
+  const valorParcelaInformado = moedaParaNumero(form.valorParcela);
+  const valorParcela = temParcelas
+    ? valorParcelaInformado || Math.max(valorRenegociado - valorEntrada, 0) / numeroParcelas
+    : Math.max(valorRenegociado - valorEntrada, 0);
   const contaNegativaSelecionada = itensSelecionados.find((item) => item.tipo === "conta_negativa");
   const possuiCartaoSelecionado = itensSelecionados.some((item) => item.tipo === "fatura");
   const credorAutomatico = definirCredorAutomatico(itensSelecionados);
+  const gruposSelecionados = useMemo(() => agruparItensContrato(itensSelecionados), [itensSelecionados]);
+  const totalItensControlDriver = gruposSelecionados.reduce((total, grupo) => total + grupo.totalOriginal, 0);
+  const totalAcordoItens = gruposSelecionados.reduce(
+    (total, grupo) => total + moedaParaNumero(dadosItens[grupo.chave]?.valorTotal),
+    0
+  );
+  const totalConsideradoBanco = gruposSelecionados.reduce(
+    (total, grupo) => total + moedaParaNumero(dadosItens[grupo.chave]?.valorBanco),
+    0
+  );
+  const parcelaTotalItens = gruposSelecionados.reduce(
+    (total, grupo) => total + moedaParaNumero(dadosItens[grupo.chave]?.valorParcela),
+    0
+  );
+  const custoEstimado = totalConsideradoBanco > 0 ? totalAcordoItens - totalConsideradoBanco : null;
+
+  function atualizarDadoItem(chave, campo, valor) {
+    setDadosItens((atual) => ({
+      ...atual,
+      [chave]: {
+        ...(atual[chave] || {}),
+        [campo]: valor,
+      },
+    }));
+  }
+
+  function itensComDadosContrato() {
+    return gruposSelecionados.flatMap((grupo) => {
+      const dados = dadosItens[grupo.chave] || {};
+      const totalOriginalGrupo = Math.max(grupo.totalOriginal, 0);
+      const valorBancoGrupo = moedaParaNumero(dados.valorBanco);
+      const valorTotalGrupo = moedaParaNumero(dados.valorTotal);
+      const valorParcelaGrupo = moedaParaNumero(dados.valorParcela);
+
+      return grupo.itens.map((item, indice) => {
+        const peso = totalOriginalGrupo > 0
+          ? Number(item.valor_aberto || 0) / totalOriginalGrupo
+          : indice === 0 ? 1 : 0;
+
+        return {
+          ...item,
+          valor_renegociado: valorBancoGrupo > 0 ? valorBancoGrupo * peso : Number(item.valor_aberto || 0),
+          valor_considerado_banco: valorBancoGrupo > 0 ? valorBancoGrupo * peso : null,
+          valor_total_acordo: valorTotalGrupo * peso,
+          valor_parcela_acordo: valorParcelaGrupo * peso,
+          saldo_apos_acordo: grupo.tipo === "conta_negativa" ? moedaParaNumero(dados.saldoApos) : null,
+          ajustar_limite: grupo.tipo === "cartao" ? Boolean(dados.ajustarLimite) : false,
+          novo_limite_total: grupo.tipo === "cartao" && dados.ajustarLimite
+            ? moedaParaNumero(dados.novoLimite)
+            : null,
+          limite_anterior: grupo.limiteAnterior,
+          grupo_acordo: grupo.chave,
+        };
+      });
+    });
+  }
 
   function criarEstadoDivida(divida) {
     return {
@@ -410,6 +514,85 @@ function RenegociacaoModal({ fechar, onSalvo }) {
     }));
   }
 
+  function selecionarTipoAcordo(tipo) {
+    setField("tipoAcordo", tipo);
+
+    if (tipo === "avista") {
+      setField("valorEntrada", "");
+      setField("valorParcela", "");
+      setField("numeroParcelas", "1");
+    }
+
+    if (tipo === "entrada_avista") {
+      setField("numeroParcelas", "1");
+    }
+
+    if (tipo === "parcelado") {
+      setField("valorEntrada", "");
+      if (!form.numeroParcelas) setField("numeroParcelas", "2");
+    }
+
+    if (tipo === "entrada_parcelado" && !form.numeroParcelas) {
+      setField("numeroParcelas", "2");
+    }
+  }
+
+  function atualizarValorTotalRenegociado(valor) {
+    setField("valorRenegociado", valor);
+
+    if (!temParcelas || !numeroParcelas) return;
+
+    const total = moedaParaNumero(valor);
+    const parcela = Math.max(total - valorEntrada, 0) / numeroParcelas;
+    setField("valorParcela", numeroParaMoedaInput(parcela));
+  }
+
+  function atualizarValorParcelaRenegociada(valor) {
+    setField("valorParcela", valor);
+
+    if (!temParcelas || !numeroParcelas) return;
+
+    const parcela = moedaParaNumero(valor);
+    const total = valorEntrada + parcela * numeroParcelas;
+    setField("valorRenegociado", numeroParaMoedaInput(total));
+  }
+
+  function atualizarValorEntrada(valor) {
+    setField("valorEntrada", valor);
+
+    if (!temParcelas || !numeroParcelas) return;
+
+    const entrada = moedaParaNumero(valor);
+    const parcelaAtual = moedaParaNumero(form.valorParcela);
+    const totalAtual = moedaParaNumero(form.valorRenegociado);
+
+    if (parcelaAtual > 0) {
+      setField("valorRenegociado", numeroParaMoedaInput(entrada + parcelaAtual * numeroParcelas));
+      return;
+    }
+
+    if (totalAtual > 0) {
+      setField("valorParcela", numeroParaMoedaInput(Math.max(totalAtual - entrada, 0) / numeroParcelas));
+    }
+  }
+
+  function atualizarQuantidadeParcelas(numero) {
+    setField("numeroParcelas", numero);
+
+    const parcelas = Math.max(Number(numero || 1), 1);
+    const parcelaAtual = moedaParaNumero(form.valorParcela);
+    const totalAtual = moedaParaNumero(form.valorRenegociado);
+
+    if (parcelaAtual > 0) {
+      setField("valorRenegociado", numeroParaMoedaInput(valorEntrada + parcelaAtual * parcelas));
+      return;
+    }
+
+    if (totalAtual > 0) {
+      setField("valorParcela", numeroParaMoedaInput(Math.max(totalAtual - valorEntrada, 0) / parcelas));
+    }
+  }
+
   function proximo() {
     if (etapa === 1 && itensSelecionados.length === 0) {
       abrirFeedback("erro", "Selecione uma dívida", "Escolha pelo menos um cartão, conta ou boleto para renegociar.");
@@ -442,8 +625,16 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         return;
       }
 
-      if (valorRenegociado <= 0) {
-        abrirFeedback("erro", "Valor obrigatório", "Informe o valor da renegociação.");
+      if (totalAcordoItens <= 0) {
+        abrirFeedback("erro", "Valor obrigatório", "Informe o valor total de cada item do acordo.");
+        return;
+      }
+
+      const itemSemParcela = temParcelas && gruposSelecionados.some(
+        (grupo) => moedaParaNumero(dadosItens[grupo.chave]?.valorParcela) <= 0
+      );
+      if (itemSemParcela) {
+        abrirFeedback("erro", "Parcelas obrigatórias", "Informe o valor da parcela de cada item do acordo.");
         return;
       }
 
@@ -452,8 +643,8 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         return;
       }
 
-      if (temEntrada && valorEntrada >= valorRenegociado) {
-        abrirFeedback("erro", "Entrada inválida", "A entrada precisa ser menor que o valor da renegociação.");
+      if (temEntrada && valorEntrada >= totalAcordoItens) {
+        abrirFeedback("erro", "Entrada inválida", "A entrada precisa ser menor que o valor total do acordo.");
         return;
       }
 
@@ -462,8 +653,13 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         return;
       }
 
-      if (!form.primeiroVencimento && valorRenegociado > valorEntrada) {
+      if (!form.primeiroVencimento && totalAcordoItens > valorEntrada) {
         abrirFeedback("erro", "Data obrigatória", temParcelas ? "Informe o primeiro vencimento." : "Informe a data de vencimento.");
+        return;
+      }
+
+      if (form.primeiroVencimento && form.dataRenegociacao && form.primeiroVencimento < form.dataRenegociacao) {
+        abrirFeedback("erro", "Vencimento inválido", "O primeiro vencimento não pode ser menor que a data do acordo.");
         return;
       }
     }
@@ -487,13 +683,16 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         contaDebitoId: form.contaDebitoId,
         cartaoPagamentoId: form.cartaoPagamentoId,
         contaAjusteId: form.contaAjusteId || contaNegativaSelecionada?.origem_id || "",
-        saldoContaApos: form.saldoContaApos ? moedaParaNumero(form.saldoContaApos) : null,
-        valorOriginal,
-        valorRenegociado,
+        saldoContaApos: (() => {
+          const grupoConta = gruposSelecionados.find((grupo) => grupo.tipo === "conta_negativa");
+          return grupoConta ? moedaParaNumero(dadosItens[grupoConta.chave]?.saldoApos) : null;
+        })(),
+        valorOriginal: totalItensControlDriver,
+        valorRenegociado: totalAcordoItens,
         valorEntrada: temEntrada ? valorEntrada : 0,
         numeroParcelas,
         primeiroVencimento: form.primeiroVencimento,
-        itens: itensSelecionados,
+        itens: itensComDadosContrato(),
       });
 
       onSalvo?.();
@@ -513,6 +712,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         descricao="Selecione as dívidas antigas, informe o acordo novo e o ControlDriver gera as parcelas."
         onClose={fechar}
         largura="max-w-5xl"
+        scrollKey={etapa}
         confirmarAoFecharSeAlterado
         isDirty={isDirty || Object.values(selecionadas).some((item) => item?.selecionado)}
       >
@@ -660,11 +860,17 @@ function RenegociacaoModal({ fechar, onSalvo }) {
           )}
 
           {etapa === 2 && (
-            <div className="space-y-5">
+            <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Campo label="Data do acordo">
                   <ButtonField onClick={() => setModalData("dataRenegociacao")}>
                     {form.dataRenegociacao ? formatarDataBR(form.dataRenegociacao) : "Selecionar data"}
+                  </ButtonField>
+                </Campo>
+
+                <Campo label="Tipo do acordo">
+                  <ButtonField onClick={() => setModalTipoAcordo(true)}>
+                    {form.tipoAcordo ? textoTipoAcordo(form.tipoAcordo) : "Selecionar tipo do acordo"}
                   </ButtonField>
                 </Campo>
 
@@ -674,76 +880,25 @@ function RenegociacaoModal({ fechar, onSalvo }) {
                   </ButtonField>
                 </Campo>
 
-                <Campo label="Tipo do acordo">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                    {tiposAcordo.map((tipo) => (
-                      <OpcaoPequena
-                        key={tipo.valor}
-                        ativo={form.tipoAcordo === tipo.valor}
-                        onClick={() => {
-                          setField("tipoAcordo", tipo.valor);
-                          if (tipo.valor === "avista") {
-                            setField("valorEntrada", "");
-                            setField("numeroParcelas", "1");
-                          }
-                          if (tipo.valor === "entrada_avista") {
-                            setField("numeroParcelas", "1");
-                          }
-                          if (tipo.valor === "parcelado") {
-                            setField("valorEntrada", "");
-                            if (!form.numeroParcelas) setField("numeroParcelas", "2");
-                          }
-                          if (tipo.valor === "entrada_parcelado" && !form.numeroParcelas) {
-                            setField("numeroParcelas", "2");
-                          }
-                        }}
-                      >
-                        {tipo.titulo}
-                      </OpcaoPequena>
-                    ))}
-                  </div>
-                </Campo>
-
                 <Campo label={exigeCartaoPagamento ? "Cartão" : "Conta"}>
-                  <ButtonField
-                    onClick={() => {
-                      if (exigeCartaoPagamento) setModalCartao(true);
-                      else setModalConta(true);
-                    }}
-                  >
+                  <ButtonField onClick={() => exigeCartaoPagamento ? setModalCartao(true) : setModalConta(true)}>
                     {exigeCartaoPagamento
                       ? nomeCartaoSelecionado(cartoesAtivos, form.cartaoPagamentoId) || "Selecionar cartão"
                       : nomeContaSelecionada(contasBanco, form.contaDebitoId) || "Selecionar conta"}
                   </ButtonField>
                 </Campo>
 
-                <Campo label="Valor original da dívida">
-                  <CampoSomenteLeitura>{formatarMoeda(valorBaseRenegociado)}</CampoSomenteLeitura>
-                </Campo>
-
-                <Campo label="Valor da renegociação">
-                  <InputMoeda
-                    value={form.valorRenegociado || numeroParaMoedaInput(valorBaseRenegociado)}
-                    onChange={(valor) => setField("valorRenegociado", valor)}
-                  />
-                </Campo>
-
                 {temEntrada && (
-                  <Campo label="Valor da entrada">
-                    <InputMoeda value={form.valorEntrada} onChange={(valor) => setField("valorEntrada", valor)} />
+                  <Campo label="Entrada">
+                    <InputMoeda value={form.valorEntrada} onChange={atualizarValorEntrada} />
                   </Campo>
                 )}
 
                 {temParcelas && (
                   <Campo label="Quantidade de parcelas">
-                    <input
-                      type="number"
-                      min="1"
-                      value={form.numeroParcelas}
-                      onChange={(event) => setField("numeroParcelas", event.target.value)}
-                      placeholder="Ex.: 12"
-                      className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
-                    />
+                    <ButtonField onClick={() => setModalParcelas(true)}>
+                      {form.numeroParcelas ? `${form.numeroParcelas}x` : "Selecionar parcelas"}
+                    </ButtonField>
                   </Campo>
                 )}
 
@@ -752,62 +907,105 @@ function RenegociacaoModal({ fechar, onSalvo }) {
                     {form.primeiroVencimento ? formatarDataBR(form.primeiroVencimento) : "Selecionar data"}
                   </ButtonField>
                 </Campo>
+              </div>
 
-                {valorRenegociado > 0 && valorRenegociado > valorEntrada && (
-                  <Campo label={temParcelas ? "Valor da parcela" : "Valor restante"}>
-                    <CampoSomenteLeitura>{formatarMoeda(valorParcela)}</CampoSomenteLeitura>
-                  </Campo>
-                )}
+              <div className="flex items-center justify-between gap-4 rounded-2xl border border-green-500/30 bg-green-500/10 p-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-wide text-green-400">Itens em acordo</p>
+                  <p className="text-sm text-gray-400 mt-1">Informe os dados de cada operação do contrato.</p>
+                </div>
+                <p className="text-xl font-black text-green-400 shrink-0">{formatarMoeda(totalAcordoItens)}</p>
+              </div>
+
+              <div className="space-y-4">
+                {gruposSelecionados.map((grupo) => {
+                  const dados = dadosItens[grupo.chave] || {};
+                  return (
+                    <div key={grupo.chave} className="rounded-2xl border border-gray-800 bg-[#0B1120] p-5 space-y-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="font-black text-lg">{grupo.titulo}</p>
+                          <p className="text-sm text-gray-500">{grupo.detalhe}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500">No ControlDriver</p>
+                          <p className="font-black">{formatarMoeda(grupo.tipo === "conta_negativa" ? -grupo.totalOriginal : grupo.totalOriginal)}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Campo label={
+                          <span className="inline-flex items-center gap-2">
+                            Valor considerado pelo banco
+                            <button type="button" onClick={() => setInfoValorBancoAberto(true)} className="text-green-400 hover:text-green-300" aria-label="O que é o valor considerado pelo banco?">
+                              <FiInfo />
+                            </button>
+                          </span>
+                        }>
+                          <InputMoeda value={dados.valorBanco || ""} onChange={(valor) => atualizarDadoItem(grupo.chave, "valorBanco", valor)} />
+                        </Campo>
+
+                        {temParcelas && (
+                          <Campo label="Valor da parcela">
+                            <InputMoeda value={dados.valorParcela || ""} onChange={(valor) => {
+                              atualizarDadoItem(grupo.chave, "valorParcela", valor);
+                              if (numeroParcelas > 0) atualizarDadoItem(grupo.chave, "valorTotal", numeroParaMoedaInput(moedaParaNumero(valor) * numeroParcelas));
+                            }} />
+                          </Campo>
+                        )}
+
+                        <Campo label="Valor total">
+                          <InputMoeda value={dados.valorTotal || ""} onChange={(valor) => {
+                            atualizarDadoItem(grupo.chave, "valorTotal", valor);
+                            if (temParcelas && numeroParcelas > 0) atualizarDadoItem(grupo.chave, "valorParcela", numeroParaMoedaInput(moedaParaNumero(valor) / numeroParcelas));
+                          }} />
+                        </Campo>
+
+                        {grupo.tipo === "conta_negativa" && (
+                          <Campo label="Saldo da conta após o acordo">
+                            <InputMoeda value={dados.saldoApos || ""} onChange={(valor) => atualizarDadoItem(grupo.chave, "saldoApos", valor)} />
+                          </Campo>
+                        )}
+                      </div>
+
+                      {grupo.tipo === "cartao" && (
+                        <div className="rounded-xl border border-gray-800 bg-[#111827] p-4 space-y-3">
+                          <label className="flex items-center justify-between gap-4 cursor-pointer">
+                            <div>
+                              <p className="font-bold">O limite do cartão foi alterado?</p>
+                              <p className="text-sm text-gray-500">Limite anterior: {formatarMoeda(grupo.limiteAnterior)}</p>
+                            </div>
+                            <ToggleSwitch
+                              ativo={Boolean(dados.ajustarLimite)}
+                              onChange={(ativo) => atualizarDadoItem(grupo.chave, "ajustarLimite", ativo)}
+                              ariaLabel="Informar alteração do limite do cartão"
+                            />
+                          </label>
+                          {dados.ajustarLimite && (
+                            <Campo label="Novo limite">
+                              <InputMoeda value={dados.novoLimite || ""} onChange={(valor) => atualizarDadoItem(grupo.chave, "novoLimite", valor)} />
+                            </Campo>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
 
           {etapa === 3 && (
-            <div className="space-y-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <MiniInfo titulo="Credor" valor={credorAutomatico} />
-                <MiniInfo titulo="Data" valor={formatarDataBR(form.dataRenegociacao)} />
-                <MiniInfo titulo="Forma" valor={textoFormaPagamento(form.formaPagamento)} />
-                <MiniInfo titulo="Tipo" valor={textoTipoAcordo(form.tipoAcordo)} />
-                <MiniInfo titulo="Entrada" valor={formatarMoeda(temEntrada ? valorEntrada : 0)} />
-                <MiniInfo titulo="Parcelas" valor={temParcelas ? `${numeroParcelas}x de ${formatarMoeda(valorParcela)}` : "À vista"} />
-              </div>
-
-              {(contaNegativaSelecionada || possuiCartaoSelecionado) && (
-                <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-5 space-y-4">
-                  {possuiCartaoSelecionado && (
-                    <p className="text-sm text-gray-400">As faturas selecionadas serão marcadas como renegociadas. Se o banco liberou ou alterou limite depois do acordo, ajuste o cartão depois no cadastro dele.</p>
-                  )}
-
-                  {contaNegativaSelecionada && (
-                    <Campo label="Saldo da conta após renegociação">
-                      <InputMoeda
-                        value={form.saldoContaApos}
-                        onChange={(valor) => {
-                          setField("saldoContaApos", valor);
-                          setField("contaAjusteId", String(contaNegativaSelecionada.origem_id || ""));
-                        }}
-                      />
-                    </Campo>
-                  )}
-                </div>
-              )}
-
-              <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-5">
-                <p className="font-black mb-3">Dívidas incluídas</p>
-                <div className="space-y-2">
-                  {itensSelecionados.map((item) => (
-                    <div key={item.chave} className="flex items-center justify-between gap-3 text-sm border-b border-gray-800 last:border-0 py-2">
-                      <div className="min-w-0">
-                        <p className="font-bold truncate">{item.titulo}</p>
-                        <p className="text-gray-500 truncate">{textoOrigemItem(item.tipo)} • {textoTipoRenegociacao(item.tipo_renegociacao)}</p>
-                      </div>
-                      <p className="font-black shrink-0">{formatarMoeda(item.valor_renegociado)}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <ResumoResultadoAcordo
+              grupos={gruposSelecionados}
+              dadosItens={dadosItens}
+              numeroParcelas={numeroParcelas}
+              temParcelas={temParcelas}
+              totalAcordo={totalAcordoItens}
+              parcelaTotal={parcelaTotalItens}
+              totalConsideradoBanco={totalConsideradoBanco}
+              custoEstimado={custoEstimado}
+            />
           )}
 
           <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-3 pt-4 pb-1 bg-[#111827]">
@@ -835,14 +1033,26 @@ function RenegociacaoModal({ fechar, onSalvo }) {
       {modalData && (
         <DatePickerModal
           aberto={true}
-          valor={form[modalData] || hojeISO()}
-          onSelecionar={(data) => {
+          valor={form[modalData] || ""}
+          minDate={modalData === "primeiroVencimento" ? form.dataRenegociacao || null : null}
+          maxDate={modalData === "dataRenegociacao" ? hojeISO() : null}
+          onChange={(data) => {
             setField(modalData, data);
+            if (modalData === "dataRenegociacao" && form.primeiroVencimento && form.primeiroVencimento < data) {
+              setField("primeiroVencimento", "");
+            }
             setModalData(null);
           }}
           onClose={() => setModalData(null)}
         />
       )}
+
+      <SelecionarTipoAcordoModal
+        aberto={modalTipoAcordo}
+        tipoAcordo={form.tipoAcordo}
+        onSelecionar={(valor) => selecionarTipoAcordo(valor)}
+        onClose={() => setModalTipoAcordo(false)}
+      />
 
       <SelecionarFormaPagamentoModal
         aberto={modalFormaPagamento}
@@ -874,6 +1084,21 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         formatarMoeda={formatarMoeda}
       />
 
+      <SelecionarParcelasModal
+        aberto={modalParcelas}
+        numeroParcelas={form.numeroParcelas}
+        onSelecionar={atualizarQuantidadeParcelas}
+        onClose={() => setModalParcelas(false)}
+      />
+
+      <FeedbackModal
+        aberto={infoValorBancoAberto}
+        tipo="aviso"
+        titulo="Valor considerado pelo banco"
+        mensagem="É o saldo que a instituição usou como base para este item no contrato. Pode ser diferente do ControlDriver por juros, multas, encargos, pagamentos ou créditos anteriores. Normalmente aparece no contrato definitivo. Se você não encontrar, deixe em branco."
+        onClose={() => setInfoValorBancoAberto(false)}
+      />
+
       <FeedbackModal
         aberto={feedback.aberto}
         tipo={feedback.tipo}
@@ -885,61 +1110,744 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   );
 }
 
-function DetalheRenegociacaoModal({ renegociacao, itens, fechar }) {
+function DetalheRenegociacaoModal({ renegociacao, itens, fechar, onExcluido, onAtualizado }) {
+  const [confirmarExclusao, setConfirmarExclusao] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+  const [modalEdicaoAberto, setModalEdicaoAberto] = useState(false);
+  const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+
+  const tipoAcordo = definirTipoAcordoRenegociacao(renegociacao);
+  const temEntrada = ["entrada_avista", "entrada_parcelado"].includes(tipoAcordo);
+  const temParcelas = ["parcelado", "entrada_parcelado"].includes(tipoAcordo);
+  const valorEntrada = Number(renegociacao.valor_entrada || 0);
+  const numeroParcelas = temParcelas ? Math.max(Number(renegociacao.numero_parcelas || 1), 1) : 1;
+  const valorParcelas = temParcelas
+    ? Math.max(Number(renegociacao.valor_renegociado || 0) - valorEntrada, 0) / numeroParcelas
+    : 0;
+  const itensAgrupados = agruparItensRenegociadosDetalhe(itens);
+
+  function abrirFeedback(tipo, titulo, mensagem) {
+    setFeedback({ aberto: true, tipo, titulo, mensagem });
+  }
+
+  function fecharFeedback() {
+    setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+  }
+
+  async function confirmarExcluirRenegociacao() {
+    setExcluindo(true);
+
+    try {
+      await excluirRenegociacao(renegociacao.id);
+      setConfirmarExclusao(false);
+      await onExcluido?.();
+    } catch (error) {
+      console.error(error);
+      abrirFeedback(
+        "erro",
+        "Erro ao excluir",
+        error.message || "Não foi possível excluir a renegociação e restaurar as dívidas originais."
+      );
+    } finally {
+      setExcluindo(false);
+    }
+  }
+
   return (
-    <ModalBase
-      aberto={true}
-      titulo="Detalhes da renegociação"
-      descricao={renegociacao.credor}
-      onClose={fechar}
-      largura="max-w-3xl"
-    >
-      <div className="space-y-5">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <MiniInfo titulo="Data" valor={formatarDataBR(renegociacao.data_renegociacao)} />
-          <MiniInfo titulo="Forma" valor={textoFormaPagamento(renegociacao.forma_pagamento)} />
-          <MiniInfo titulo="Dívida original" valor={formatarMoeda(renegociacao.valor_original)} />
-          <MiniInfo titulo="Valor renegociado" valor={formatarMoeda(renegociacao.valor_renegociado)} />
-          <MiniInfo titulo="Entrada" valor={formatarMoeda(renegociacao.valor_entrada)} />
-          <MiniInfo titulo="Parcelas" valor={`${renegociacao.numero_parcelas || 1}x`} />
-        </div>
+    <>
+      <ModalBase
+        aberto={true}
+        titulo="Detalhes da renegociação"
+        descricao={renegociacao.credor}
+        onClose={fechar}
+        largura="max-w-3xl"
+        acaoCabecalho={
+          <>
+            <button
+              type="button"
+              onClick={() => setModalEdicaoAberto(true)}
+              disabled={excluindo}
+              className="w-10 h-10 rounded-xl border border-gray-700 hover:bg-white/5 text-white font-bold flex items-center justify-center disabled:opacity-50"
+              aria-label="Editar renegociação"
+              title="Editar renegociação"
+            >
+              <FiEdit2 className="w-5 h-5" />
+            </button>
 
-        <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-5">
-          <p className="font-black mb-3">Itens renegociados</p>
-          {itens.length > 0 ? (
-            <div className="space-y-2">
-              {itens.map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-3 text-sm border-b border-gray-800 last:border-0 py-2">
-                  <div className="min-w-0">
-                    <p className="font-bold truncate">{item.titulo}</p>
-                    <p className="text-gray-500 truncate">{textoOrigemItem(item.tipo_origem)} • {textoTipoRenegociacao(item.tipo_renegociacao)}</p>
+            <button
+              type="button"
+              onClick={() => setConfirmarExclusao(true)}
+              disabled={excluindo}
+              className="w-10 h-10 rounded-xl border border-gray-700 hover:bg-white/5 text-white font-bold flex items-center justify-center disabled:opacity-50"
+              aria-label="Excluir renegociação"
+              title="Excluir renegociação"
+            >
+              <FiTrash2 className="w-5 h-5" />
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <MiniInfo titulo="Data" valor={formatarDataBR(renegociacao.data_renegociacao)} />
+            <MiniInfo titulo="Tipo do acordo" valor={textoTipoAcordo(tipoAcordo)} />
+            <MiniInfo titulo="Forma" valor={textoFormaPagamento(renegociacao.forma_pagamento)} />
+            <MiniInfo titulo="Dívida original" valor={formatarMoeda(renegociacao.valor_original)} />
+            <MiniInfo titulo="Valor renegociado" valor={formatarMoeda(renegociacao.valor_renegociado)} />
+            {temEntrada && <MiniInfo titulo="Entrada" valor={formatarMoeda(valorEntrada)} />}
+            {temParcelas && <MiniInfo titulo="Parcelas" valor={`${numeroParcelas}x`} />}
+            {temParcelas && <MiniInfo titulo="Valor das parcelas" valor={formatarMoeda(valorParcelas)} />}
+            <MiniInfo titulo={temParcelas ? "Primeiro vencimento" : "Vencimento"} valor={formatarDataBR(renegociacao.primeiro_vencimento)} />
+          </div>
+
+          <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-5">
+            <p className="font-black mb-3">Itens renegociados</p>
+            {itensAgrupados.length > 0 ? (
+              <div className="space-y-2">
+                {itensAgrupados.map((item) => (
+                  <div key={item.chave} className="flex items-center justify-between gap-3 text-sm border-b border-gray-800 last:border-0 py-3">
+                    <div className="min-w-0">
+                      <p className="font-bold truncate">{item.titulo}</p>
+                      <p className="text-gray-500 truncate">{item.detalhe}</p>
+                    </div>
+                    <p className="font-black shrink-0">{formatarMoeda(item.total)}</p>
                   </div>
-                  <p className="font-black shrink-0">{formatarMoeda(item.valor_renegociado)}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-gray-400">Nenhum item encontrado.</p>
-          )}
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-400">Nenhum item encontrado.</p>
+            )}
+          </div>
         </div>
+      </ModalBase>
 
-        <button
-          type="button"
-          onClick={fechar}
-          className="w-full bg-green-500 hover:bg-green-600 text-black font-black rounded-xl p-3"
-        >
-          Fechar
-        </button>
-      </div>
-    </ModalBase>
+      {modalEdicaoAberto && (
+        <EditarRenegociacaoModal
+          renegociacao={renegociacao}
+          fechar={() => setModalEdicaoAberto(false)}
+          onSalvo={async (renegociacaoAtualizada) => {
+            setModalEdicaoAberto(false);
+            await onAtualizado?.(renegociacaoAtualizada);
+          }}
+        />
+      )}
+
+      <ConfirmacaoModal
+        aberto={confirmarExclusao}
+        tipo="perigo"
+        titulo="Excluir renegociação?"
+        mensagem="Isso vai remover o acordo novo, apagar as parcelas geradas pela renegociação e restaurar as dívidas originais."
+        textoCancelar="Cancelar"
+        textoConfirmar={excluindo ? "Excluindo..." : "Excluir"}
+        carregando={excluindo}
+        onCancelar={() => setConfirmarExclusao(false)}
+        onConfirmar={confirmarExcluirRenegociacao}
+      />
+
+      <FeedbackModal
+        aberto={feedback.aberto}
+        tipo={feedback.tipo}
+        titulo={feedback.titulo}
+        mensagem={feedback.mensagem}
+        onClose={fecharFeedback}
+      />
+    </>
   );
 }
 
-function ResumoSelecao({ valorOriginal, valorRenegociado }) {
+function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
+  const tipoInicial = definirTipoAcordoRenegociacao(renegociacao);
+  const valorEntradaInicial = Number(renegociacao.valor_entrada || 0);
+  const numeroParcelasInicial = Math.max(Number(renegociacao.numero_parcelas || 1), 1);
+  const valorParcelaInicial = ["parcelado", "entrada_parcelado"].includes(tipoInicial)
+    ? Math.max(Number(renegociacao.valor_renegociado || 0) - valorEntradaInicial, 0) / numeroParcelasInicial
+    : 0;
+
+  const [contas, setContas] = useState([]);
+  const [cartoes, setCartoes] = useState([]);
+  const [modalData, setModalData] = useState(null);
+  const [modalFormaPagamento, setModalFormaPagamento] = useState(false);
+  const [modalTipoAcordo, setModalTipoAcordo] = useState(false);
+  const [modalConta, setModalConta] = useState(false);
+  const [modalCartao, setModalCartao] = useState(false);
+  const [modalParcelas, setModalParcelas] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+  const { form, setField, isDirty } = useDirtyForm({
+    ...FORM_INICIAL,
+    dataRenegociacao: renegociacao.data_renegociacao || "",
+    formaPagamento: renegociacao.forma_pagamento || "",
+    tipoAcordo: tipoInicial,
+    contaDebitoId: renegociacao.conta_debito_id ? String(renegociacao.conta_debito_id) : "",
+    cartaoPagamentoId: renegociacao.cartao_pagamento_id ? String(renegociacao.cartao_pagamento_id) : "",
+    valorRenegociado: numeroParaMoedaInput(renegociacao.valor_renegociado || 0),
+    valorEntrada: valorEntradaInicial > 0 ? numeroParaMoedaInput(valorEntradaInicial) : "",
+    valorParcela: valorParcelaInicial > 0 ? numeroParaMoedaInput(valorParcelaInicial) : "",
+    numeroParcelas: String(numeroParcelasInicial),
+    primeiroVencimento: renegociacao.primeiro_vencimento || "",
+  });
+
+  useEffect(() => {
+    async function carregarBaseEdicao() {
+      try {
+        const dados = await carregarDividasDisponiveis();
+        setContas(dados.contas || []);
+        setCartoes(dados.cartoes || []);
+      } catch (error) {
+        console.error(error);
+        abrirFeedback("erro", "Erro ao carregar", error.message || "Não foi possível carregar contas e cartões.");
+      }
+    }
+
+    carregarBaseEdicao();
+  }, []);
+
+  const contasBanco = contas.filter((conta) => (conta.tipo_conta || "banco") !== "tag");
+  const cartoesAtivos = cartoes.filter((cartao) => cartao.ativo !== false);
+  const formasPagamentoAcordo = [
+    { valor: "debito_conta", titulo: "Débito em conta" },
+    { valor: "boleto", titulo: "Boleto" },
+    { valor: "pix", titulo: "Pix" },
+    { valor: "dinheiro", titulo: "Dinheiro" },
+    { valor: "transferencia", titulo: "Transferência" },
+    { valor: "credito", titulo: "Cartão de crédito" },
+  ];
+  const exigeContaPagamento = ["debito_conta", "pix", "transferencia"].includes(form.formaPagamento);
+  const exigeCartaoPagamento = form.formaPagamento === "credito";
+  const temEntrada = ["entrada_avista", "entrada_parcelado"].includes(form.tipoAcordo);
+  const temParcelas = ["parcelado", "entrada_parcelado"].includes(form.tipoAcordo);
+  const valorRenegociado = moedaParaNumero(form.valorRenegociado);
+  const valorEntrada = moedaParaNumero(form.valorEntrada);
+  const numeroParcelas = temParcelas ? Math.max(Number(form.numeroParcelas || 1), 1) : 1;
+
+  function abrirFeedback(tipo, titulo, mensagem) {
+    setFeedback({ aberto: true, tipo, titulo, mensagem });
+  }
+
+  function fecharFeedback() {
+    setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+  }
+
+  function selecionarTipoAcordo(tipo) {
+    setField("tipoAcordo", tipo);
+
+    if (tipo === "avista") {
+      setField("valorEntrada", "");
+      setField("valorParcela", "");
+      setField("numeroParcelas", "1");
+    }
+
+    if (tipo === "entrada_avista") {
+      setField("numeroParcelas", "1");
+      setField("valorParcela", "");
+    }
+
+    if (tipo === "parcelado") {
+      setField("valorEntrada", "");
+      if (!form.numeroParcelas) setField("numeroParcelas", "2");
+    }
+
+    if (tipo === "entrada_parcelado" && !form.numeroParcelas) {
+      setField("numeroParcelas", "2");
+    }
+  }
+
+  function atualizarValorTotalRenegociado(valor) {
+    setField("valorRenegociado", valor);
+    if (!temParcelas || !numeroParcelas) return;
+
+    const total = moedaParaNumero(valor);
+    setField("valorParcela", numeroParaMoedaInput(Math.max(total - valorEntrada, 0) / numeroParcelas));
+  }
+
+  function atualizarValorParcelaRenegociada(valor) {
+    setField("valorParcela", valor);
+    if (!temParcelas || !numeroParcelas) return;
+
+    const parcela = moedaParaNumero(valor);
+    setField("valorRenegociado", numeroParaMoedaInput(valorEntrada + parcela * numeroParcelas));
+  }
+
+  function atualizarValorEntrada(valor) {
+    setField("valorEntrada", valor);
+    if (!temParcelas || !numeroParcelas) return;
+
+    const entrada = moedaParaNumero(valor);
+    const parcelaAtual = moedaParaNumero(form.valorParcela);
+    const totalAtual = moedaParaNumero(form.valorRenegociado);
+
+    if (parcelaAtual > 0) {
+      setField("valorRenegociado", numeroParaMoedaInput(entrada + parcelaAtual * numeroParcelas));
+      return;
+    }
+
+    if (totalAtual > 0) {
+      setField("valorParcela", numeroParaMoedaInput(Math.max(totalAtual - entrada, 0) / numeroParcelas));
+    }
+  }
+
+  function atualizarQuantidadeParcelas(numero) {
+    setField("numeroParcelas", numero);
+
+    const parcelas = Math.max(Number(numero || 1), 1);
+    const parcelaAtual = moedaParaNumero(form.valorParcela);
+    const totalAtual = moedaParaNumero(form.valorRenegociado);
+
+    if (parcelaAtual > 0) {
+      setField("valorRenegociado", numeroParaMoedaInput(valorEntrada + parcelaAtual * parcelas));
+      return;
+    }
+
+    if (totalAtual > 0) {
+      setField("valorParcela", numeroParaMoedaInput(Math.max(totalAtual - valorEntrada, 0) / parcelas));
+    }
+  }
+
+  async function salvarEdicao() {
+    if (!form.dataRenegociacao) {
+      abrirFeedback("erro", "Data obrigatória", "Informe a data do acordo.");
+      return;
+    }
+
+    if (!form.tipoAcordo) {
+      abrirFeedback("erro", "Tipo obrigatório", "Selecione como esse acordo será pago.");
+      return;
+    }
+
+    if (!form.formaPagamento) {
+      abrirFeedback("erro", "Forma obrigatória", "Selecione a forma de pagamento do acordo.");
+      return;
+    }
+
+    if (exigeContaPagamento && !form.contaDebitoId) {
+      abrirFeedback("erro", "Conta obrigatória", "Selecione a conta usada no pagamento do acordo.");
+      return;
+    }
+
+    if (exigeCartaoPagamento && !form.cartaoPagamentoId) {
+      abrirFeedback("erro", "Cartão obrigatório", "Selecione o cartão usado no pagamento do acordo.");
+      return;
+    }
+
+    if (valorRenegociado <= 0) {
+      abrirFeedback("erro", "Valor obrigatório", "Informe o valor da renegociação.");
+      return;
+    }
+
+    if (temEntrada && valorEntrada <= 0) {
+      abrirFeedback("erro", "Entrada obrigatória", "Informe o valor da entrada.");
+      return;
+    }
+
+    if (temEntrada && valorEntrada >= valorRenegociado) {
+      abrirFeedback("erro", "Entrada inválida", "A entrada precisa ser menor que o valor da renegociação.");
+      return;
+    }
+
+    if (temParcelas && Number(form.numeroParcelas || 0) <= 0) {
+      abrirFeedback("erro", "Parcelas obrigatórias", "Informe a quantidade de parcelas.");
+      return;
+    }
+
+    if (!form.primeiroVencimento && valorRenegociado > valorEntrada) {
+      abrirFeedback("erro", "Data obrigatória", temParcelas ? "Informe o primeiro vencimento." : "Informe a data de vencimento.");
+      return;
+    }
+
+    if (form.primeiroVencimento && form.dataRenegociacao && form.primeiroVencimento < form.dataRenegociacao) {
+      abrirFeedback("erro", "Vencimento inválido", "O primeiro vencimento não pode ser menor que a data do acordo.");
+      return;
+    }
+
+    setSalvando(true);
+
+    try {
+      const atualizado = await editarRenegociacao(renegociacao.id, {
+        credor: renegociacao.credor,
+        dataRenegociacao: form.dataRenegociacao,
+        formaPagamento: form.formaPagamento,
+        contaDebitoId: form.contaDebitoId,
+        cartaoPagamentoId: form.cartaoPagamentoId,
+        valorRenegociado,
+        valorEntrada: temEntrada ? valorEntrada : 0,
+        numeroParcelas,
+        primeiroVencimento: form.primeiroVencimento,
+      });
+
+      await onSalvo?.(atualizado);
+    } catch (error) {
+      console.error(error);
+      abrirFeedback("erro", "Erro ao editar", error.message || "Não foi possível editar a renegociação.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <ResumoCard titulo="Dívida original selecionada" valor={formatarMoeda(valorOriginal)} destaque="red" />
-      <ResumoCard titulo="Base do acordo" valor={formatarMoeda(valorRenegociado)} destaque="yellow" />
+    <>
+      <ModalBase
+        aberto={true}
+        titulo="Editar renegociação"
+        descricao={renegociacao.credor}
+        onClose={fechar}
+        largura="max-w-3xl"
+        confirmarAoFecharSeAlterado
+        isDirty={isDirty}
+        rodape={
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={fechar}
+              disabled={salvando}
+              className="border border-gray-700 hover:bg-white/5 text-white font-black rounded-xl p-3 disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+
+            <button
+              type="button"
+              onClick={salvarEdicao}
+              disabled={salvando}
+              className="bg-green-500 hover:bg-green-600 text-black font-black rounded-xl p-3 disabled:opacity-50"
+            >
+              {salvando ? "Salvando..." : "Salvar alterações"}
+            </button>
+          </div>
+        }
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Campo label="Data do acordo">
+            <ButtonField onClick={() => setModalData("dataRenegociacao")}>
+              {form.dataRenegociacao ? formatarDataBR(form.dataRenegociacao) : "Selecionar data"}
+            </ButtonField>
+          </Campo>
+
+          <Campo label="Tipo do acordo">
+            <ButtonField onClick={() => setModalTipoAcordo(true)}>
+              {form.tipoAcordo ? textoTipoAcordo(form.tipoAcordo) : "Selecionar tipo do acordo"}
+            </ButtonField>
+          </Campo>
+
+          <Campo label="Forma de pagamento">
+            <ButtonField onClick={() => setModalFormaPagamento(true)}>
+              {form.formaPagamento ? textoFormaPagamento(form.formaPagamento) : "Selecionar forma de pagamento"}
+            </ButtonField>
+          </Campo>
+
+          <Campo label={exigeCartaoPagamento ? "Cartão" : "Conta"}>
+            <ButtonField
+              onClick={() => {
+                if (exigeCartaoPagamento) setModalCartao(true);
+                else setModalConta(true);
+              }}
+            >
+              {exigeCartaoPagamento
+                ? nomeCartaoSelecionado(cartoesAtivos, form.cartaoPagamentoId) || "Selecionar cartão"
+                : nomeContaSelecionada(contasBanco, form.contaDebitoId) || "Selecionar conta"}
+            </ButtonField>
+          </Campo>
+
+          {temEntrada && (
+            <Campo label="Entrada">
+              <InputMoeda value={form.valorEntrada} onChange={atualizarValorEntrada} />
+            </Campo>
+          )}
+
+          {temParcelas && (
+            <Campo label="Quantidade de parcelas">
+              <ButtonField onClick={() => setModalParcelas(true)}>
+                {form.numeroParcelas ? `${form.numeroParcelas}x` : "Selecionar parcelas"}
+              </ButtonField>
+            </Campo>
+          )}
+
+          {temParcelas && (
+            <Campo label="Valor das parcelas">
+              <InputMoeda value={form.valorParcela} onChange={atualizarValorParcelaRenegociada} />
+            </Campo>
+          )}
+
+          <Campo label="Valor Total Renegociado">
+            <InputMoeda value={form.valorRenegociado} onChange={atualizarValorTotalRenegociado} />
+          </Campo>
+
+          <Campo label={temParcelas ? "Primeiro vencimento" : "Data de vencimento"}>
+            <ButtonField onClick={() => setModalData("primeiroVencimento")}>
+              {form.primeiroVencimento ? formatarDataBR(form.primeiroVencimento) : "Selecionar data"}
+            </ButtonField>
+          </Campo>
+        </div>
+      </ModalBase>
+
+      {modalData && (
+        <DatePickerModal
+          aberto={true}
+          valor={form[modalData] || ""}
+          minDate={modalData === "primeiroVencimento" ? form.dataRenegociacao || null : null}
+          maxDate={modalData === "dataRenegociacao" ? hojeISO() : null}
+          onChange={(data) => {
+            setField(modalData, data);
+            if (modalData === "dataRenegociacao" && form.primeiroVencimento && form.primeiroVencimento < data) {
+              setField("primeiroVencimento", "");
+            }
+            setModalData(null);
+          }}
+          onClose={() => setModalData(null)}
+        />
+      )}
+
+      <SelecionarTipoAcordoModal
+        aberto={modalTipoAcordo}
+        tipoAcordo={form.tipoAcordo}
+        onSelecionar={(valor) => selecionarTipoAcordo(valor)}
+        onClose={() => setModalTipoAcordo(false)}
+      />
+
+      <SelecionarFormaPagamentoModal
+        aberto={modalFormaPagamento}
+        formasPagamento={formasPagamentoAcordo}
+        formaPagamento={form.formaPagamento}
+        onSelecionar={(valor) => {
+          setField("formaPagamento", valor);
+          if (valor === "credito") setField("contaDebitoId", "");
+          else setField("cartaoPagamentoId", "");
+        }}
+        onClose={() => setModalFormaPagamento(false)}
+      />
+
+      <SelecionarContaModal
+        aberto={modalConta}
+        contas={contasBanco}
+        contaId={form.contaDebitoId}
+        onSelecionar={(id) => setField("contaDebitoId", id)}
+        onClose={() => setModalConta(false)}
+        formatarMoeda={formatarMoeda}
+      />
+
+      <SelecionarCartaoModal
+        aberto={modalCartao}
+        cartoes={cartoesAtivos}
+        cartaoId={form.cartaoPagamentoId}
+        onSelecionar={(id) => setField("cartaoPagamentoId", id)}
+        onClose={() => setModalCartao(false)}
+        formatarMoeda={formatarMoeda}
+      />
+
+      <SelecionarParcelasModal
+        aberto={modalParcelas}
+        numeroParcelas={form.numeroParcelas}
+        onSelecionar={atualizarQuantidadeParcelas}
+        onClose={() => setModalParcelas(false)}
+      />
+
+      <FeedbackModal
+        aberto={feedback.aberto}
+        tipo={feedback.tipo}
+        titulo={feedback.titulo}
+        mensagem={feedback.mensagem}
+        onClose={fecharFeedback}
+      />
+    </>
+  );
+}
+
+
+function definirTipoAcordoRenegociacao(renegociacao) {
+  const entrada = Number(renegociacao?.valor_entrada || 0);
+  const parcelas = Math.max(Number(renegociacao?.numero_parcelas || 1), 1);
+
+  if (entrada > 0 && parcelas > 1) return "entrada_parcelado";
+  if (entrada > 0) return "entrada_avista";
+  if (parcelas > 1) return "parcelado";
+  return "avista";
+}
+
+function agruparItensRenegociadosDetalhe(itens) {
+  const mapa = new Map();
+
+  (itens || []).forEach((item) => {
+    const payload = item.payload || {};
+    const cartao = payload.cartoes || payload.cartao || {};
+    const conta = payload.contas || payload.conta || {};
+    const cartaoId = payload.cartao_id || cartao.id || item.origem_id;
+    const contaId = payload.conta_id || conta.id || item.origem_id;
+
+    const tipo = item.tipo_origem === "fatura" ? "cartao" : item.tipo_origem === "conta_negativa" ? "conta_negativa" : "conta";
+    const chave = tipo === "cartao" ? `cartao-${cartaoId || item.titulo}` : `${tipo}-${contaId || item.titulo}`;
+    const titulo = tipo === "cartao"
+      ? cartao.nome || item.titulo || "Cartão"
+      : conta.nome || item.titulo || "Conta";
+    const detalhe = tipo === "cartao"
+      ? "Cartão de crédito"
+      : tipo === "conta_negativa"
+      ? "Conta negativa"
+      : item.detalhe || "Conta em acordo";
+
+    if (!mapa.has(chave)) {
+      mapa.set(chave, {
+        chave,
+        tipo,
+        titulo,
+        detalhe,
+        total: 0,
+      });
+    }
+
+    const valorTotalOperacao = payload._acordo?.valor_total_acordo;
+    mapa.get(chave).total += valorTotalOperacao === null || valorTotalOperacao === undefined
+      ? Number(item.valor_renegociado || 0)
+      : Number(valorTotalOperacao || 0);
+  });
+
+  return Array.from(mapa.values()).sort((a, b) => {
+    const ordem = { cartao: 1, conta_negativa: 2, conta: 3 };
+    return (ordem[a.tipo] || 9) - (ordem[b.tipo] || 9) || a.titulo.localeCompare(b.titulo);
+  });
+}
+
+function ResumoAcordoInicial({ itens }) {
+  const itensAgrupados = agruparItensResumoAcordo(itens);
+  const totalEmAcordo = itensAgrupados.reduce((total, item) => total + Number(item.totalRenegociado || 0), 0);
+
+  return (
+    <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4 space-y-3">
+      <p className="text-xs text-gray-500 font-black uppercase tracking-wide">Itens em acordo</p>
+
+      <div className="divide-y divide-gray-800">
+        {itensAgrupados.map((item) => (
+          <div key={item.chave} className="py-3 first:pt-0 last:pb-0">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-bold truncate">{item.titulo}</p>
+                <p className="text-sm text-gray-500 truncate">{item.detalhe}</p>
+              </div>
+
+              <p className="font-black shrink-0 text-right">{formatarMoeda(item.totalRenegociado)}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="border-t border-gray-800 pt-3 flex items-center justify-between gap-3">
+        <p className="text-xs text-gray-500 font-black uppercase tracking-wide">Total</p>
+        <p className="font-black text-right">{formatarMoeda(totalEmAcordo)}</p>
+      </div>
+    </div>
+  );
+}
+
+function agruparItensContrato(itens) {
+  const mapa = new Map();
+
+  (itens || []).forEach((item) => {
+    const original = item.original || {};
+    const cartao = original.cartoes || original.cartao || {};
+    const conta = original.contas || original.conta || {};
+    const tipo = item.tipo === "fatura" ? "cartao" : item.tipo === "conta_negativa" ? "conta_negativa" : "conta";
+    const id = tipo === "cartao"
+      ? original.cartao_id || cartao.id || item.origem_id
+      : original.conta_id || conta.id || original.id || item.origem_id;
+    const chave = `${tipo}-${id || item.titulo}`;
+
+    if (!mapa.has(chave)) {
+      mapa.set(chave, {
+        chave,
+        tipo,
+        titulo: tipo === "cartao" ? cartao.nome || item.titulo || "Cartão" : conta.nome || item.titulo || "Conta",
+        detalhe: tipo === "cartao" ? "Cartão de crédito" : tipo === "conta_negativa" ? "Conta negativa" : "Conta em acordo",
+        totalOriginal: 0,
+        limiteAnterior: tipo === "cartao" ? Number(cartao.limite_total || 0) : null,
+        itens: [],
+      });
+    }
+
+    const grupo = mapa.get(chave);
+    grupo.totalOriginal += Number(item.valor_aberto || 0);
+    grupo.itens.push(item);
+  });
+
+  return Array.from(mapa.values()).sort((a, b) => a.titulo.localeCompare(b.titulo));
+}
+
+function ResumoResultadoAcordo({
+  grupos,
+  dadosItens,
+  numeroParcelas,
+  temParcelas,
+  totalAcordo,
+  parcelaTotal,
+  totalConsideradoBanco,
+  custoEstimado,
+}) {
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-5 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm text-green-300">Valor total do acordo</p>
+          <p className="text-2xl font-black text-green-400 mt-1">{formatarMoeda(totalAcordo)}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-sm text-green-300">Nova obrigação</p>
+          <p className="font-black mt-1">{temParcelas ? `${numeroParcelas}x de ${formatarMoeda(parcelaTotal)}` : "Pagamento à vista"}</p>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {grupos.map((grupo) => {
+          const dados = dadosItens[grupo.chave] || {};
+          const valorBanco = moedaParaNumero(dados.valorBanco);
+          const valorParcela = moedaParaNumero(dados.valorParcela);
+          const valorTotal = moedaParaNumero(dados.valorTotal);
+          const saldoApos = moedaParaNumero(dados.saldoApos);
+
+          return (
+            <div key={grupo.chave} className="rounded-2xl border border-gray-800 bg-[#0B1120] p-5 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="font-black text-lg">{grupo.titulo}</p>
+                  <p className="text-sm text-gray-500">{grupo.detalhe}</p>
+                </div>
+                <p className="font-black">{temParcelas ? `${numeroParcelas}x ${formatarMoeda(valorParcela)}` : formatarMoeda(valorTotal)}</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <MiniInfo titulo="Antes no ControlDriver" valor={formatarMoeda(grupo.tipo === "conta_negativa" ? -grupo.totalOriginal : grupo.totalOriginal)} />
+                <MiniInfo titulo="Banco considerou" valor={valorBanco > 0 ? formatarMoeda(valorBanco) : "Não informado"} />
+                <MiniInfo titulo="Total desta operação" valor={formatarMoeda(valorTotal)} />
+                {grupo.tipo === "conta_negativa" && <MiniInfo titulo="Saldo após o acordo" valor={formatarMoeda(saldoApos)} />}
+                {grupo.tipo === "cartao" && (
+                  <MiniInfo
+                    titulo="Limite após o acordo"
+                    valor={dados.ajustarLimite ? formatarMoeda(moedaParaNumero(dados.novoLimite)) : `Mantém ${formatarMoeda(grupo.limiteAnterior)}`}
+                  />
+                )}
+              </div>
+
+              <p className="text-sm text-gray-400 leading-relaxed">
+                {grupo.tipo === "conta_negativa"
+                  ? "O saldo negativo será encerrado pelo acordo e a conta será ajustada para o saldo informado acima."
+                  : "As faturas selecionadas serão marcadas como renegociadas e deixarão de aparecer como dívida aberta do cartão."}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-5">
+        <p className="font-black text-yellow-400">Custo estimado do acordo</p>
+        {totalConsideradoBanco > 0 ? (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+              <MiniInfo titulo="Banco considerou" valor={formatarMoeda(totalConsideradoBanco)} />
+              <MiniInfo titulo="Total a pagar" valor={formatarMoeda(totalAcordo)} />
+              <MiniInfo titulo="Diferença estimada" valor={formatarMoeda(custoEstimado)} />
+            </div>
+            <p className="text-sm text-gray-400 mt-4">A diferença pode incluir juros, IOF, multas e outros encargos definidos pela instituição.</p>
+          </>
+        ) : (
+          <p className="text-sm text-gray-400 mt-2">O custo exato não pode ser calculado porque o valor considerado pelo banco não foi informado.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -968,6 +1876,49 @@ function MiniInfo({ titulo, valor }) {
   );
 }
 
+function agruparItensResumoAcordo(itens) {
+  const mapa = new Map();
+
+  (itens || []).forEach((item) => {
+    const original = item.original || {};
+    const cartao = original.cartoes || original.cartao || {};
+    const conta = original.contas || original.conta || {};
+    const cartaoId = original.cartao_id || cartao.id || item.cartao_id || item.origem_id;
+    const contaId = original.conta_id || conta.id || original.id || item.conta_id || item.origem_id;
+
+    const tipo = item.tipo === "fatura" ? "cartao" : item.tipo === "conta_negativa" ? "conta_negativa" : "conta";
+    const chave = tipo === "cartao" ? `cartao-${cartaoId || item.titulo}` : `${tipo}-${contaId || item.titulo}`;
+    const titulo = tipo === "cartao"
+      ? cartao.nome || item.nome_cartao || item.cartao_nome || item.detalhe || item.titulo || "Cartão"
+      : conta.nome || item.nome_conta || item.titulo || "Conta";
+    const detalhe = tipo === "cartao"
+      ? "Cartão de crédito"
+      : tipo === "conta_negativa"
+      ? "Conta negativa"
+      : "Conta em acordo";
+
+    if (!mapa.has(chave)) {
+      mapa.set(chave, {
+        chave,
+        tipo,
+        titulo,
+        detalhe,
+        totalOriginal: 0,
+        totalRenegociado: 0,
+      });
+    }
+
+    const grupo = mapa.get(chave);
+    grupo.totalOriginal += Number(item.valor_aberto || 0);
+    grupo.totalRenegociado += Number(item.valor_renegociado || 0);
+  });
+
+  return Array.from(mapa.values()).sort((a, b) => {
+    const ordem = { cartao: 1, conta_negativa: 2, conta: 3 };
+    return (ordem[a.tipo] || 9) - (ordem[b.tipo] || 9) || a.titulo.localeCompare(b.titulo);
+  });
+}
+
 function definirCredorAutomatico(itens) {
   const nomes = Array.from(new Set((itens || []).map((item) => item.titulo).filter(Boolean)));
 
@@ -991,7 +1942,7 @@ function textoTipoAcordo(tipo) {
   const textos = {
     avista: "À vista",
     entrada_avista: "Entrada + à vista",
-    parcelado: "Só parcelas",
+    parcelado: "Parcelado",
     entrada_parcelado: "Entrada + parcelas",
   };
 

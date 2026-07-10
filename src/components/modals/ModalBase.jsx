@@ -15,6 +15,7 @@ export default function ModalBase({
   rodape = null,
   fecharAoClicarFora = true,
   fecharComEsc = true,
+  scrollKey = null,
   confirmarAoFecharSeAlterado = false,
   isDirty = false,
   tituloConfirmacao = "Cancelar operação?",
@@ -23,6 +24,7 @@ export default function ModalBase({
   textoConfirmarConfirmacao = "Sim, cancelar",
 }) {
   const conteudoRef = useRef(null);
+  const scrollAreaRef = useRef(null);
   const [alteradoInternamente, setAlteradoInternamente] = useState(false);
   const [confirmacaoAberta, setConfirmacaoAberta] = useState(false);
 
@@ -57,6 +59,14 @@ export default function ModalBase({
       setConfirmacaoAberta(false);
     }
   }, [aberto]);
+
+  useEffect(() => {
+    if (!aberto || scrollKey === null || scrollKey === undefined) return;
+
+    requestAnimationFrame(() => {
+      scrollAreaRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }, [aberto, scrollKey]);
 
   useEffect(() => {
     if (!aberto || !fecharComEsc) return undefined;
@@ -120,6 +130,7 @@ export default function ModalBase({
         </div>
 
         <div
+          ref={scrollAreaRef}
           data-scroll-container="true"
           className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y scrollbar-hide p-5 sm:p-6 pb-28 sm:pb-6"
           style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}

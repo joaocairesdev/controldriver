@@ -2,14 +2,47 @@ import { supabase } from "../../services/supabase";
 import { adicionarMeses } from "../utils/renegociacoesUtils";
 
 export async function carregarRenegociacoes() {
-  const { data, error } = await supabase
-    .from("renegociacoes")
-    .select("*")
-    .order("data_renegociacao", { ascending: false })
-    .order("id", { ascending: false });
+  const [{ data, error }, { data: parcelas, error: erroParcelas }] = await Promise.all([
+    supabase
+      .from("renegociacoes")
+      .select("*")
+      .order("data_renegociacao", { ascending: false })
+      .order("id", { ascending: false }),
+    supabase
+      .from("saidas")
+      .select("renegociacao_id, valor_total, valor_pago, status, data_vencimento, tipo_movimentacao")
+      .not("renegociacao_id", "is", null)
+      .eq("categoria", "Renegociação"),
+  ]);
 
   if (error) throw error;
-  return data || [];
+  if (erroParcelas) throw erroParcelas;
+
+  return (data || []).map((renegociacao) => {
+    const parcelasDoAcordo = (parcelas || []).filter(
+      (parcela) => String(parcela.renegociacao_id) === String(renegociacao.id)
+    );
+    const parcelasMensais = parcelasDoAcordo.filter((parcela) => parcela.tipo_movimentacao === "conta_pagar");
+    const pagas = parcelasMensais.filter(
+      (parcela) => parcela.status === "pago" || Number(parcela.valor_pago || 0) >= Number(parcela.valor_total || 0)
+    );
+    const valorPago = parcelasDoAcordo.reduce((total, parcela) => {
+      const totalParcela = Number(parcela.valor_total || 0);
+      if (parcela.status === "pago") return total + totalParcela;
+      return total + Math.min(Number(parcela.valor_pago || 0), totalParcela);
+    }, 0);
+    const proxima = parcelasMensais
+      .filter((parcela) => !(parcela.status === "pago" || Number(parcela.valor_pago || 0) >= Number(parcela.valor_total || 0)))
+      .sort((a, b) => String(a.data_vencimento || "").localeCompare(String(b.data_vencimento || "")))[0];
+
+    return {
+      ...renegociacao,
+      parcelas_pagas: pagas.length,
+      valor_pago_acordo: valorPago,
+      proximo_vencimento: proxima?.data_vencimento || null,
+      proxima_parcela_valor: proxima?.valor_total || null,
+    };
+  });
 }
 
 export async function carregarItensRenegociacao(renegociacaoId) {
@@ -264,8 +297,22 @@ export async function criarRenegociacao(payload) {
     detalhe: item.detalhe,
     tipo_renegociacao: item.tipo_renegociacao,
     valor_original: Number(item.valor_aberto || 0),
-    valor_renegociado: Number(item.valor_renegociado || 0),
-    payload: item.original || null,
+    valor_renegociado: item.valor_considerado_banco === null || item.valor_considerado_banco === undefined
+      ? null
+      : Number(item.valor_considerado_banco),
+    payload: {
+      ...(item.original || {}),
+      _acordo: {
+        grupo: item.grupo_acordo || null,
+        valor_considerado_banco: item.valor_considerado_banco,
+        valor_total_acordo: item.valor_total_acordo,
+        valor_parcela_acordo: item.valor_parcela_acordo,
+        saldo_apos_acordo: item.saldo_apos_acordo,
+        ajustar_limite: item.ajustar_limite,
+        limite_anterior: item.limite_anterior,
+        novo_limite_total: item.novo_limite_total,
+      },
+    },
   }));
 
   const { error: erroItens } = await supabase
@@ -416,4 +463,169 @@ async function criarParcelasRenegociacao({
 
   const { error } = await supabase.from("saidas").insert(saidas);
   if (error) throw error;
+}
+
+
+
+export async function editarRenegociacao(renegociacaoId, payload) {
+  const id = Number(renegociacaoId);
+  if (!id) throw new Error("Renegociação inválida para edição.");
+
+  const {
+    credor,
+    dataRenegociacao,
+    formaPagamento,
+    contaDebitoId,
+    cartaoPagamentoId,
+    valorRenegociado,
+    valorEntrada,
+    numeroParcelas,
+    primeiroVencimento,
+  } = payload;
+
+  const itens = await carregarItensRenegociacao(id);
+  const saidasOriginaisIds = itens
+    .filter((item) => item.tipo_origem === "conta" && item.origem_id)
+    .map((item) => Number(item.origem_id));
+
+  const { data: renegociacaoAtualizada, error: erroRenegociacao } = await supabase
+    .from("renegociacoes")
+    .update({
+      data_renegociacao: dataRenegociacao,
+      forma_pagamento: formaPagamento,
+      conta_debito_id: contaDebitoId ? Number(contaDebitoId) : null,
+      valor_renegociado: valorRenegociado,
+      valor_entrada: valorEntrada,
+      numero_parcelas: numeroParcelas,
+      primeiro_vencimento: primeiroVencimento,
+    })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (erroRenegociacao) throw erroRenegociacao;
+
+  let querySaidasGeradas = supabase
+    .from("saidas")
+    .delete()
+    .eq("renegociacao_id", id);
+
+  if (saidasOriginaisIds.length > 0) {
+    querySaidasGeradas = querySaidasGeradas.not("id", "in", `(${saidasOriginaisIds.join(",")})`);
+  }
+
+  const { error: erroSaidasGeradas } = await querySaidasGeradas;
+  if (erroSaidasGeradas) throw erroSaidasGeradas;
+
+  await criarParcelasRenegociacao({
+    renegociacao: renegociacaoAtualizada,
+    credor: credor || renegociacaoAtualizada.credor,
+    valorRenegociado,
+    valorEntrada,
+    numeroParcelas,
+    primeiroVencimento,
+    formaPagamento,
+    contaDebitoId,
+    cartaoPagamentoId,
+  });
+
+  return renegociacaoAtualizada;
+}
+
+export async function excluirRenegociacao(renegociacaoId) {
+  const id = Number(renegociacaoId);
+  if (!id) throw new Error("Renegociação inválida para exclusão.");
+
+  const { data: renegociacao, error: erroRenegociacao } = await supabase
+    .from("renegociacoes")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (erroRenegociacao) throw erroRenegociacao;
+  if (!renegociacao) throw new Error("Renegociação não encontrada.");
+
+  const itens = await carregarItensRenegociacao(id);
+  const saidasOriginaisIds = itens
+    .filter((item) => item.tipo_origem === "conta" && item.origem_id)
+    .map((item) => Number(item.origem_id));
+
+  for (const item of itens) {
+    const payload = item.payload || {};
+
+    if (item.tipo_origem === "fatura" && item.origem_id) {
+      const statusOriginal = payload.status || "aberta";
+
+      const { error } = await supabase
+        .from("faturas_cartao")
+        .update({
+          status: statusOriginal,
+          renegociacao_id: null,
+        })
+        .eq("id", item.origem_id)
+        .eq("renegociacao_id", id);
+
+      if (error) throw error;
+
+      const cartaoOriginal = payload.cartoes;
+      if (cartaoOriginal?.id && cartaoOriginal.limite_total !== undefined && cartaoOriginal.limite_total !== null) {
+        const { error: erroCartao } = await supabase
+          .from("cartoes")
+          .update({ limite_total: Number(cartaoOriginal.limite_total || 0) })
+          .eq("id", cartaoOriginal.id);
+
+        if (erroCartao) throw erroCartao;
+      }
+    }
+
+    if (item.tipo_origem === "conta" && item.origem_id) {
+      const statusOriginal = payload.status || "pendente";
+
+      const { error } = await supabase
+        .from("saidas")
+        .update({
+          status: statusOriginal,
+          renegociacao_id: null,
+        })
+        .eq("id", item.origem_id)
+        .eq("renegociacao_id", id);
+
+      if (error) throw error;
+    }
+  }
+
+  let querySaidasGeradas = supabase
+    .from("saidas")
+    .delete()
+    .eq("renegociacao_id", id);
+
+  if (saidasOriginaisIds.length > 0) {
+    querySaidasGeradas = querySaidasGeradas.not("id", "in", `(${saidasOriginaisIds.join(",")})`);
+  }
+
+  const { error: erroSaidasGeradas } = await querySaidasGeradas;
+  if (erroSaidasGeradas) throw erroSaidasGeradas;
+
+  const { error: erroEntradasAjuste } = await supabase
+    .from("entradas_avulsas")
+    .delete()
+    .eq("renegociacao_id", id);
+
+  if (erroEntradasAjuste) throw erroEntradasAjuste;
+
+  const { error: erroItens } = await supabase
+    .from("renegociacoes_itens")
+    .delete()
+    .eq("renegociacao_id", id);
+
+  if (erroItens) throw erroItens;
+
+  const { error: erroExcluir } = await supabase
+    .from("renegociacoes")
+    .delete()
+    .eq("id", id);
+
+  if (erroExcluir) throw erroExcluir;
+
+  return true;
 }
