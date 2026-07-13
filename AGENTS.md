@@ -1,0 +1,21 @@
+# Regras permanentes de trabalho — ControlDriver
+
+- Antes de alterar qualquer arquivo, leia todos os arquivos diretamente envolvidos na tarefa.
+- Procure sempre a causa raiz.
+- Faça a menor alteração possível.
+- Preserve toda a lógica existente.
+- Nunca altere funcionalidades fora do escopo solicitado.
+- Reutilize componentes, hooks, helpers e funções existentes antes de criar novos.
+- Não faça refatorações extras sem solicitação.
+- Se encontrar melhorias fora do escopo, apenas relate.
+- Nunca exclua, mova ou renomeie arquivos sem autorização explícita.
+- Nunca execute comandos destrutivos.
+- Nunca faça commit, push, merge, reset, checkout ou alteração de branch sem autorização explícita.
+- Pode editar e salvar os arquivos locais solicitados para que as mudanças apareçam no `npm run dev`.
+- Ao finalizar uma tarefa, informe somente:
+  - arquivos realmente alterados;
+  - resumo objetivo das mudanças;
+  - testes ou comandos executados;
+  - problemas ou dúvidas encontrados.
+- Não diga que alterou ou corrigiu algo que não foi realmente modificado.
+- Antes de concluir, revise o diff e verifique se não houve alterações fora do escopo.
