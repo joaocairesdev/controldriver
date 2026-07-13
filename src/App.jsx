@@ -23,6 +23,7 @@ export default function App() {
     return localStorage.getItem("paginaAtual") || "dashboard";
   });
   const [menuAberto, setMenuAberto] = useState(false);
+  const [dashboardEntradaKey, setDashboardEntradaKey] = useState(0);
   const [modalAbertoNaTela, setModalAbertoNaTela] = useState(false);
   const [jornadaParaGanhos, setJornadaParaGanhos] = useState(null);
   const [cronometroEstado, setCronometroEstado] = useState({
@@ -158,6 +159,10 @@ export default function App() {
   function navegarPara(novaPagina) {
     console.log("Mudando para:", novaPagina);
 
+    if (novaPagina === "dashboard") {
+      setDashboardEntradaKey((valor) => valor + 1);
+    }
+
     localStorage.setItem("paginaAtual", novaPagina);
 
     if (novaPagina !== paginaAtualRef.current) {
@@ -240,7 +245,7 @@ export default function App() {
         />
 
         <main data-scroll-container="true" className="flex-1 min-w-0 overflow-y-auto scrollbar-hide pt-20 p-4 pb-28 sm:p-6 sm:pt-20 sm:pb-10 md:landscape:p-10 md:landscape:pt-24 lg:p-10 lg:pt-24">
-          {pagina === "dashboard" && <Dashboard />}
+          {pagina === "dashboard" && <Dashboard entradaKey={dashboardEntradaKey} />}
 
           {pagina === "novo-lancamento" && (
             <NovoLancamento
