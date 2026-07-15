@@ -151,6 +151,25 @@ export async function buscarFaturaPorCompetencia(supabase, cartaoId, mes, ano) {
     .maybeSingle();
 }
 
+export async function criarFaturaPadrao(
+  supabase,
+  { cartao_id, mes, ano, data_fechamento, data_vencimento }
+) {
+  return supabase
+    .from("faturas_cartao")
+    .insert({
+      cartao_id,
+      mes,
+      ano,
+      data_fechamento,
+      data_vencimento,
+      valor_total: 0,
+      status: "aberta",
+    })
+    .select()
+    .single();
+}
+
 export function ajustarVencimentoFimDeSemana(dataISO) {
   const data = new Date(`${dataISO}T00:00:00`);
   const diaSemana = data.getDay();

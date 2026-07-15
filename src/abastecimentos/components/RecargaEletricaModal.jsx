@@ -13,6 +13,7 @@ import {
   ajustarVencimentoFimDeSemana,
   buscarFaturaPorCompetencia,
   calcularCompetenciaFaturaPorCompra,
+  criarFaturaPadrao,
   dataComDiaSeguro,
   nomeCartaoComFinal,
   somarMesesData,
@@ -511,19 +512,13 @@ export default function RecargaEletricaModal({
     if (erroBusca) throw erroBusca;
     if (existente) return existente;
 
-    const { data, error } = await supabase
-      .from("faturas_cartao")
-      .insert({
-        cartao_id: Number(cartao.id),
-        mes: comp.mes,
-        ano: comp.ano,
-        data_fechamento: dataFechamento,
-        data_vencimento: dataVencimento,
-        valor_total: 0,
-        status: "aberta",
-      })
-      .select()
-      .single();
+    const { data, error } = await criarFaturaPadrao(supabase, {
+      cartao_id: Number(cartao.id),
+      mes: comp.mes,
+      ano: comp.ano,
+      data_fechamento: dataFechamento,
+      data_vencimento: dataVencimento,
+    });
 
     if (error) throw error;
     return data;

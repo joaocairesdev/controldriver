@@ -18,6 +18,7 @@ import {
   buscarFaturaPorCompetencia,
   calcularCompetenciaFaturaPorCompra,
   calcularSaldoAbertoFatura,
+  criarFaturaPadrao,
   dataComDiaSeguro,
   nomeCartaoComFinal,
   somarMesesData,
@@ -902,19 +903,13 @@ export default function SaidaModal({
     if (erroBusca) throw erroBusca;
     if (faturaExistente) return faturaExistente;
 
-    const { data: novaFatura, error: erroCriar } = await supabase
-      .from("faturas_cartao")
-      .insert({
-        cartao_id: Number(cartao.id),
-        mes: competencia.mes,
-        ano: competencia.ano,
-        data_fechamento: dataFechamento,
-        data_vencimento: dataVencimento,
-        valor_total: 0,
-        status: "aberta",
-      })
-      .select()
-      .single();
+    const { data: novaFatura, error: erroCriar } = await criarFaturaPadrao(supabase, {
+      cartao_id: Number(cartao.id),
+      mes: competencia.mes,
+      ano: competencia.ano,
+      data_fechamento: dataFechamento,
+      data_vencimento: dataVencimento,
+    });
 
     if (erroCriar) throw erroCriar;
     return novaFatura;
