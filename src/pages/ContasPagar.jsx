@@ -17,7 +17,10 @@ import FeedbackModal from "../components/modals/FeedbackModal";
 import ConfirmacaoModal from "../components/modals/ConfirmacaoModal";
 import DetalheFaturaModal from "../cartoes/components/DetalheFaturaModal";
 import RegistrarPagamentoModal from "../contas/components/RegistrarPagamentoModal";
-import { detalheCartao } from "../cartoes/cartoesUtils";
+import {
+  calcularSaldoAbertoFatura,
+  detalheCartao,
+} from "../cartoes/cartoesUtils";
 
 const HOJE = new Date().toISOString().split("T")[0];
 const PROXIMOS_DIAS = 7;
@@ -113,13 +116,6 @@ export default function ContasPagar() {
   function estaAtrasadaPorData(dataISO, status) {
     if (String(status || "").toLowerCase() === "paga") return false;
     return diferencaDias(dataISO) < 0;
-  }
-
-  function saldoFatura(fatura) {
-    return Math.max(
-      Number(fatura?.valor_total || 0) - Number(fatura?.valor_pago || 0),
-      0
-    );
   }
 
   function saldoContaPagar(conta) {
@@ -282,7 +278,7 @@ export default function ContasPagar() {
   );
 
   const totalFaturas = faturas.reduce(
-    (total, fatura) => total + saldoFatura(fatura),
+    (total, fatura) => total + calcularSaldoAbertoFatura(fatura),
     0
   );
 
@@ -300,7 +296,10 @@ export default function ContasPagar() {
   );
 
   const totalAtrasado =
-    faturasAtrasadas.reduce((total, fatura) => total + saldoFatura(fatura), 0) +
+    faturasAtrasadas.reduce(
+      (total, fatura) => total + calcularSaldoAbertoFatura(fatura),
+      0
+    ) +
     contasAtrasadas.reduce((total, conta) => total + saldoContaPagar(conta), 0);
 
   const totalGeral = totalChequeEspecial + totalFaturas + totalContasPagar;
@@ -310,7 +309,7 @@ export default function ContasPagar() {
 
     if (config.mostrarFaturas) {
       for (const fatura of faturas) {
-        const saldo = saldoFatura(fatura);
+        const saldo = calcularSaldoAbertoFatura(fatura);
         if (saldo <= 0) continue;
 
         const dias = diferencaDias(fatura.data_vencimento);
@@ -551,7 +550,7 @@ export default function ContasPagar() {
             carregarDados();
           }}
           tituloFatura={(fatura) => `${String(fatura.mes || "").padStart(2, "0")}/${fatura.ano}`}
-          saldoFatura={saldoFatura}
+          saldoFatura={calcularSaldoAbertoFatura}
           formatarMoeda={formatarMoeda}
           formatarMoedaDigitada={formatarMoedaDigitada}
           moedaParaNumero={moedaParaNumero}

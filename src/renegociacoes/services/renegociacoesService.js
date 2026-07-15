@@ -1,4 +1,5 @@
 import { supabase } from "../../services/supabase";
+import { calcularSaldoAbertoFatura } from "../../cartoes/cartoesUtils";
 import { adicionarMeses } from "../utils/renegociacoesUtils";
 
 export async function carregarRenegociacoes() {
@@ -182,10 +183,7 @@ export async function carregarDividasDisponiveis() {
 
   const faturas = (faturasResposta.data || [])
     .map((fatura) => {
-      const valorAberto = Math.max(
-        Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0),
-        0
-      );
+      const valorAberto = calcularSaldoAbertoFatura(fatura);
 
       return {
         chave: `fatura-${fatura.id}`,

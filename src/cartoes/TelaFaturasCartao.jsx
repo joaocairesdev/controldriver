@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import DetalheFaturaModal from "./components/DetalheFaturaModal";
-import { TIPOS_CARTAO, corBarra, corDisponivel, formatarDataBR, labelTipoCartao, textoFinalCartao } from "./cartoesUtils";
+import {
+  TIPOS_CARTAO,
+  calcularSaldoAbertoFatura,
+  corBarra,
+  corDisponivel,
+  formatarDataBR,
+  labelTipoCartao,
+  textoFinalCartao,
+} from "./cartoesUtils";
 
 export default function TelaFaturasCartao({
   cartao,
@@ -72,13 +80,6 @@ export default function TelaFaturasCartao({
     return `${meses[Number(fatura.mes || 1) - 1]} ${fatura.ano}`;
   }
 
-  function saldoFatura(fatura) {
-    return Math.max(
-      Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0),
-      0
-    );
-  }
-
   function obterStatusFatura(fatura) {
     const status = String(fatura.status || "").toLowerCase();
 
@@ -117,7 +118,7 @@ export default function TelaFaturasCartao({
     if (status === "parcial") {
       return {
         label: "Em aberto",
-        valor: saldoFatura(fatura),
+        valor: calcularSaldoAbertoFatura(fatura),
         className: "text-red-400",
       };
     }
@@ -273,7 +274,7 @@ export default function TelaFaturasCartao({
           contas={contas}
           fechar={() => setFaturaSelecionada(null)}
           tituloFatura={tituloFatura}
-          saldoFatura={saldoFatura}
+          saldoFatura={calcularSaldoAbertoFatura}
           formatarMoeda={formatarMoeda}
           formatarMoedaDigitada={formatarMoedaDigitada}
           moedaParaNumero={moedaParaNumero}

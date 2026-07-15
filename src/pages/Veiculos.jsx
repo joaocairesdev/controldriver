@@ -10,6 +10,7 @@ import { FiArrowDown, FiArrowLeft, FiArrowUp, FiEdit2, FiShield, FiStar, FiTag, 
 import {
   adicionarMesCompetencia,
   ajustarVencimentoFimDeSemana,
+  calcularSaldoAbertoFatura,
   dataComDiaSeguro,
   nomeCartaoComFinal,
   somarMesesDataISO,
@@ -232,12 +233,7 @@ export default function Veiculos() {
       const usado = (faturasData || [])
         .filter((fatura) => String(fatura.cartao_id) === String(cartao.id))
         .reduce(
-          (total, fatura) =>
-            total +
-            Math.max(
-              Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0),
-              0
-            ),
+          (total, fatura) => total + calcularSaldoAbertoFatura(fatura),
           0
         );
 

@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { FiActivity, FiDollarSign, FiEye, FiEyeOff, FiTruck, FiUser } from "react-icons/fi";
 import { supabase } from "../services/supabase";
-import { detalheCartao } from "../cartoes/cartoesUtils";
+import {
+  calcularSaldoAbertoFatura,
+  detalheCartao,
+} from "../cartoes/cartoesUtils";
 
 import {
   DashboardHome, DashboardPainelHeader, PeriodoControle, ResumoFinanceiroCard,
@@ -314,7 +317,7 @@ export default function Dashboard({ entradaKey = 0 }) {
       titulo: fatura.cartoes?.nome || "Cartão",
       subtitulo: detalheCartao(fatura.cartoes),
       data: fatura.data_vencimento,
-      valor: Math.max(Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0), 0),
+      valor: calcularSaldoAbertoFatura(fatura),
     }));
 
     const contas = (contasPagarData || []).map((conta) => ({
@@ -371,7 +374,7 @@ export default function Dashboard({ entradaKey = 0 }) {
       titulo: fatura.cartoes?.nome || "Cartão",
       subtitulo: detalheCartao(fatura.cartoes),
       data: fatura.data_vencimento,
-      valor: Math.max(Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0), 0),
+      valor: calcularSaldoAbertoFatura(fatura),
     }));
 
     const contas = (contasPagarData || []).map((conta) => ({

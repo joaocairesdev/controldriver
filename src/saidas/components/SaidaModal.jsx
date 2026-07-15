@@ -16,6 +16,7 @@ import { CATEGORIAS_SISTEMA_FIXAS } from "../../utils/categoriasSistema";
 import {
   adicionarMesCompetencia,
   ajustarVencimentoFimDeSemana,
+  calcularSaldoAbertoFatura,
   dataComDiaSeguro,
   nomeCartaoComFinal,
   somarMesesData,
@@ -1099,7 +1100,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
     const usadoAtual = (faturasAbertas || []).reduce(
       (totalAtual, fatura) =>
         totalAtual +
-        Math.max(Number(fatura.valor_total || 0) - Number(fatura.valor_pago || 0), 0),
+        calcularSaldoAbertoFatura(fatura),
       0
     );
 

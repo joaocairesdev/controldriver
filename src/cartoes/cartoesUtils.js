@@ -39,6 +39,13 @@ export function numeroParaMoedaInput(valor) {
   return numero.toFixed(2).replace(".", ",");
 }
 
+export function calcularSaldoAbertoFatura(fatura) {
+  return Math.max(
+    Number(fatura?.valor_total || 0) - Number(fatura?.valor_pago || 0),
+    0
+  );
+}
+
 export function somenteNumeros(valor) {
   return String(valor || "").replace(/\D/g, "");
 }
