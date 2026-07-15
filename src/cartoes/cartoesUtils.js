@@ -117,10 +117,14 @@ export function ajustarVencimentoFimDeSemana(dataISO) {
   return data.toISOString().split("T")[0];
 }
 
-export function somarMesesDataISO(dataISO, mesesParaSomar) {
+export function somarMesesData(dataISO, mesesParaSomar) {
   const data = new Date(`${dataISO}T00:00:00`);
   data.setMonth(data.getMonth() + mesesParaSomar);
-  return data.toISOString().split("T")[0];
+  return data;
+}
+
+export function somarMesesDataISO(dataISO, mesesParaSomar) {
+  return somarMesesData(dataISO, mesesParaSomar).toISOString().split("T")[0];
 }
 
 export function calcularDiaFechamentoTerceiro(diaVencimento) {

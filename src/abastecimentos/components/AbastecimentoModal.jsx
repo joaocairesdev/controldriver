@@ -22,7 +22,13 @@ import SelecionarContaModal from "../../components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../../components/modals/SelecionarCartaoModal";
 import SelecionarCombustivelModal from "../../components/modals/SelecionarCombustivelModal";
 import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasModal";
-import { nomeCartaoComFinal, ajustarVencimentoFimDeSemana } from "../../cartoes/cartoesUtils";
+import {
+  adicionarMesCompetencia,
+  ajustarVencimentoFimDeSemana,
+  dataComDiaSeguro,
+  nomeCartaoComFinal,
+  somarMesesData,
+} from "../../cartoes/cartoesUtils";
 
 export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos = null, edicao = null, onSalvo = null }) {
   const hoje = hojeBrasil();
@@ -247,10 +253,6 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   function definirContaBancariaPadrao() { const conta = contasBancarias.find((c) => c.principal) || contasBancarias[0]; if (conta) setContaId(String(conta.id)); }
   function definirStatus() { if (isBoleto) return "aberto"; if (isCredito) return "fatura"; return "pago"; }
   function definirTipoMovimentacao() { if (isBoleto) return "conta_pagar"; return "saida"; }
-  function ultimoDiaMes(ano, mes) { return new Date(ano, mes, 0).getDate(); }
-  function dataComDiaSeguro(ano, mes, dia) { const d = Math.min(Number(dia || 1), ultimoDiaMes(ano, mes)); return `${ano}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`; }
-  function adicionarMesCompetencia(ano, mes, quantidade) { let novoMes = mes + quantidade; let novoAno = ano; while (novoMes > 12) { novoMes -= 12; novoAno += 1; } while (novoMes < 1) { novoMes += 12; novoAno -= 1; } return { mes: novoMes, ano: novoAno }; }
-  function somarMeses(dataBase, meses) { const d = new Date(`${dataBase}T00:00:00`); d.setMonth(d.getMonth() + meses); return d; }
   function calcularCompetenciaFatura(dataBase, cartao) { const d = new Date(`${dataBase}T00:00:00`); const diaCompra = d.getDate(); const diaFechamento = Number(cartao?.dia_fechamento || 1); const diaVencimento = Number(cartao?.dia_vencimento || 1); let mesFechamento = d.getMonth() + 1; let anoFechamento = d.getFullYear(); if (diaCompra > diaFechamento) ({ mes: mesFechamento, ano: anoFechamento } = adicionarMesCompetencia(anoFechamento, mesFechamento, 1)); let mes = mesFechamento; let ano = anoFechamento; if (diaVencimento < diaFechamento) ({ mes, ano } = adicionarMesCompetencia(ano, mes, 1)); return { mes, ano, mesFechamento, anoFechamento }; }
   async function buscarOuCriarFatura({ cartao, dataBase }) { const comp = calcularCompetenciaFatura(dataBase, cartao); const dataFechamento = ajustarVencimentoFimDeSemana(dataComDiaSeguro(comp.anoFechamento, comp.mesFechamento, cartao.dia_fechamento)); const dataVencimento = dataComDiaSeguro(comp.ano, comp.mes, cartao.dia_vencimento); const { data: existente, error: erroBusca } = await supabase.from("faturas_cartao").select("*").eq("cartao_id", Number(cartao.id)).eq("mes", comp.mes).eq("ano", comp.ano).maybeSingle(); if (erroBusca) throw erroBusca; if (existente) return existente; const { data, error } = await supabase.from("faturas_cartao").insert({ cartao_id: Number(cartao.id), mes: comp.mes, ano: comp.ano, data_fechamento: dataFechamento, data_vencimento: dataVencimento, valor_total: 0, status: "aberta" }).select().single(); if (error) throw error; return data; }
   
@@ -354,7 +356,7 @@ async function atualizarValorFatura(faturaId, valorSomar) { const { data, error 
     }
   }
 
-  async function gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas) { if (!isCredito || !cartaoSelecionado) return; const payload = []; for (let i = 0; i < parcelas; i++) { const dataBase = somarMeses(dataCompra, i).toISOString().split("T")[0]; const fatura = await buscarOuCriarFatura({ cartao: cartaoSelecionado, dataBase }); await atualizarValorFatura(fatura.id, parcelaValor); payload.push({ saida_id: saidaId, cartao_id: Number(cartaoId), fatura_id: fatura.id, numero_parcela: i + 1, total_parcelas: parcelas, valor_parcela: parcelaValor, data_vencimento: fatura.data_vencimento, status: "pendente" }); } if (payload.length) { const { error } = await supabase.from("saidas_parcelas").insert(payload); if (error) throw error; await recalcularFaturasDaSaida(saidaId); } }
+  async function gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas) { if (!isCredito || !cartaoSelecionado) return; const payload = []; for (let i = 0; i < parcelas; i++) { const dataBase = somarMesesData(dataCompra, i).toISOString().split("T")[0]; const fatura = await buscarOuCriarFatura({ cartao: cartaoSelecionado, dataBase }); await atualizarValorFatura(fatura.id, parcelaValor); payload.push({ saida_id: saidaId, cartao_id: Number(cartaoId), fatura_id: fatura.id, numero_parcela: i + 1, total_parcelas: parcelas, valor_parcela: parcelaValor, data_vencimento: fatura.data_vencimento, status: "pendente" }); } if (payload.length) { const { error } = await supabase.from("saidas_parcelas").insert(payload); if (error) throw error; await recalcularFaturasDaSaida(saidaId); } }
 
   async function verificarLimiteCartao(total) {
     if (!cartaoSelecionado) return true;

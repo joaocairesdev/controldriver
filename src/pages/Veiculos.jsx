@@ -7,7 +7,13 @@ import SelecionarFormaPagamentoModal from "../components/modals/SelecionarFormaP
 import SelecionarContaModal from "../components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../components/modals/SelecionarCartaoModal";
 import { FiArrowDown, FiArrowLeft, FiArrowUp, FiEdit2, FiShield, FiStar, FiTag, FiTrash2, FiX } from "react-icons/fi";
-import { nomeCartaoComFinal, ajustarVencimentoFimDeSemana } from "../cartoes/cartoesUtils";
+import {
+  adicionarMesCompetencia,
+  ajustarVencimentoFimDeSemana,
+  dataComDiaSeguro,
+  nomeCartaoComFinal,
+  somarMesesDataISO,
+} from "../cartoes/cartoesUtils";
 
 export default function Veiculos() {
   const [veiculos, setVeiculos] = useState([]);
@@ -623,38 +629,6 @@ export default function Veiculos() {
   }
 
 
-  function ultimoDiaMesProtecao(ano, mes) {
-    return new Date(ano, mes, 0).getDate();
-  }
-
-  function dataComDiaSeguroProtecao(ano, mes, dia) {
-    const diaSeguro = Math.min(Number(dia || 1), ultimoDiaMesProtecao(ano, mes));
-    return `${ano}-${String(mes).padStart(2, "0")}-${String(diaSeguro).padStart(2, "0")}`;
-  }
-
-  function adicionarMesProtecao(ano, mes, quantidade) {
-    let novoMes = mes + quantidade;
-    let novoAno = ano;
-
-    while (novoMes > 12) {
-      novoMes -= 12;
-      novoAno += 1;
-    }
-
-    while (novoMes < 1) {
-      novoMes += 12;
-      novoAno -= 1;
-    }
-
-    return { mes: novoMes, ano: novoAno };
-  }
-
-  function somarMesesISO(dataISO, meses) {
-    const data = new Date(`${dataISO}T00:00:00`);
-    data.setMonth(data.getMonth() + meses);
-    return data.toISOString().split("T")[0];
-  }
-
   function calcularCompetenciaFaturaProtecao(dataBase, cartao) {
     const data = new Date(`${dataBase}T00:00:00`);
     const diaCompra = data.getDate();
@@ -665,7 +639,7 @@ export default function Veiculos() {
     let anoFechamento = data.getFullYear();
 
     if (diaCompra > diaFechamento) {
-      ({ mes: mesFechamento, ano: anoFechamento } = adicionarMesProtecao(
+      ({ mes: mesFechamento, ano: anoFechamento } = adicionarMesCompetencia(
         anoFechamento,
         mesFechamento,
         1
@@ -676,7 +650,7 @@ export default function Veiculos() {
     let ano = anoFechamento;
 
     if (diaVencimento < diaFechamento) {
-      ({ mes, ano } = adicionarMesProtecao(ano, mes, 1));
+      ({ mes, ano } = adicionarMesCompetencia(ano, mes, 1));
     }
 
     return { mes, ano, mesFechamento, anoFechamento };
@@ -685,13 +659,13 @@ export default function Veiculos() {
   async function buscarOuCriarFaturaProtecao({ cartao, dataBase }) {
     const competencia = calcularCompetenciaFaturaProtecao(dataBase, cartao);
     const dataFechamento = ajustarVencimentoFimDeSemana(
-      dataComDiaSeguroProtecao(
+      dataComDiaSeguro(
         competencia.anoFechamento,
         competencia.mesFechamento,
         cartao.dia_fechamento
       )
     );
-    const dataVencimento = dataComDiaSeguroProtecao(
+    const dataVencimento = dataComDiaSeguro(
       competencia.ano,
       competencia.mes,
       cartao.dia_vencimento
@@ -778,7 +752,7 @@ export default function Veiculos() {
     if (forma === "boleto_parcelado") {
       for (let i = 0; i < restantes; i++) {
         const numeroParcela = pagas + i + 1;
-        const vencimento = somarMesesISO(protecao.primeiro_vencimento_pendente, i);
+        const vencimento = somarMesesDataISO(protecao.primeiro_vencimento_pendente, i);
 
         await supabase.from("saidas").insert({
           data_compra: protecao.inicio_vigencia,
@@ -857,7 +831,7 @@ export default function Veiculos() {
       const parcelasPayload = [];
 
       for (let i = 0; i < parcelasCredito; i++) {
-        const dataBase = somarMesesISO(protecao.primeiro_vencimento_pendente || protecao.inicio_vigencia, i);
+        const dataBase = somarMesesDataISO(protecao.primeiro_vencimento_pendente || protecao.inicio_vigencia, i);
         const fatura = await buscarOuCriarFaturaProtecao({ cartao, dataBase });
         await atualizarValorFaturaProtecao(fatura.id, valorCredito);
 

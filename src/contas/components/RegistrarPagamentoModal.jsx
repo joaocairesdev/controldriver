@@ -6,7 +6,13 @@ import DatePickerModal from "../../components/modals/DatePickerModal";
 import SelecionarContaModal from "../../components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../../components/modals/SelecionarCartaoModal";
 import FeedbackModal from "../../components/modals/FeedbackModal";
-import { nomeCartaoComFinal, ajustarVencimentoFimDeSemana } from "../../cartoes/cartoesUtils";
+import {
+  adicionarMesCompetencia,
+  ajustarVencimentoFimDeSemana,
+  dataComDiaSeguro,
+  nomeCartaoComFinal,
+  somarMesesData,
+} from "../../cartoes/cartoesUtils";
 
 const HOJE = new Date().toISOString().split("T")[0];
 
@@ -217,7 +223,7 @@ export default function RegistrarPagamentoModal({
     const payloadParcelas = [];
 
     for (let index = 0; index < parcelas; index++) {
-      const dataParcela = somarMeses(dataBase, index);
+      const dataParcela = somarMesesData(dataBase, index);
       const dataReferencia = dataParcela.toISOString().split("T")[0];
       const fatura = await buscarOuCriarFatura(cartao, dataReferencia);
       await atualizarValorFatura(fatura.id, valorParcela);
@@ -529,38 +535,6 @@ function moedaParaNumero(valor) {
   if (typeof valor === "number") return valor;
   if (!valor) return 0;
   return Number(String(valor).replace(/\./g, "").replace(",", ".")) || 0;
-}
-
-function adicionarMesCompetencia(ano, mes, quantidade) {
-  let novoMes = mes + quantidade;
-  let novoAno = ano;
-
-  while (novoMes > 12) {
-    novoMes -= 12;
-    novoAno += 1;
-  }
-
-  while (novoMes < 1) {
-    novoMes += 12;
-    novoAno -= 1;
-  }
-
-  return { mes: novoMes, ano: novoAno };
-}
-
-function ultimoDiaMes(ano, mes) {
-  return new Date(ano, mes, 0).getDate();
-}
-
-function dataComDiaSeguro(ano, mes, dia) {
-  const diaSeguro = Math.min(Number(dia || 1), ultimoDiaMes(ano, mes));
-  return `${ano}-${String(mes).padStart(2, "0")}-${String(diaSeguro).padStart(2, "0")}`;
-}
-
-function somarMeses(dataBase, mesesParaSomar) {
-  const data = new Date(`${dataBase}T00:00:00`);
-  data.setMonth(data.getMonth() + mesesParaSomar);
-  return data;
 }
 
 function Campo({ label, children }) {

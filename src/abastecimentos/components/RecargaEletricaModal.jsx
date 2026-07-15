@@ -9,7 +9,13 @@ import SelecionarFormaPagamentoModal from "../../components/modals/SelecionarFor
 import SelecionarContaModal from "../../components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../../components/modals/SelecionarCartaoModal";
 import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasModal";
-import { nomeCartaoComFinal, ajustarVencimentoFimDeSemana } from "../../cartoes/cartoesUtils";
+import {
+  adicionarMesCompetencia,
+  ajustarVencimentoFimDeSemana,
+  dataComDiaSeguro,
+  nomeCartaoComFinal,
+  somarMesesData,
+} from "../../cartoes/cartoesUtils";
 
 export default function RecargaEletricaModal({
   aberto,
@@ -477,38 +483,6 @@ export default function RecargaEletricaModal({
     return "saida";
   }
 
-  function ultimoDiaMes(ano, mes) {
-    return new Date(ano, mes, 0).getDate();
-  }
-
-  function dataComDiaSeguro(ano, mes, dia) {
-    const d = Math.min(Number(dia || 1), ultimoDiaMes(ano, mes));
-    return `${ano}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  }
-
-  function adicionarMesCompetencia(ano, mes, quantidade) {
-    let novoMes = mes + quantidade;
-    let novoAno = ano;
-
-    while (novoMes > 12) {
-      novoMes -= 12;
-      novoAno += 1;
-    }
-
-    while (novoMes < 1) {
-      novoMes += 12;
-      novoAno -= 1;
-    }
-
-    return { mes: novoMes, ano: novoAno };
-  }
-
-  function somarMeses(dataBase, meses) {
-    const d = new Date(`${dataBase}T00:00:00`);
-    d.setMonth(d.getMonth() + meses);
-    return d;
-  }
-
   function calcularCompetenciaFatura(dataBase, cartao) {
     const d = new Date(`${dataBase}T00:00:00`);
 
@@ -708,7 +682,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
     const payload = [];
 
     for (let i = 0; i < parcelas; i++) {
-      const dataBase = somarMeses(dataCompra, i).toISOString().split("T")[0];
+      const dataBase = somarMesesData(dataCompra, i).toISOString().split("T")[0];
 
       const fatura = await buscarOuCriarFatura({
         cartao: cartaoSelecionado,

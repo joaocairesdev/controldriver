@@ -10,7 +10,13 @@ import SelecionarCartaoModal from "../components/modals/SelecionarCartaoModal";
 import SelecionarCombustivelModal from "../components/modals/SelecionarCombustivelModal";
 import SelecionarCategoriaModal from "../components/modals/SelecionarCategoriaModal";
 import SelecionarParcelasModal from "../components/modals/SelecionarParcelasModal";
-import { nomeCartaoComFinal, ajustarVencimentoFimDeSemana } from "../cartoes/cartoesUtils";
+import {
+  adicionarMesCompetencia,
+  ajustarVencimentoFimDeSemana,
+  dataComDiaSeguro,
+  nomeCartaoComFinal,
+  somarMesesData,
+} from "../cartoes/cartoesUtils";
 
 export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   const hoje = new Date().toISOString().split("T")[0];
@@ -558,38 +564,6 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
     }
   }
 
-  function ultimoDiaMes(ano, mes) {
-    return new Date(ano, mes, 0).getDate();
-  }
-
-  function dataComDiaSeguro(ano, mes, dia) {
-    const diaSeguro = Math.min(Number(dia || 1), ultimoDiaMes(ano, mes));
-    return `${ano}-${String(mes).padStart(2, "0")}-${String(diaSeguro).padStart(2, "0")}`;
-  }
-
-  function somarMeses(dataBase, mesesParaSomar) {
-    const data = new Date(`${dataBase}T00:00:00`);
-    data.setMonth(data.getMonth() + mesesParaSomar);
-    return data;
-  }
-
-  function adicionarMesCompetencia(ano, mes, quantidade) {
-    let novoMes = mes + quantidade;
-    let novoAno = ano;
-
-    while (novoMes > 12) {
-      novoMes -= 12;
-      novoAno += 1;
-    }
-
-    while (novoMes < 1) {
-      novoMes += 12;
-      novoAno -= 1;
-    }
-
-    return { mes: novoMes, ano: novoAno };
-  }
-
   function calcularCompetenciaFatura(dataBase, cartao) {
     const data = new Date(`${dataBase}T00:00:00`);
 
@@ -730,7 +704,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
     const parcelasPayload = [];
 
     for (let index = 0; index < parcelas; index++) {
-      const dataParcela = somarMeses(dataCompra, index);
+      const dataParcela = somarMesesData(dataCompra, index);
       const dataBase = dataParcela.toISOString().split("T")[0];
 
       const fatura = await buscarOuCriarFatura({

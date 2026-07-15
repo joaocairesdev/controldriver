@@ -13,7 +13,14 @@ import SelecionarCategoriaModal from "../../components/modals/SelecionarCategori
 import GerenciarCategoriasModal from "../../components/modals/GerenciarCategoriasModal";
 import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasModal";
 import { CATEGORIAS_SISTEMA_FIXAS } from "../../utils/categoriasSistema";
-import { nomeCartaoComFinal, ajustarVencimentoFimDeSemana } from "../../cartoes/cartoesUtils";
+import {
+  adicionarMesCompetencia,
+  ajustarVencimentoFimDeSemana,
+  dataComDiaSeguro,
+  nomeCartaoComFinal,
+  somarMesesData,
+  somarMesesDataISO,
+} from "../../cartoes/cartoesUtils";
 
 export default function SaidaModal({
   aberto,
@@ -861,43 +868,6 @@ export default function SaidaModal({
     return "saida";
   }
 
-  function ultimoDiaMes(ano, mes) {
-    return new Date(ano, mes, 0).getDate();
-  }
-
-  function dataComDiaSeguro(ano, mes, dia) {
-    const diaSeguro = Math.min(Number(dia || 1), ultimoDiaMes(ano, mes));
-    return `${ano}-${String(mes).padStart(2, "0")}-${String(diaSeguro).padStart(2, "0")}`;
-  }
-
-  function adicionarMesCompetencia(ano, mes, quantidade) {
-    let novoMes = mes + quantidade;
-    let novoAno = ano;
-
-    while (novoMes > 12) {
-      novoMes -= 12;
-      novoAno += 1;
-    }
-
-    while (novoMes < 1) {
-      novoMes += 12;
-      novoAno -= 1;
-    }
-
-    return { mes: novoMes, ano: novoAno };
-  }
-
-  function somarMeses(dataBase, mesesParaSomar) {
-    const data = new Date(`${dataBase}T00:00:00`);
-    data.setMonth(data.getMonth() + mesesParaSomar);
-    return data;
-  }
-
-  function somarMesesISO(dataBase, mesesParaSomar) {
-    const data = somarMeses(dataBase, mesesParaSomar);
-    return data.toISOString().split("T")[0];
-  }
-
   function descricaoParcelaBoleto(index, parcelas) {
     const base = descricao.trim();
     return `${base} (${index + 1}/${parcelas})`;
@@ -1152,7 +1122,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
     const parcelasPayload = [];
 
     for (let index = 0; index < parcelas; index++) {
-      const dataParcela = somarMeses(dataCompra, index);
+      const dataParcela = somarMesesData(dataCompra, index);
       const dataBase = dataParcela.toISOString().split("T")[0];
 
       const fatura = await buscarOuCriarFatura({ cartao: cartaoAtual, dataBase });
@@ -1214,7 +1184,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
     const parcelasPayload = [];
 
     for (let index = 0; index < quantidadeParcelas; index++) {
-      const dataParcela = somarMeses(dataBaseCompra, index);
+      const dataParcela = somarMesesData(dataBaseCompra, index);
       const dataBase = dataParcela.toISOString().split("T")[0];
       const fatura = await buscarOuCriarFatura({ cartao: cartaoAtual, dataBase });
 
@@ -1474,7 +1444,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
 
       if (isBoletoParcelado) {
         const parcelasPayload = Array.from({ length: parcelas }, (_, index) => {
-          const vencimento = somarMesesISO(dataVencimento, index);
+          const vencimento = somarMesesDataISO(dataVencimento, index);
 
           return {
             data_compra: modo === "futura" ? vencimento : dataCompra,

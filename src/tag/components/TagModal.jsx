@@ -12,7 +12,13 @@ import SelecionarCartaoModal from "../../components/modals/SelecionarCartaoModal
 import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasModal";
 import FeedbackModal from "../../components/modals/FeedbackModal";
 import ConfirmacaoModal from "../../components/modals/ConfirmacaoModal";
-import { nomeCartaoComFinal, ajustarVencimentoFimDeSemana } from "../../cartoes/cartoesUtils";
+import {
+  adicionarMesCompetencia,
+  ajustarVencimentoFimDeSemana,
+  dataComDiaSeguro,
+  nomeCartaoComFinal,
+  somarMesesData,
+} from "../../cartoes/cartoesUtils";
 
 const TAG_MODAL_CACHE_TTL = 30 * 1000;
 let tagModalCache = null;
@@ -778,38 +784,6 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     return null;
   }
 
-  function ultimoDiaMes(ano, mes) {
-    return new Date(ano, mes, 0).getDate();
-  }
-
-  function dataComDiaSeguro(ano, mes, dia) {
-    const diaSeguro = Math.min(Number(dia || 1), ultimoDiaMes(ano, mes));
-    return `${ano}-${String(mes).padStart(2, "0")}-${String(diaSeguro).padStart(2, "0")}`;
-  }
-
-  function adicionarMesCompetencia(ano, mes, quantidade) {
-    let novoMes = mes + quantidade;
-    let novoAno = ano;
-
-    while (novoMes > 12) {
-      novoMes -= 12;
-      novoAno += 1;
-    }
-
-    while (novoMes < 1) {
-      novoMes += 12;
-      novoAno -= 1;
-    }
-
-    return { mes: novoMes, ano: novoAno };
-  }
-
-  function somarMeses(dataBase, mesesParaSomar) {
-    const data = new Date(`${dataBase}T00:00:00`);
-    data.setMonth(data.getMonth() + mesesParaSomar);
-    return data;
-  }
-
   function calcularCompetenciaFatura(dataBase, cartao) {
     const data = new Date(`${dataBase}T00:00:00`);
     const diaCompra = data.getDate();
@@ -1012,7 +986,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
     const parcelasPayload = [];
 
     for (let index = 0; index < parcelas; index++) {
-      const dataParcela = somarMeses(dataRecarga, index);
+      const dataParcela = somarMesesData(dataRecarga, index);
       const dataBase = dataParcela.toISOString().split("T")[0];
 
       const fatura = await buscarOuCriarFatura({
