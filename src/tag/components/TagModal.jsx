@@ -14,15 +14,15 @@ import FeedbackModal from "../../components/modals/FeedbackModal";
 import ConfirmacaoModal from "../../components/modals/ConfirmacaoModal";
 import {
   ajustarVencimentoFimDeSemana,
-  buscarFaturaPorCompetencia,
+  calcularUsoELimiteCartao,
   calcularCompetenciaFaturaPorCompra,
-  criarFaturaPadrao,
   criarPayloadParcela,
   dataComDiaSeguro,
+  gerarParcelasEFaturasPadrao,
   incrementarValorTotalFatura,
   nomeCartaoComFinal,
+  obterOuCriarFaturaPadrao,
   recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
-  somarMesesData,
 } from "../../cartoes/cartoesUtils";
 
 const TAG_MODAL_CACHE_TTL = 30 * 1000;
@@ -806,26 +806,13 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
       cartao.dia_vencimento
     );
 
-    const { data: faturaExistente, error: erroBusca } = await buscarFaturaPorCompetencia(
-      supabase,
-      Number(cartao.id),
-      competencia.mes,
-      competencia.ano
-    );
-
-    if (erroBusca) throw erroBusca;
-    if (faturaExistente) return faturaExistente;
-
-    const { data: novaFatura, error: erroCriar } = await criarFaturaPadrao(supabase, {
+    return obterOuCriarFaturaPadrao(supabase, {
       cartao_id: Number(cartao.id),
       mes: competencia.mes,
       ano: competencia.ano,
       data_fechamento: dataFechamento,
       data_vencimento: dataVencimento,
     });
-
-    if (erroCriar) throw erroCriar;
-    return novaFatura;
   }
 
   
@@ -866,13 +853,10 @@ async function atualizarValorFatura(faturaId, valorSomar) {
 
     if (erroFaturas) throw erroFaturas;
 
-    const usadoAtual = (faturasAbertas || []).reduce(
-      (totalAtual, fatura) => totalAtual + Number(fatura.valor_total || 0),
-      0
+    const { limite, disponivel } = calcularUsoELimiteCartao(
+      faturasAbertas,
+      cartaoRecargaSelecionado.limite_total
     );
-
-    const limite = Number(cartaoRecargaSelecionado.limite_total || 0);
-    const disponivel = limite - usadoAtual;
 
     if (limite > 0 && total > disponivel) {
       return window.confirm(
@@ -886,39 +870,15 @@ async function atualizarValorFatura(faturaId, valorSomar) {
   async function gerarParcelasRecarga(saidaId, total, parcelaValor, parcelas) {
     if (!isRecargaCredito || !cartaoRecargaSelecionado) return;
 
-    const parcelasPayload = [];
-
-    for (let index = 0; index < parcelas; index++) {
-      const dataParcela = somarMesesData(dataRecarga, index);
-      const dataBase = dataParcela.toISOString().split("T")[0];
-
-      const fatura = await buscarOuCriarFatura({
-        cartao: cartaoRecargaSelecionado,
-        dataBase,
-      });
-
-      await atualizarValorFatura(fatura.id, parcelaValor);
-
-      parcelasPayload.push(criarPayloadParcela({
-        saida_id: saidaId,
-        cartao_id: Number(cartaoRecargaId),
-        fatura_id: fatura.id,
-        numero_parcela: index + 1,
-        total_parcelas: parcelas,
-        valor_parcela: parcelaValor,
-        data_vencimento: fatura.data_vencimento,
-        status: "pendente",
-      }));
-    }
-
-    if (parcelasPayload.length > 0) {
-      const { error: erroParcelas } = await supabase
-        .from("saidas_parcelas")
-        .insert(parcelasPayload);
-
-      if (erroParcelas) throw erroParcelas;
-      await recalcularFaturasDaSaida(saidaId);
-    }
+    return gerarParcelasEFaturasPadrao(supabase, {
+      saidaId,
+      cartao: cartaoRecargaSelecionado,
+      cartaoId: cartaoRecargaId,
+      dataBase: dataRecarga,
+      quantidadeParcelas: parcelas,
+      valorParcela: parcelaValor,
+      recalcularAoFinal: () => recalcularFaturasDaSaida(saidaId),
+    });
   }
 
   function definirContaBancariaRecargaPadrao() {

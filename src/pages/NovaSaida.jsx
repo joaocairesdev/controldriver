@@ -11,15 +11,9 @@ import SelecionarCombustivelModal from "../components/modals/SelecionarCombustiv
 import SelecionarCategoriaModal from "../components/modals/SelecionarCategoriaModal";
 import SelecionarParcelasModal from "../components/modals/SelecionarParcelasModal";
 import {
-  ajustarVencimentoFimDeSemana,
-  buscarFaturaPorCompetencia,
-  calcularCompetenciaFaturaPorCompra,
-  criarFaturaPadrao,
-  criarPayloadParcela,
-  dataComDiaSeguro,
-  incrementarValorTotalFatura,
+  calcularUsoELimiteCartao,
+  gerarParcelasEFaturasPadrao,
   nomeCartaoComFinal,
-  somarMesesData,
 } from "../cartoes/cartoesUtils";
 
 export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
@@ -568,52 +562,6 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
     }
   }
 
-  async function buscarOuCriarFatura({ cartao, dataBase }) {
-    const competencia = calcularCompetenciaFaturaPorCompra(dataBase, cartao);
-
-    const dataFechamento = ajustarVencimentoFimDeSemana(
-      dataComDiaSeguro(
-        competencia.anoFechamento,
-        competencia.mesFechamento,
-        cartao.dia_fechamento
-      )
-    );
-
-    const dataVencimento = dataComDiaSeguro(
-      competencia.ano,
-      competencia.mes,
-      cartao.dia_vencimento
-    );
-
-    const { data: faturaExistente, error: erroBusca } = await buscarFaturaPorCompetencia(
-      supabase,
-      Number(cartao.id),
-      competencia.mes,
-      competencia.ano
-    );
-
-    if (erroBusca) throw erroBusca;
-
-    if (faturaExistente) return faturaExistente;
-
-    const { data: novaFatura, error: erroCriar } = await criarFaturaPadrao(supabase, {
-      cartao_id: Number(cartao.id),
-      mes: competencia.mes,
-      ano: competencia.ano,
-      data_fechamento: dataFechamento,
-      data_vencimento: dataVencimento,
-    });
-
-    if (erroCriar) throw erroCriar;
-
-    return novaFatura;
-  }
-
-  async function atualizarValorFatura(faturaId, valorSomar) {
-    const { error } = await incrementarValorTotalFatura(supabase, faturaId, valorSomar);
-    if (error) throw error;
-  }
-
   async function verificarLimiteCartao(total) {
     if (!cartaoSelecionado) return true;
 
@@ -629,13 +577,10 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
       return false;
     }
 
-    const usadoAtual = (faturasAbertas || []).reduce(
-      (totalAtual, fatura) => totalAtual + Number(fatura.valor_total || 0),
-      0
+    const { limite, disponivel } = calcularUsoELimiteCartao(
+      faturasAbertas,
+      cartaoSelecionado.limite_total
     );
-
-    const limite = Number(cartaoSelecionado.limite_total || 0);
-    const disponivel = limite - usadoAtual;
 
     if (limite > 0 && total > disponivel) {
       const passou = total - disponivel;
@@ -649,38 +594,14 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   async function gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas) {
     if (!isCredito || !cartaoSelecionado) return;
 
-    const parcelasPayload = [];
-
-    for (let index = 0; index < parcelas; index++) {
-      const dataParcela = somarMesesData(dataCompra, index);
-      const dataBase = dataParcela.toISOString().split("T")[0];
-
-      const fatura = await buscarOuCriarFatura({
-        cartao: cartaoSelecionado,
-        dataBase,
-      });
-
-      await atualizarValorFatura(fatura.id, parcelaValor);
-
-      parcelasPayload.push(criarPayloadParcela({
-        saida_id: saidaId,
-        cartao_id: Number(cartaoId),
-        fatura_id: fatura.id,
-        numero_parcela: index + 1,
-        total_parcelas: parcelas,
-        valor_parcela: parcelaValor,
-        data_vencimento: fatura.data_vencimento,
-        status: "pendente",
-      }));
-    }
-
-    if (parcelasPayload.length > 0) {
-      const { error: erroParcelas } = await supabase
-        .from("saidas_parcelas")
-        .insert(parcelasPayload);
-
-      if (erroParcelas) throw erroParcelas;
-    }
+    return gerarParcelasEFaturasPadrao(supabase, {
+      saidaId,
+      cartao: cartaoSelecionado,
+      cartaoId,
+      dataBase: dataCompra,
+      quantidadeParcelas: parcelas,
+      valorParcela: parcelaValor,
+    });
   }
 
   function validarCampos() {

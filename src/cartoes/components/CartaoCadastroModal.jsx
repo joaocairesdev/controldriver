@@ -4,12 +4,11 @@ import { supabase } from "../../services/supabase";
 import DatePickerModal from "../../components/modals/DatePickerModal";
 import ModalBase from "../../components/modals/ModalBase";
 import {
-  adicionarMesCompetencia,
   calcularDiaFechamentoTerceiro,
   ajustarVencimentoFimDeSemana,
+  calcularCompetenciaFaturaPorVencimento,
   buscarFaturaPorCompetencia,
   criarPayloadParcela,
-  dataComDiaSeguro,
   formatarDataBR,
   moedaParaNumero,
   numeroParaMoedaInput as numeroParaMoedaPadrao,
@@ -356,29 +355,11 @@ export default function CartaoCadastroModal({
   }
 
   function calcularFaturaInicialPorVencimento(dataVencimentoEscolhida) {
-    const dataVencimentoReal = ajustarVencimentoFimDeSemana(dataVencimentoEscolhida);
-    const data = new Date(`${dataVencimentoReal}T00:00:00`);
-    const mes = data.getMonth() + 1;
-    const ano = data.getFullYear();
-    const diaFechamentoCartao = Number(diaFechamento || diaVencimento || 1);
-    const diaVencimentoConfigurado = Number(diaVencimento || 1);
-    let mesFechamento = mes;
-    let anoFechamento = ano;
-
-    if (diaVencimentoConfigurado < diaFechamentoCartao) {
-      const anterior = adicionarMesCompetencia(anoFechamento, mesFechamento, -1);
-      mesFechamento = anterior.mes;
-      anoFechamento = anterior.ano;
-    }
-
-    return {
-      mes,
-      ano,
-      dataFechamento: ajustarVencimentoFimDeSemana(
-        dataComDiaSeguro(anoFechamento, mesFechamento, diaFechamentoCartao)
-      ),
-      dataVencimento: dataVencimentoReal,
-    };
+    return calcularCompetenciaFaturaPorVencimento({
+      dataVencimento: dataVencimentoEscolhida,
+      diaFechamento,
+      diaVencimento,
+    });
   }
 
   function definirErroCampo(campo, invalido, novosErros) {

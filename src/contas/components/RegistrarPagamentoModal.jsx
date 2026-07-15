@@ -7,15 +7,8 @@ import SelecionarContaModal from "../../components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../../components/modals/SelecionarCartaoModal";
 import FeedbackModal from "../../components/modals/FeedbackModal";
 import {
-  ajustarVencimentoFimDeSemana,
-  buscarFaturaPorCompetencia,
-  calcularCompetenciaFaturaPorCompra,
-  criarFaturaPadrao,
-  criarPayloadParcela,
-  dataComDiaSeguro,
-  incrementarValorTotalFatura,
+  gerarParcelasEFaturasPadrao,
   nomeCartaoComFinal,
-  somarMesesData,
 } from "../../cartoes/cartoesUtils";
 
 const HOJE = new Date().toISOString().split("T")[0];
@@ -224,64 +217,14 @@ export default function RegistrarPagamentoModal({
   async function gerarParcelasCartao({ saidaId, cartao, dataBase, parcelas, valorParcela }) {
     if (!cartao?.id) throw new Error("Cartão não encontrado.");
 
-    const payloadParcelas = [];
-
-    for (let index = 0; index < parcelas; index++) {
-      const dataParcela = somarMesesData(dataBase, index);
-      const dataReferencia = dataParcela.toISOString().split("T")[0];
-      const fatura = await buscarOuCriarFatura(cartao, dataReferencia);
-      await atualizarValorFatura(fatura.id, valorParcela);
-
-      payloadParcelas.push(criarPayloadParcela({
-        saida_id: saidaId,
-        cartao_id: Number(cartao.id),
-        fatura_id: fatura.id,
-        numero_parcela: index + 1,
-        total_parcelas: parcelas,
-        valor_parcela: valorParcela,
-        data_vencimento: fatura.data_vencimento,
-        status: "pendente",
-      }));
-    }
-
-    if (payloadParcelas.length > 0) {
-      const { error } = await supabase.from("saidas_parcelas").insert(payloadParcelas);
-      if (error) throw error;
-    }
-  }
-
-  async function buscarOuCriarFatura(cartao, dataBase) {
-    const competencia = calcularCompetenciaFaturaPorCompra(dataBase, cartao);
-    const dataFechamento = ajustarVencimentoFimDeSemana(
-      dataComDiaSeguro(competencia.anoFechamento, competencia.mesFechamento, cartao.dia_fechamento)
-    );
-    const dataVencimento = dataComDiaSeguro(competencia.ano, competencia.mes, cartao.dia_vencimento);
-
-    const { data: faturaExistente, error: erroBusca } = await buscarFaturaPorCompetencia(
-      supabase,
-      Number(cartao.id),
-      competencia.mes,
-      competencia.ano
-    );
-
-    if (erroBusca) throw erroBusca;
-    if (faturaExistente) return faturaExistente;
-
-    const { data: novaFatura, error: erroCriar } = await criarFaturaPadrao(supabase, {
-      cartao_id: Number(cartao.id),
-      mes: competencia.mes,
-      ano: competencia.ano,
-      data_fechamento: dataFechamento,
-      data_vencimento: dataVencimento,
+    return gerarParcelasEFaturasPadrao(supabase, {
+      saidaId,
+      cartao,
+      cartaoId: cartao.id,
+      dataBase,
+      quantidadeParcelas: parcelas,
+      valorParcela,
     });
-
-    if (erroCriar) throw erroCriar;
-    return novaFatura;
-  }
-
-  async function atualizarValorFatura(faturaId, valorSomar) {
-    const { error } = await incrementarValorTotalFatura(supabase, faturaId, valorSomar);
-    if (error) throw error;
   }
 
   if (!aberto || !contaPagar) return null;

@@ -15,13 +15,14 @@ import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasM
 import { CATEGORIAS_SISTEMA_FIXAS } from "../../utils/categoriasSistema";
 import {
   ajustarVencimentoFimDeSemana,
-  buscarFaturaPorCompetencia,
   calcularCompetenciaFaturaPorCompra,
   calcularSaldoAbertoFatura,
-  criarFaturaPadrao,
+  calcularStatusFaturaComPagamento,
   criarPayloadParcela,
   dataComDiaSeguro,
+  gerarParcelasEFaturasPadrao,
   nomeCartaoComFinal,
+  obterOuCriarFaturaPadrao,
   recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
   removerParcelasDaSaidaERecalcularFaturas,
   somarMesesData,
@@ -896,26 +897,13 @@ export default function SaidaModal({
       cartao.dia_vencimento
     );
 
-    const { data: faturaExistente, error: erroBusca } = await buscarFaturaPorCompetencia(
-      supabase,
-      Number(cartao.id),
-      competencia.mes,
-      competencia.ano
-    );
-
-    if (erroBusca) throw erroBusca;
-    if (faturaExistente) return faturaExistente;
-
-    const { data: novaFatura, error: erroCriar } = await criarFaturaPadrao(supabase, {
+    return obterOuCriarFaturaPadrao(supabase, {
       cartao_id: Number(cartao.id),
       mes: competencia.mes,
       ano: competencia.ano,
       data_fechamento: dataFechamento,
       data_vencimento: dataVencimento,
     });
-
-    if (erroCriar) throw erroCriar;
-    return novaFatura;
   }
 
   
@@ -955,20 +943,11 @@ async function atualizarValorFatura(faturaId, valorSomar) {
     );
 
     const valorPago = Math.min(Number(fatura.valor_pago || 0), novoTotal);
-    const statusAnterior = String(fatura.status || "aberta").toLowerCase();
-
-    let novoStatus = "aberta";
-    if (novoTotal <= 0) {
-      novoStatus = "aberta";
-    } else if (valorPago >= novoTotal) {
-      novoStatus = "paga";
-    } else if (valorPago > 0) {
-      novoStatus = "parcial";
-    } else if (statusAnterior === "fechada") {
-      novoStatus = "fechada";
-    } else {
-      novoStatus = "aberta";
-    }
+    const novoStatus = calcularStatusFaturaComPagamento({
+      valorTotal: novoTotal,
+      valorPago,
+      statusAnterior: fatura.status,
+    });
 
     const { error: erroUpdate } = await supabase
       .from("faturas_cartao")
@@ -1037,35 +1016,16 @@ async function atualizarValorFatura(faturaId, valorSomar) {
     if (!isCredito) return;
 
     const cartaoAtual = await obterCartaoAtualObrigatorio();
-    const parcelasPayload = [];
 
-    for (let index = 0; index < parcelas; index++) {
-      const dataParcela = somarMesesData(dataCompra, index);
-      const dataBase = dataParcela.toISOString().split("T")[0];
-
-      const fatura = await buscarOuCriarFatura({ cartao: cartaoAtual, dataBase });
-      await atualizarValorFatura(fatura.id, parcelaValor);
-
-      parcelasPayload.push(criarPayloadParcela({
-        saida_id: saidaId,
-        cartao_id: Number(cartaoAtual.id),
-        fatura_id: fatura.id,
-        numero_parcela: index + 1,
-        total_parcelas: parcelas,
-        valor_parcela: parcelaValor,
-        data_vencimento: fatura.data_vencimento,
-        status: "pendente",
-      }));
-    }
-
-    if (parcelasPayload.length > 0) {
-      const { error: erroParcelas } = await supabase
-        .from("saidas_parcelas")
-        .insert(parcelasPayload);
-
-      if (erroParcelas) throw erroParcelas;
-      await recalcularFaturasDaSaida(saidaId);
-    }
+    return gerarParcelasEFaturasPadrao(supabase, {
+      saidaId,
+      cartao: cartaoAtual,
+      cartaoId: cartaoAtual.id,
+      dataBase: dataCompra,
+      quantidadeParcelas: parcelas,
+      valorParcela: parcelaValor,
+      recalcularAoFinal: () => recalcularFaturasDaSaida(saidaId),
+    });
   }
 
 

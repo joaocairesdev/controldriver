@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../services/supabase";
 import {
   ajustarVencimentoFimDeSemana,
-  dataComDiaSeguro,
-  adicionarMesCompetencia,
+  calcularCompetenciaFaturaPorVencimento,
   buscarFaturaPorCompetencia,
   somarMesesDataISO,
   TIPOS_CARTAO,
@@ -394,29 +393,11 @@ export default function DetalheFaturaModal({
   }
 
   function calcularCompetenciaPorVencimento(dataVencimentoEscolhida) {
-    const dataVencimentoReal = ajustarVencimentoFimDeSemana(dataVencimentoEscolhida);
-    const data = new Date(`${dataVencimentoReal}T00:00:00`);
-    const mes = data.getMonth() + 1;
-    const ano = data.getFullYear();
-    const diaFechamentoCartao = Number(cartao.dia_fechamento || cartao.dia_vencimento || 1);
-    const diaVencimentoConfigurado = Number(cartao.dia_vencimento || 1);
-    let mesFechamento = mes;
-    let anoFechamento = ano;
-
-    if (diaVencimentoConfigurado < diaFechamentoCartao) {
-      const anterior = adicionarMesCompetencia(anoFechamento, mesFechamento, -1);
-      mesFechamento = anterior.mes;
-      anoFechamento = anterior.ano;
-    }
-
-    return {
-      mes,
-      ano,
-      dataFechamento: ajustarVencimentoFimDeSemana(
-        dataComDiaSeguro(anoFechamento, mesFechamento, diaFechamentoCartao)
-      ),
-      dataVencimento: dataVencimentoReal,
-    };
+    return calcularCompetenciaFaturaPorVencimento({
+      dataVencimento: dataVencimentoEscolhida,
+      diaFechamento: cartao.dia_fechamento,
+      diaVencimento: cartao.dia_vencimento,
+    });
   }
 
 

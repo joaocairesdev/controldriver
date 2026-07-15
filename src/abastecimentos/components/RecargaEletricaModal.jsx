@@ -10,17 +10,11 @@ import SelecionarContaModal from "../../components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../../components/modals/SelecionarCartaoModal";
 import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasModal";
 import {
-  ajustarVencimentoFimDeSemana,
-  buscarFaturaPorCompetencia,
-  calcularCompetenciaFaturaPorCompra,
-  criarFaturaPadrao,
-  criarPayloadParcela,
-  dataComDiaSeguro,
-  incrementarValorTotalFatura,
+  calcularUsoELimiteCartao,
+  gerarParcelasEFaturasPadrao,
   nomeCartaoComFinal,
   recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
   removerParcelasDaSaidaERecalcularFaturas,
-  somarMesesData,
 } from "../../cartoes/cartoesUtils";
 
 export default function RecargaEletricaModal({
@@ -489,46 +483,6 @@ export default function RecargaEletricaModal({
     return "saida";
   }
 
-  async function buscarOuCriarFatura({ cartao, dataBase }) {
-    const comp = calcularCompetenciaFaturaPorCompra(dataBase, cartao);
-
-    const dataFechamento = ajustarVencimentoFimDeSemana(
-      dataComDiaSeguro(
-        comp.anoFechamento,
-        comp.mesFechamento,
-        cartao.dia_fechamento
-      )
-    );
-
-    const dataVencimento = dataComDiaSeguro(
-      comp.ano,
-      comp.mes,
-      cartao.dia_vencimento
-    );
-
-    const { data: existente, error: erroBusca } = await buscarFaturaPorCompetencia(
-      supabase,
-      Number(cartao.id),
-      comp.mes,
-      comp.ano
-    );
-
-    if (erroBusca) throw erroBusca;
-    if (existente) return existente;
-
-    const { data, error } = await criarFaturaPadrao(supabase, {
-      cartao_id: Number(cartao.id),
-      mes: comp.mes,
-      ano: comp.ano,
-      data_fechamento: dataFechamento,
-      data_vencimento: dataVencimento,
-    });
-
-    if (error) throw error;
-    return data;
-  }
-
-  
   async function recalcularFaturaPorParcelas(faturaId) {
     return recalcularFaturaPorParcelasCompartilhada(supabase, faturaId);
   }
@@ -550,11 +504,6 @@ export default function RecargaEletricaModal({
     }
   }
 
-async function atualizarValorFatura(faturaId, valorSomar) {
-    const { error } = await incrementarValorTotalFatura(supabase, faturaId, valorSomar);
-    if (error) throw error;
-  }
-
   async function ajustarFaturasAoRemoverParcelasDaSaida(saidaId) {
     return removerParcelasDaSaidaERecalcularFaturas(supabase, saidaId);
   }
@@ -562,35 +511,15 @@ async function atualizarValorFatura(faturaId, valorSomar) {
   async function gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas) {
     if (!isCredito || !cartaoSelecionado) return;
 
-    const payload = [];
-
-    for (let i = 0; i < parcelas; i++) {
-      const dataBase = somarMesesData(dataCompra, i).toISOString().split("T")[0];
-
-      const fatura = await buscarOuCriarFatura({
-        cartao: cartaoSelecionado,
-        dataBase,
-      });
-
-      await atualizarValorFatura(fatura.id, parcelaValor);
-
-      payload.push(criarPayloadParcela({
-        saida_id: saidaId,
-        cartao_id: Number(cartaoId),
-        fatura_id: fatura.id,
-        numero_parcela: i + 1,
-        total_parcelas: parcelas,
-        valor_parcela: parcelaValor,
-        data_vencimento: fatura.data_vencimento,
-        status: "pendente",
-      }));
-    }
-
-    if (payload.length) {
-      const { error } = await supabase.from("saidas_parcelas").insert(payload);
-      if (error) throw error;
-      await recalcularFaturasDaSaida(saidaId);
-    }
+    return gerarParcelasEFaturasPadrao(supabase, {
+      saidaId,
+      cartao: cartaoSelecionado,
+      cartaoId,
+      dataBase: dataCompra,
+      quantidadeParcelas: parcelas,
+      valorParcela: parcelaValor,
+      recalcularAoFinal: () => recalcularFaturasDaSaida(saidaId),
+    });
   }
 
   async function verificarLimiteCartao(total) {
@@ -604,14 +533,12 @@ async function atualizarValorFatura(faturaId, valorSomar) {
 
     if (error) throw error;
 
-    const usado = (data || []).reduce(
-      (totalAtual, fatura) => totalAtual + Number(fatura.valor_total || 0),
-      0
+    const { limite, disponivel } = calcularUsoELimiteCartao(
+      data,
+      cartaoSelecionado.limite_total
     );
 
-    const disponivel = Number(cartaoSelecionado.limite_total || 0) - usado;
-
-    if (Number(cartaoSelecionado.limite_total || 0) > 0 && total > disponivel) {
+    if (limite > 0 && total > disponivel) {
       return window.confirm(
         "⚠ Esta recarga ultrapassará o limite do cartão.\n\nDeseja continuar mesmo assim?"
       );

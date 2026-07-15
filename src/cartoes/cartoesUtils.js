@@ -46,6 +46,36 @@ export function calcularSaldoAbertoFatura(fatura) {
   );
 }
 
+export function calcularUsoELimiteCartao(faturas, limiteTotal) {
+  const usado = (faturas || []).reduce(
+    (totalAtual, fatura) => totalAtual + Number(fatura.valor_total || 0),
+    0
+  );
+  const limite = Number(limiteTotal || 0);
+
+  return {
+    usado,
+    limite,
+    disponivel: limite - usado,
+  };
+}
+
+export function calcularStatusFaturaComPagamento({
+  valorTotal,
+  valorPago,
+  statusAnterior,
+}) {
+  const total = Number(valorTotal || 0);
+  const pago = Number(valorPago || 0);
+  const statusAtual = String(statusAnterior || "aberta").toLowerCase();
+
+  if (total <= 0) return "aberta";
+  if (pago >= total) return "paga";
+  if (pago > 0) return "parcial";
+  if (statusAtual === "fechada") return "fechada";
+  return "aberta";
+}
+
 export function somenteNumeros(valor) {
   return String(valor || "").replace(/\D/g, "");
 }
@@ -141,6 +171,36 @@ export function calcularCompetenciaFaturaPorCompra(dataBase, cartao) {
   return { mes: mesVencimento, ano: anoVencimento, mesFechamento, anoFechamento };
 }
 
+export function calcularCompetenciaFaturaPorVencimento({
+  dataVencimento,
+  diaFechamento,
+  diaVencimento,
+}) {
+  const dataVencimentoReal = ajustarVencimentoFimDeSemana(dataVencimento);
+  const data = new Date(`${dataVencimentoReal}T00:00:00`);
+  const mes = data.getMonth() + 1;
+  const ano = data.getFullYear();
+  const diaFechamentoCartao = Number(diaFechamento || diaVencimento || 1);
+  const diaVencimentoConfigurado = Number(diaVencimento || 1);
+  let mesFechamento = mes;
+  let anoFechamento = ano;
+
+  if (diaVencimentoConfigurado < diaFechamentoCartao) {
+    const anterior = adicionarMesCompetencia(anoFechamento, mesFechamento, -1);
+    mesFechamento = anterior.mes;
+    anoFechamento = anterior.ano;
+  }
+
+  return {
+    mes,
+    ano,
+    dataFechamento: ajustarVencimentoFimDeSemana(
+      dataComDiaSeguro(anoFechamento, mesFechamento, diaFechamentoCartao)
+    ),
+    dataVencimento: dataVencimentoReal,
+  };
+}
+
 export async function buscarFaturaPorCompetencia(supabase, cartaoId, mes, ano) {
   return supabase
     .from("faturas_cartao")
@@ -168,6 +228,25 @@ export async function criarFaturaPadrao(
     })
     .select()
     .single();
+}
+
+export async function obterOuCriarFaturaPadrao(
+  supabase,
+  { cartao_id, mes, ano, data_fechamento, data_vencimento }
+) {
+  const { data: faturaExistente, error: erroBusca } =
+    await buscarFaturaPorCompetencia(supabase, cartao_id, mes, ano);
+
+  if (erroBusca) throw erroBusca;
+  if (faturaExistente) return faturaExistente;
+
+  const { data: novaFatura, error: erroCriar } = await criarFaturaPadrao(
+    supabase,
+    { cartao_id, mes, ano, data_fechamento, data_vencimento }
+  );
+
+  if (erroCriar) throw erroCriar;
+  return novaFatura;
 }
 
 export async function incrementarValorTotalFatura(supabase, faturaId, valorSomar) {
@@ -210,6 +289,75 @@ export function criarPayloadParcela({
   };
 }
 
+export async function gerarParcelasEFaturasPadrao(
+  supabase,
+  {
+    saidaId,
+    cartao,
+    cartaoId,
+    dataBase,
+    quantidadeParcelas,
+    valorParcela,
+    recalcularAoFinal,
+  }
+) {
+  const parcelasPayload = [];
+
+  for (let index = 0; index < quantidadeParcelas; index++) {
+    const dataParcela = somarMesesData(dataBase, index);
+    const dataReferencia = dataParcela.toISOString().split("T")[0];
+    const competencia = calcularCompetenciaFaturaPorCompra(dataReferencia, cartao);
+    const dataFechamento = ajustarVencimentoFimDeSemana(
+      dataComDiaSeguro(
+        competencia.anoFechamento,
+        competencia.mesFechamento,
+        cartao.dia_fechamento
+      )
+    );
+    const dataVencimento = dataComDiaSeguro(
+      competencia.ano,
+      competencia.mes,
+      cartao.dia_vencimento
+    );
+    const fatura = await obterOuCriarFaturaPadrao(supabase, {
+      cartao_id: Number(cartao.id),
+      mes: competencia.mes,
+      ano: competencia.ano,
+      data_fechamento: dataFechamento,
+      data_vencimento: dataVencimento,
+    });
+    const { error: erroIncremento } = await incrementarValorTotalFatura(
+      supabase,
+      fatura.id,
+      valorParcela
+    );
+
+    if (erroIncremento) throw erroIncremento;
+
+    parcelasPayload.push(
+      criarPayloadParcela({
+        saida_id: saidaId,
+        cartao_id: Number(cartaoId),
+        fatura_id: fatura.id,
+        numero_parcela: index + 1,
+        total_parcelas: quantidadeParcelas,
+        valor_parcela: valorParcela,
+        data_vencimento: fatura.data_vencimento,
+        status: "pendente",
+      })
+    );
+  }
+
+  if (parcelasPayload.length > 0) {
+    const { error: erroParcelas } = await supabase
+      .from("saidas_parcelas")
+      .insert(parcelasPayload);
+
+    if (erroParcelas) throw erroParcelas;
+    if (recalcularAoFinal) await recalcularAoFinal();
+  }
+}
+
 export async function recalcularFaturaPorParcelas(supabase, faturaId) {
   if (!faturaId) return;
 
@@ -249,15 +397,11 @@ export async function recalcularFaturaPorParcelas(supabase, faturaId) {
   }
 
   const valorPago = Math.min(Number(fatura.valor_pago || 0), total);
-  const statusAnterior = String(fatura.status || "aberta").toLowerCase();
-  const novoStatus =
-    valorPago >= total
-      ? "paga"
-      : valorPago > 0
-      ? "parcial"
-      : statusAnterior === "fechada"
-      ? "fechada"
-      : "aberta";
+  const novoStatus = calcularStatusFaturaComPagamento({
+    valorTotal: total,
+    valorPago,
+    statusAnterior: fatura.status,
+  });
 
   const { error: erroUpdate } = await supabase
     .from("faturas_cartao")
