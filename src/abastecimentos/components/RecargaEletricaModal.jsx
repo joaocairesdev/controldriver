@@ -10,8 +10,8 @@ import SelecionarContaModal from "../../components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../../components/modals/SelecionarCartaoModal";
 import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasModal";
 import {
-  adicionarMesCompetencia,
   ajustarVencimentoFimDeSemana,
+  calcularCompetenciaFaturaPorCompra,
   dataComDiaSeguro,
   nomeCartaoComFinal,
   somarMesesData,
@@ -483,36 +483,8 @@ export default function RecargaEletricaModal({
     return "saida";
   }
 
-  function calcularCompetenciaFatura(dataBase, cartao) {
-    const d = new Date(`${dataBase}T00:00:00`);
-
-    const diaCompra = d.getDate();
-    const diaFechamento = Number(cartao?.dia_fechamento || 1);
-    const diaVencimento = Number(cartao?.dia_vencimento || 1);
-
-    let mesFechamento = d.getMonth() + 1;
-    let anoFechamento = d.getFullYear();
-
-    if (diaCompra > diaFechamento) {
-      ({ mes: mesFechamento, ano: anoFechamento } = adicionarMesCompetencia(
-        anoFechamento,
-        mesFechamento,
-        1
-      ));
-    }
-
-    let mes = mesFechamento;
-    let ano = anoFechamento;
-
-    if (diaVencimento < diaFechamento) {
-      ({ mes, ano } = adicionarMesCompetencia(ano, mes, 1));
-    }
-
-    return { mes, ano, mesFechamento, anoFechamento };
-  }
-
   async function buscarOuCriarFatura({ cartao, dataBase }) {
-    const comp = calcularCompetenciaFatura(dataBase, cartao);
+    const comp = calcularCompetenciaFaturaPorCompra(dataBase, cartao);
 
     const dataFechamento = ajustarVencimentoFimDeSemana(
       dataComDiaSeguro(

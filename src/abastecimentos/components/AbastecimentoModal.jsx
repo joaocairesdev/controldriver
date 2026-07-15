@@ -23,8 +23,8 @@ import SelecionarCartaoModal from "../../components/modals/SelecionarCartaoModal
 import SelecionarCombustivelModal from "../../components/modals/SelecionarCombustivelModal";
 import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasModal";
 import {
-  adicionarMesCompetencia,
   ajustarVencimentoFimDeSemana,
+  calcularCompetenciaFaturaPorCompra,
   dataComDiaSeguro,
   nomeCartaoComFinal,
   somarMesesData,
@@ -253,8 +253,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   function definirContaBancariaPadrao() { const conta = contasBancarias.find((c) => c.principal) || contasBancarias[0]; if (conta) setContaId(String(conta.id)); }
   function definirStatus() { if (isBoleto) return "aberto"; if (isCredito) return "fatura"; return "pago"; }
   function definirTipoMovimentacao() { if (isBoleto) return "conta_pagar"; return "saida"; }
-  function calcularCompetenciaFatura(dataBase, cartao) { const d = new Date(`${dataBase}T00:00:00`); const diaCompra = d.getDate(); const diaFechamento = Number(cartao?.dia_fechamento || 1); const diaVencimento = Number(cartao?.dia_vencimento || 1); let mesFechamento = d.getMonth() + 1; let anoFechamento = d.getFullYear(); if (diaCompra > diaFechamento) ({ mes: mesFechamento, ano: anoFechamento } = adicionarMesCompetencia(anoFechamento, mesFechamento, 1)); let mes = mesFechamento; let ano = anoFechamento; if (diaVencimento < diaFechamento) ({ mes, ano } = adicionarMesCompetencia(ano, mes, 1)); return { mes, ano, mesFechamento, anoFechamento }; }
-  async function buscarOuCriarFatura({ cartao, dataBase }) { const comp = calcularCompetenciaFatura(dataBase, cartao); const dataFechamento = ajustarVencimentoFimDeSemana(dataComDiaSeguro(comp.anoFechamento, comp.mesFechamento, cartao.dia_fechamento)); const dataVencimento = dataComDiaSeguro(comp.ano, comp.mes, cartao.dia_vencimento); const { data: existente, error: erroBusca } = await supabase.from("faturas_cartao").select("*").eq("cartao_id", Number(cartao.id)).eq("mes", comp.mes).eq("ano", comp.ano).maybeSingle(); if (erroBusca) throw erroBusca; if (existente) return existente; const { data, error } = await supabase.from("faturas_cartao").insert({ cartao_id: Number(cartao.id), mes: comp.mes, ano: comp.ano, data_fechamento: dataFechamento, data_vencimento: dataVencimento, valor_total: 0, status: "aberta" }).select().single(); if (error) throw error; return data; }
+  async function buscarOuCriarFatura({ cartao, dataBase }) { const comp = calcularCompetenciaFaturaPorCompra(dataBase, cartao); const dataFechamento = ajustarVencimentoFimDeSemana(dataComDiaSeguro(comp.anoFechamento, comp.mesFechamento, cartao.dia_fechamento)); const dataVencimento = dataComDiaSeguro(comp.ano, comp.mes, cartao.dia_vencimento); const { data: existente, error: erroBusca } = await supabase.from("faturas_cartao").select("*").eq("cartao_id", Number(cartao.id)).eq("mes", comp.mes).eq("ano", comp.ano).maybeSingle(); if (erroBusca) throw erroBusca; if (existente) return existente; const { data, error } = await supabase.from("faturas_cartao").insert({ cartao_id: Number(cartao.id), mes: comp.mes, ano: comp.ano, data_fechamento: dataFechamento, data_vencimento: dataVencimento, valor_total: 0, status: "aberta" }).select().single(); if (error) throw error; return data; }
   
   async function recalcularFaturaPorParcelas(faturaId) {
     if (!faturaId) return;

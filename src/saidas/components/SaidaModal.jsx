@@ -14,8 +14,8 @@ import GerenciarCategoriasModal from "../../components/modals/GerenciarCategoria
 import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasModal";
 import { CATEGORIAS_SISTEMA_FIXAS } from "../../utils/categoriasSistema";
 import {
-  adicionarMesCompetencia,
   ajustarVencimentoFimDeSemana,
+  calcularCompetenciaFaturaPorCompra,
   calcularSaldoAbertoFatura,
   dataComDiaSeguro,
   nomeCartaoComFinal,
@@ -874,35 +874,8 @@ export default function SaidaModal({
     return `${base} (${index + 1}/${parcelas})`;
   }
 
-  function calcularCompetenciaFatura(dataBase, cartao) {
-    const data = new Date(`${dataBase}T00:00:00`);
-    const diaCompra = data.getDate();
-    const diaFechamento = Number(cartao?.dia_fechamento || 1);
-    const diaVencimento = Number(cartao?.dia_vencimento || 1);
-
-    let mesFechamento = data.getMonth() + 1;
-    let anoFechamento = data.getFullYear();
-
-    if (diaCompra > diaFechamento) {
-      const proximo = adicionarMesCompetencia(anoFechamento, mesFechamento, 1);
-      mesFechamento = proximo.mes;
-      anoFechamento = proximo.ano;
-    }
-
-    let mesVencimento = mesFechamento;
-    let anoVencimento = anoFechamento;
-
-    if (diaVencimento < diaFechamento) {
-      const proximo = adicionarMesCompetencia(anoVencimento, mesVencimento, 1);
-      mesVencimento = proximo.mes;
-      anoVencimento = proximo.ano;
-    }
-
-    return { mes: mesVencimento, ano: anoVencimento, mesFechamento, anoFechamento };
-  }
-
   async function buscarOuCriarFatura({ cartao, dataBase }) {
-    const competencia = calcularCompetenciaFatura(dataBase, cartao);
+    const competencia = calcularCompetenciaFaturaPorCompra(dataBase, cartao);
 
     const dataFechamento = ajustarVencimentoFimDeSemana(
       dataComDiaSeguro(
