@@ -4,6 +4,7 @@ import {
   ajustarVencimentoFimDeSemana,
   dataComDiaSeguro,
   adicionarMesCompetencia,
+  buscarFaturaPorCompetencia,
   somarMesesDataISO,
   TIPOS_CARTAO,
 } from "../cartoesUtils";
@@ -468,13 +469,12 @@ export default function DetalheFaturaModal({
   async function buscarOuCriarFaturaDestino(dataVencimento, valorSomar = 0) {
     const competencia = calcularCompetenciaPorVencimento(dataVencimento);
 
-    const { data: faturaExistente, error: erroBusca } = await supabase
-      .from("faturas_cartao")
-      .select("*")
-      .eq("cartao_id", Number(cartao.id))
-      .eq("mes", competencia.mes)
-      .eq("ano", competencia.ano)
-      .maybeSingle();
+    const { data: faturaExistente, error: erroBusca } = await buscarFaturaPorCompetencia(
+      supabase,
+      Number(cartao.id),
+      competencia.mes,
+      competencia.ano
+    );
 
     if (erroBusca) throw erroBusca;
 

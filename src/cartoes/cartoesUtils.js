@@ -141,6 +141,16 @@ export function calcularCompetenciaFaturaPorCompra(dataBase, cartao) {
   return { mes: mesVencimento, ano: anoVencimento, mesFechamento, anoFechamento };
 }
 
+export async function buscarFaturaPorCompetencia(supabase, cartaoId, mes, ano) {
+  return supabase
+    .from("faturas_cartao")
+    .select("*")
+    .eq("cartao_id", cartaoId)
+    .eq("mes", mes)
+    .eq("ano", ano)
+    .maybeSingle();
+}
+
 export function ajustarVencimentoFimDeSemana(dataISO) {
   const data = new Date(`${dataISO}T00:00:00`);
   const diaSemana = data.getDay();

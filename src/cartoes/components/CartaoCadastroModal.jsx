@@ -7,6 +7,7 @@ import {
   adicionarMesCompetencia,
   calcularDiaFechamentoTerceiro,
   ajustarVencimentoFimDeSemana,
+  buscarFaturaPorCompetencia,
   dataComDiaSeguro,
   formatarDataBR,
   moedaParaNumero,
@@ -552,13 +553,12 @@ export default function CartaoCadastroModal({
   async function buscarOuCriarFaturaPorVencimento(cartaoId, dataVencimento, valorSomar) {
     const competencia = calcularFaturaInicialPorVencimento(dataVencimento);
 
-    const { data: faturaExistente, error: erroBusca } = await supabase
-      .from("faturas_cartao")
-      .select("*")
-      .eq("cartao_id", Number(cartaoId))
-      .eq("mes", competencia.mes)
-      .eq("ano", competencia.ano)
-      .maybeSingle();
+    const { data: faturaExistente, error: erroBusca } = await buscarFaturaPorCompetencia(
+      supabase,
+      Number(cartaoId),
+      competencia.mes,
+      competencia.ano
+    );
 
     if (erroBusca) throw erroBusca;
 

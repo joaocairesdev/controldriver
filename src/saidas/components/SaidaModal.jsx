@@ -15,6 +15,7 @@ import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasM
 import { CATEGORIAS_SISTEMA_FIXAS } from "../../utils/categoriasSistema";
 import {
   ajustarVencimentoFimDeSemana,
+  buscarFaturaPorCompetencia,
   calcularCompetenciaFaturaPorCompra,
   calcularSaldoAbertoFatura,
   dataComDiaSeguro,
@@ -891,13 +892,12 @@ export default function SaidaModal({
       cartao.dia_vencimento
     );
 
-    const { data: faturaExistente, error: erroBusca } = await supabase
-      .from("faturas_cartao")
-      .select("*")
-      .eq("cartao_id", Number(cartao.id))
-      .eq("mes", competencia.mes)
-      .eq("ano", competencia.ano)
-      .maybeSingle();
+    const { data: faturaExistente, error: erroBusca } = await buscarFaturaPorCompetencia(
+      supabase,
+      Number(cartao.id),
+      competencia.mes,
+      competencia.ano
+    );
 
     if (erroBusca) throw erroBusca;
     if (faturaExistente) return faturaExistente;

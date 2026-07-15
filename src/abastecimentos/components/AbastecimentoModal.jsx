@@ -24,6 +24,7 @@ import SelecionarCombustivelModal from "../../components/modals/SelecionarCombus
 import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasModal";
 import {
   ajustarVencimentoFimDeSemana,
+  buscarFaturaPorCompetencia,
   calcularCompetenciaFaturaPorCompra,
   dataComDiaSeguro,
   nomeCartaoComFinal,
@@ -253,7 +254,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   function definirContaBancariaPadrao() { const conta = contasBancarias.find((c) => c.principal) || contasBancarias[0]; if (conta) setContaId(String(conta.id)); }
   function definirStatus() { if (isBoleto) return "aberto"; if (isCredito) return "fatura"; return "pago"; }
   function definirTipoMovimentacao() { if (isBoleto) return "conta_pagar"; return "saida"; }
-  async function buscarOuCriarFatura({ cartao, dataBase }) { const comp = calcularCompetenciaFaturaPorCompra(dataBase, cartao); const dataFechamento = ajustarVencimentoFimDeSemana(dataComDiaSeguro(comp.anoFechamento, comp.mesFechamento, cartao.dia_fechamento)); const dataVencimento = dataComDiaSeguro(comp.ano, comp.mes, cartao.dia_vencimento); const { data: existente, error: erroBusca } = await supabase.from("faturas_cartao").select("*").eq("cartao_id", Number(cartao.id)).eq("mes", comp.mes).eq("ano", comp.ano).maybeSingle(); if (erroBusca) throw erroBusca; if (existente) return existente; const { data, error } = await supabase.from("faturas_cartao").insert({ cartao_id: Number(cartao.id), mes: comp.mes, ano: comp.ano, data_fechamento: dataFechamento, data_vencimento: dataVencimento, valor_total: 0, status: "aberta" }).select().single(); if (error) throw error; return data; }
+  async function buscarOuCriarFatura({ cartao, dataBase }) { const comp = calcularCompetenciaFaturaPorCompra(dataBase, cartao); const dataFechamento = ajustarVencimentoFimDeSemana(dataComDiaSeguro(comp.anoFechamento, comp.mesFechamento, cartao.dia_fechamento)); const dataVencimento = dataComDiaSeguro(comp.ano, comp.mes, cartao.dia_vencimento); const { data: existente, error: erroBusca } = await buscarFaturaPorCompetencia(supabase, Number(cartao.id), comp.mes, comp.ano); if (erroBusca) throw erroBusca; if (existente) return existente; const { data, error } = await supabase.from("faturas_cartao").insert({ cartao_id: Number(cartao.id), mes: comp.mes, ano: comp.ano, data_fechamento: dataFechamento, data_vencimento: dataVencimento, valor_total: 0, status: "aberta" }).select().single(); if (error) throw error; return data; }
   
   async function recalcularFaturaPorParcelas(faturaId) {
     if (!faturaId) return;

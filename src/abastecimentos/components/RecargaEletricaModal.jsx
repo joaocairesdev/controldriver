@@ -11,6 +11,7 @@ import SelecionarCartaoModal from "../../components/modals/SelecionarCartaoModal
 import SelecionarParcelasModal from "../../components/modals/SelecionarParcelasModal";
 import {
   ajustarVencimentoFimDeSemana,
+  buscarFaturaPorCompetencia,
   calcularCompetenciaFaturaPorCompra,
   dataComDiaSeguro,
   nomeCartaoComFinal,
@@ -500,13 +501,12 @@ export default function RecargaEletricaModal({
       cartao.dia_vencimento
     );
 
-    const { data: existente, error: erroBusca } = await supabase
-      .from("faturas_cartao")
-      .select("*")
-      .eq("cartao_id", Number(cartao.id))
-      .eq("mes", comp.mes)
-      .eq("ano", comp.ano)
-      .maybeSingle();
+    const { data: existente, error: erroBusca } = await buscarFaturaPorCompetencia(
+      supabase,
+      Number(cartao.id),
+      comp.mes,
+      comp.ano
+    );
 
     if (erroBusca) throw erroBusca;
     if (existente) return existente;

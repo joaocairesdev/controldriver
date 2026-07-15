@@ -8,6 +8,7 @@ import SelecionarCartaoModal from "../../components/modals/SelecionarCartaoModal
 import FeedbackModal from "../../components/modals/FeedbackModal";
 import {
   ajustarVencimentoFimDeSemana,
+  buscarFaturaPorCompetencia,
   calcularCompetenciaFaturaPorCompra,
   dataComDiaSeguro,
   nomeCartaoComFinal,
@@ -253,13 +254,12 @@ export default function RegistrarPagamentoModal({
     );
     const dataVencimento = dataComDiaSeguro(competencia.ano, competencia.mes, cartao.dia_vencimento);
 
-    const { data: faturaExistente, error: erroBusca } = await supabase
-      .from("faturas_cartao")
-      .select("*")
-      .eq("cartao_id", Number(cartao.id))
-      .eq("mes", competencia.mes)
-      .eq("ano", competencia.ano)
-      .maybeSingle();
+    const { data: faturaExistente, error: erroBusca } = await buscarFaturaPorCompetencia(
+      supabase,
+      Number(cartao.id),
+      competencia.mes,
+      competencia.ano
+    );
 
     if (erroBusca) throw erroBusca;
     if (faturaExistente) return faturaExistente;
