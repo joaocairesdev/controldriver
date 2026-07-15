@@ -271,6 +271,35 @@ export async function recalcularFaturaPorParcelas(supabase, faturaId) {
   if (erroUpdate) throw erroUpdate;
 }
 
+export async function removerParcelasDaSaidaERecalcularFaturas(
+  supabase,
+  saidaId
+) {
+  const { data: parcelas, error: erroParcelasBusca } = await supabase
+    .from("saidas_parcelas")
+    .select("fatura_id")
+    .eq("saida_id", Number(saidaId));
+
+  if (erroParcelasBusca) throw erroParcelasBusca;
+
+  const faturasAfetadas = [
+    ...new Set(
+      (parcelas || []).map((parcela) => parcela.fatura_id).filter(Boolean)
+    ),
+  ];
+
+  const { error: erroExcluirParcelas } = await supabase
+    .from("saidas_parcelas")
+    .delete()
+    .eq("saida_id", Number(saidaId));
+
+  if (erroExcluirParcelas) throw erroExcluirParcelas;
+
+  for (const faturaId of faturasAfetadas) {
+    await recalcularFaturaPorParcelas(supabase, faturaId);
+  }
+}
+
 export function ajustarVencimentoFimDeSemana(dataISO) {
   const data = new Date(`${dataISO}T00:00:00`);
   const diaSemana = data.getDay();

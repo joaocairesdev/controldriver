@@ -32,6 +32,7 @@ import {
   incrementarValorTotalFatura,
   nomeCartaoComFinal,
   recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
+  removerParcelasDaSaidaERecalcularFaturas,
   somarMesesData,
 } from "../../cartoes/cartoesUtils";
 
@@ -282,28 +283,8 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   }
 
 async function atualizarValorFatura(faturaId, valorSomar) { const { error } = await incrementarValorTotalFatura(supabase, faturaId, valorSomar); if (error) throw error; }
-    async function ajustarFaturasAoRemoverParcelasDaSaida(saidaId) {
-    const { data: parcelas, error: erroParcelasBusca } = await supabase
-      .from("saidas_parcelas")
-      .select("fatura_id")
-      .eq("saida_id", Number(saidaId));
-
-    if (erroParcelasBusca) throw erroParcelasBusca;
-
-    const faturasAfetadas = [
-      ...new Set((parcelas || []).map((parcela) => parcela.fatura_id).filter(Boolean)),
-    ];
-
-    const { error: erroExcluirParcelas } = await supabase
-      .from("saidas_parcelas")
-      .delete()
-      .eq("saida_id", Number(saidaId));
-
-    if (erroExcluirParcelas) throw erroExcluirParcelas;
-
-    for (const faturaId of faturasAfetadas) {
-      await recalcularFaturaPorParcelas(faturaId);
-    }
+  async function ajustarFaturasAoRemoverParcelasDaSaida(saidaId) {
+    return removerParcelasDaSaidaERecalcularFaturas(supabase, saidaId);
   }
 
   async function gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas) { if (!isCredito || !cartaoSelecionado) return; const payload = []; for (let i = 0; i < parcelas; i++) { const dataBase = somarMesesData(dataCompra, i).toISOString().split("T")[0]; const fatura = await buscarOuCriarFatura({ cartao: cartaoSelecionado, dataBase }); await atualizarValorFatura(fatura.id, parcelaValor); payload.push(criarPayloadParcela({ saida_id: saidaId, cartao_id: Number(cartaoId), fatura_id: fatura.id, numero_parcela: i + 1, total_parcelas: parcelas, valor_parcela: parcelaValor, data_vencimento: fatura.data_vencimento, status: "pendente" })); } if (payload.length) { const { error } = await supabase.from("saidas_parcelas").insert(payload); if (error) throw error; await recalcularFaturasDaSaida(saidaId); } }

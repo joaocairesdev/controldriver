@@ -19,6 +19,7 @@ import {
   incrementarValorTotalFatura,
   nomeCartaoComFinal,
   recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
+  removerParcelasDaSaidaERecalcularFaturas,
   somarMesesData,
 } from "../../cartoes/cartoesUtils";
 
@@ -554,28 +555,8 @@ async function atualizarValorFatura(faturaId, valorSomar) {
     if (error) throw error;
   }
 
-    async function ajustarFaturasAoRemoverParcelasDaSaida(saidaId) {
-    const { data: parcelas, error: erroParcelasBusca } = await supabase
-      .from("saidas_parcelas")
-      .select("fatura_id")
-      .eq("saida_id", Number(saidaId));
-
-    if (erroParcelasBusca) throw erroParcelasBusca;
-
-    const faturasAfetadas = [
-      ...new Set((parcelas || []).map((parcela) => parcela.fatura_id).filter(Boolean)),
-    ];
-
-    const { error: erroExcluirParcelas } = await supabase
-      .from("saidas_parcelas")
-      .delete()
-      .eq("saida_id", Number(saidaId));
-
-    if (erroExcluirParcelas) throw erroExcluirParcelas;
-
-    for (const faturaId of faturasAfetadas) {
-      await recalcularFaturaPorParcelas(faturaId);
-    }
+  async function ajustarFaturasAoRemoverParcelasDaSaida(saidaId) {
+    return removerParcelasDaSaidaERecalcularFaturas(supabase, saidaId);
   }
 
   async function gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas) {

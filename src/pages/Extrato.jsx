@@ -15,7 +15,7 @@ import ManutencaoModal from "../manutencoes/components/ManutencaoModal";
 import TagModal from "../tag/components/TagModal";
 import {
   nomeCartaoComFinal,
-  recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
+  removerParcelasDaSaidaERecalcularFaturas,
 } from "../cartoes/cartoesUtils";
 
 const ITENS_POR_PAGINA_PADRAO = 30;
@@ -673,32 +673,8 @@ export default function Extrato() {
 }
 
 
-  async function recalcularFaturaPorParcelas(faturaId) {
-    return recalcularFaturaPorParcelasCompartilhada(supabase, faturaId);
-  }
-
   async function ajustarFaturasAoExcluirParcelasDaSaida(saidaId) {
-    const { data: parcelas, error: erroParcelasBusca } = await supabase
-      .from("saidas_parcelas")
-      .select("fatura_id")
-      .eq("saida_id", Number(saidaId));
-
-    if (erroParcelasBusca) throw erroParcelasBusca;
-
-    const faturasAfetadas = [
-      ...new Set((parcelas || []).map((parcela) => parcela.fatura_id).filter(Boolean)),
-    ];
-
-    const { error: erroExcluirParcelas } = await supabase
-      .from("saidas_parcelas")
-      .delete()
-      .eq("saida_id", Number(saidaId));
-
-    if (erroExcluirParcelas) throw erroExcluirParcelas;
-
-    for (const faturaId of faturasAfetadas) {
-      await recalcularFaturaPorParcelas(faturaId);
-    }
+    return removerParcelasDaSaidaERecalcularFaturas(supabase, saidaId);
   }
 
   async function reabrirContaPagarAoExcluirPagamento(saidaPagamento) {
