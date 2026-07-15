@@ -12,7 +12,9 @@ import {
   ajustarVencimentoFimDeSemana,
   buscarFaturaPorCompetencia,
   calcularSaldoAbertoFatura,
+  criarPayloadParcela,
   dataComDiaSeguro,
+  incrementarValorTotalFatura,
   nomeCartaoComFinal,
   somarMesesDataISO,
 } from "../cartoes/cartoesUtils";
@@ -698,20 +700,8 @@ export default function Veiculos() {
   }
 
   async function atualizarValorFaturaProtecao(faturaId, valorSomar) {
-    const { data, error } = await supabase
-      .from("faturas_cartao")
-      .select("valor_total")
-      .eq("id", faturaId)
-      .single();
-
+    const { error } = await incrementarValorTotalFatura(supabase, faturaId, valorSomar);
     if (error) throw error;
-
-    const { error: erroUpdate } = await supabase
-      .from("faturas_cartao")
-      .update({ valor_total: Number(data.valor_total || 0) + Number(valorSomar || 0) })
-      .eq("id", faturaId);
-
-    if (erroUpdate) throw erroUpdate;
   }
 
   async function buscarCategoriaSeguroId() {
@@ -831,7 +821,7 @@ export default function Veiculos() {
         const fatura = await buscarOuCriarFaturaProtecao({ cartao, dataBase });
         await atualizarValorFaturaProtecao(fatura.id, valorCredito);
 
-        parcelasPayload.push({
+        parcelasPayload.push(criarPayloadParcela({
           saida_id: saidaCriada.id,
           cartao_id: Number(protecao.cartao_id),
           fatura_id: fatura.id,
@@ -840,7 +830,7 @@ export default function Veiculos() {
           valor_parcela: valorCredito,
           data_vencimento: fatura.data_vencimento,
           status: "pendente",
-        });
+        }));
       }
 
       if (parcelasPayload.length) {

@@ -14,8 +14,11 @@ import {
   buscarFaturaPorCompetencia,
   calcularCompetenciaFaturaPorCompra,
   criarFaturaPadrao,
+  criarPayloadParcela,
   dataComDiaSeguro,
+  incrementarValorTotalFatura,
   nomeCartaoComFinal,
+  recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
   somarMesesData,
 } from "../../cartoes/cartoesUtils";
 
@@ -526,61 +529,7 @@ export default function RecargaEletricaModal({
 
   
   async function recalcularFaturaPorParcelas(faturaId) {
-    if (!faturaId) return;
-
-    const idFatura = Number(faturaId);
-
-    const { data: parcelas, error: erroParcelas } = await supabase
-      .from("saidas_parcelas")
-      .select("valor_parcela")
-      .eq("fatura_id", idFatura);
-
-    if (erroParcelas) throw erroParcelas;
-
-    const total = Math.round(
-      (parcelas || []).reduce((soma, parcela) => soma + Number(parcela.valor_parcela || 0), 0) * 100
-    ) / 100;
-
-    const { data: fatura, error: erroFatura } = await supabase
-      .from("faturas_cartao")
-      .select("valor_pago, status")
-      .eq("id", idFatura)
-      .maybeSingle();
-
-    if (erroFatura) throw erroFatura;
-    if (!fatura) return;
-
-    if (total <= 0) {
-      const { error: erroDelete } = await supabase
-        .from("faturas_cartao")
-        .delete()
-        .eq("id", idFatura);
-
-      if (erroDelete) throw erroDelete;
-      return;
-    }
-
-    const valorPago = Math.min(Number(fatura.valor_pago || 0), total);
-    const statusAnterior = String(fatura.status || "aberta").toLowerCase();
-    const novoStatus =
-      valorPago >= total
-        ? "paga"
-        : valorPago > 0
-        ? "parcial"
-        : statusAnterior === "fechada"
-        ? "fechada"
-        : "aberta";
-
-    const { error: erroUpdate } = await supabase
-      .from("faturas_cartao")
-      .update({
-        valor_total: total,
-        valor_pago: valorPago,
-        status: novoStatus,
-      })
-      .eq("id", idFatura);
-
-    if (erroUpdate) throw erroUpdate;
+    return recalcularFaturaPorParcelasCompartilhada(supabase, faturaId);
   }
 
   async function recalcularFaturasDaSaida(saidaId) {
@@ -601,22 +550,8 @@ export default function RecargaEletricaModal({
   }
 
 async function atualizarValorFatura(faturaId, valorSomar) {
-    const { data, error } = await supabase
-      .from("faturas_cartao")
-      .select("valor_total")
-      .eq("id", faturaId)
-      .single();
-
+    const { error } = await incrementarValorTotalFatura(supabase, faturaId, valorSomar);
     if (error) throw error;
-
-    const { error: erroUpdate } = await supabase
-      .from("faturas_cartao")
-      .update({
-        valor_total: Number(data.valor_total || 0) + Number(valorSomar || 0),
-      })
-      .eq("id", faturaId);
-
-    if (erroUpdate) throw erroUpdate;
   }
 
     async function ajustarFaturasAoRemoverParcelasDaSaida(saidaId) {
@@ -658,7 +593,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
 
       await atualizarValorFatura(fatura.id, parcelaValor);
 
-      payload.push({
+      payload.push(criarPayloadParcela({
         saida_id: saidaId,
         cartao_id: Number(cartaoId),
         fatura_id: fatura.id,
@@ -667,7 +602,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         valor_parcela: parcelaValor,
         data_vencimento: fatura.data_vencimento,
         status: "pendente",
-      });
+      }));
     }
 
     if (payload.length) {

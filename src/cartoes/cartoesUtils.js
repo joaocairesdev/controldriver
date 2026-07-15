@@ -170,6 +170,107 @@ export async function criarFaturaPadrao(
     .single();
 }
 
+export async function incrementarValorTotalFatura(supabase, faturaId, valorSomar) {
+  const resultadoBusca = await supabase
+    .from("faturas_cartao")
+    .select("valor_total")
+    .eq("id", faturaId)
+    .single();
+
+  if (resultadoBusca.error) return resultadoBusca;
+
+  return supabase
+    .from("faturas_cartao")
+    .update({
+      valor_total:
+        Number(resultadoBusca.data.valor_total || 0) + Number(valorSomar || 0),
+    })
+    .eq("id", faturaId);
+}
+
+export function criarPayloadParcela({
+  saida_id,
+  cartao_id,
+  fatura_id,
+  numero_parcela,
+  total_parcelas,
+  valor_parcela,
+  data_vencimento,
+  status = "pendente",
+}) {
+  return {
+    saida_id,
+    cartao_id,
+    fatura_id,
+    numero_parcela,
+    total_parcelas,
+    valor_parcela,
+    data_vencimento,
+    status,
+  };
+}
+
+export async function recalcularFaturaPorParcelas(supabase, faturaId) {
+  if (!faturaId) return;
+
+  const idFatura = Number(faturaId);
+
+  const { data: parcelas, error: erroParcelas } = await supabase
+    .from("saidas_parcelas")
+    .select("valor_parcela")
+    .eq("fatura_id", idFatura);
+
+  if (erroParcelas) throw erroParcelas;
+
+  const total = Math.round(
+    (parcelas || []).reduce(
+      (soma, parcela) => soma + Number(parcela.valor_parcela || 0),
+      0
+    ) * 100
+  ) / 100;
+
+  const { data: fatura, error: erroFatura } = await supabase
+    .from("faturas_cartao")
+    .select("valor_pago, status")
+    .eq("id", idFatura)
+    .maybeSingle();
+
+  if (erroFatura) throw erroFatura;
+  if (!fatura) return;
+
+  if (total <= 0) {
+    const { error: erroDelete } = await supabase
+      .from("faturas_cartao")
+      .delete()
+      .eq("id", idFatura);
+
+    if (erroDelete) throw erroDelete;
+    return;
+  }
+
+  const valorPago = Math.min(Number(fatura.valor_pago || 0), total);
+  const statusAnterior = String(fatura.status || "aberta").toLowerCase();
+  const novoStatus =
+    valorPago >= total
+      ? "paga"
+      : valorPago > 0
+      ? "parcial"
+      : statusAnterior === "fechada"
+      ? "fechada"
+      : "aberta";
+
+  const { error: erroUpdate } = await supabase
+    .from("faturas_cartao")
+    .update({
+      valor_total: total,
+      valor_pago: valorPago,
+      status: novoStatus,
+    })
+    .eq("id", idFatura);
+
+  if (erroUpdate) throw erroUpdate;
+}
+
 export function ajustarVencimentoFimDeSemana(dataISO) {
   const data = new Date(`${dataISO}T00:00:00`);
   const diaSemana = data.getDay();

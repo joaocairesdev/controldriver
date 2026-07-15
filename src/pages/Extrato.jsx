@@ -13,7 +13,10 @@ import SaidaModal from "../saidas/components/SaidaModal";
 import AbastecimentoOuRecargaModal from "../abastecimentos/components/AbastecimentoOuRecargaModal";
 import ManutencaoModal from "../manutencoes/components/ManutencaoModal";
 import TagModal from "../tag/components/TagModal";
-import { nomeCartaoComFinal } from "../cartoes/cartoesUtils";
+import {
+  nomeCartaoComFinal,
+  recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
+} from "../cartoes/cartoesUtils";
 
 const ITENS_POR_PAGINA_PADRAO = 30;
 
@@ -671,57 +674,7 @@ export default function Extrato() {
 
 
   async function recalcularFaturaPorParcelas(faturaId) {
-    if (!faturaId) return;
-
-    const idFatura = Number(faturaId);
-
-    const { data: parcelas, error: erroParcelas } = await supabase
-      .from("saidas_parcelas")
-      .select("valor_parcela")
-      .eq("fatura_id", idFatura);
-
-    if (erroParcelas) throw erroParcelas;
-
-    const total = Math.round(
-      (parcelas || []).reduce((soma, parcela) => soma + Number(parcela.valor_parcela || 0), 0) * 100
-    ) / 100;
-
-    const { data: fatura, error: erroFatura } = await supabase
-      .from("faturas_cartao")
-      .select("valor_pago, status")
-      .eq("id", idFatura)
-      .maybeSingle();
-
-    if (erroFatura) throw erroFatura;
-    if (!fatura) return;
-
-    if (total <= 0) {
-      const { error: erroDelete } = await supabase
-        .from("faturas_cartao")
-        .delete()
-        .eq("id", idFatura);
-
-      if (erroDelete) throw erroDelete;
-      return;
-    }
-
-    const valorPago = Math.min(Number(fatura.valor_pago || 0), total);
-    const statusAnterior = String(fatura.status || "aberta").toLowerCase();
-    const novoStatus =
-      valorPago >= total
-        ? "paga"
-        : valorPago > 0
-        ? "parcial"
-        : statusAnterior === "fechada"
-        ? "fechada"
-        : "aberta";
-
-    const { error: erroUpdate } = await supabase
-      .from("faturas_cartao")
-      .update({ valor_total: total, valor_pago: valorPago, status: novoStatus })
-      .eq("id", idFatura);
-
-    if (erroUpdate) throw erroUpdate;
+    return recalcularFaturaPorParcelasCompartilhada(supabase, faturaId);
   }
 
   async function ajustarFaturasAoExcluirParcelasDaSaida(saidaId) {

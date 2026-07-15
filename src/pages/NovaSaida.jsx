@@ -15,7 +15,9 @@ import {
   buscarFaturaPorCompetencia,
   calcularCompetenciaFaturaPorCompra,
   criarFaturaPadrao,
+  criarPayloadParcela,
   dataComDiaSeguro,
+  incrementarValorTotalFatura,
   nomeCartaoComFinal,
   somarMesesData,
 } from "../cartoes/cartoesUtils";
@@ -608,22 +610,8 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   }
 
   async function atualizarValorFatura(faturaId, valorSomar) {
-    const { data: fatura, error: erroBusca } = await supabase
-      .from("faturas_cartao")
-      .select("valor_total")
-      .eq("id", faturaId)
-      .single();
-
-    if (erroBusca) throw erroBusca;
-
-    const novoTotal = Number(fatura.valor_total || 0) + Number(valorSomar || 0);
-
-    const { error: erroUpdate } = await supabase
-      .from("faturas_cartao")
-      .update({ valor_total: novoTotal })
-      .eq("id", faturaId);
-
-    if (erroUpdate) throw erroUpdate;
+    const { error } = await incrementarValorTotalFatura(supabase, faturaId, valorSomar);
+    if (error) throw error;
   }
 
   async function verificarLimiteCartao(total) {
@@ -674,7 +662,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
 
       await atualizarValorFatura(fatura.id, parcelaValor);
 
-      parcelasPayload.push({
+      parcelasPayload.push(criarPayloadParcela({
         saida_id: saidaId,
         cartao_id: Number(cartaoId),
         fatura_id: fatura.id,
@@ -683,7 +671,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         valor_parcela: parcelaValor,
         data_vencimento: fatura.data_vencimento,
         status: "pendente",
-      });
+      }));
     }
 
     if (parcelasPayload.length > 0) {

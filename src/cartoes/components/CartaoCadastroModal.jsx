@@ -8,6 +8,7 @@ import {
   calcularDiaFechamentoTerceiro,
   ajustarVencimentoFimDeSemana,
   buscarFaturaPorCompetencia,
+  criarPayloadParcela,
   dataComDiaSeguro,
   formatarDataBR,
   moedaParaNumero,
@@ -536,7 +537,7 @@ export default function CartaoCadastroModal({
 
     if (erroSaida) throw erroSaida;
 
-    const { error: erroParcela } = await supabase.from("saidas_parcelas").insert({
+    const { error: erroParcela } = await supabase.from("saidas_parcelas").insert(criarPayloadParcela({
       saida_id: saidaCriada.id,
       cartao_id: Number(cartaoId),
       fatura_id: faturaCriada.id,
@@ -545,7 +546,7 @@ export default function CartaoCadastroModal({
       valor_parcela: valorInicial,
       data_vencimento: competencia.dataVencimento,
       status: "pendente",
-    });
+    }));
 
     if (erroParcela) throw erroParcela;
   }
@@ -641,7 +642,7 @@ export default function CartaoCadastroModal({
         valorParcela
       );
 
-      parcelasPayload.push({
+      parcelasPayload.push(criarPayloadParcela({
         saida_id: saidaCriada.id,
         cartao_id: Number(cartaoId),
         fatura_id: fatura.id,
@@ -650,7 +651,7 @@ export default function CartaoCadastroModal({
         valor_parcela: valorParcela,
         data_vencimento: fatura.data_vencimento || vencimentoParcela,
         status: "pendente",
-      });
+      }));
     }
 
     const { error: erroParcelas } = await supabase

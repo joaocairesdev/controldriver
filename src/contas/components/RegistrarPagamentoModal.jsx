@@ -11,7 +11,9 @@ import {
   buscarFaturaPorCompetencia,
   calcularCompetenciaFaturaPorCompra,
   criarFaturaPadrao,
+  criarPayloadParcela,
   dataComDiaSeguro,
+  incrementarValorTotalFatura,
   nomeCartaoComFinal,
   somarMesesData,
 } from "../../cartoes/cartoesUtils";
@@ -230,7 +232,7 @@ export default function RegistrarPagamentoModal({
       const fatura = await buscarOuCriarFatura(cartao, dataReferencia);
       await atualizarValorFatura(fatura.id, valorParcela);
 
-      payloadParcelas.push({
+      payloadParcelas.push(criarPayloadParcela({
         saida_id: saidaId,
         cartao_id: Number(cartao.id),
         fatura_id: fatura.id,
@@ -239,7 +241,7 @@ export default function RegistrarPagamentoModal({
         valor_parcela: valorParcela,
         data_vencimento: fatura.data_vencimento,
         status: "pendente",
-      });
+      }));
     }
 
     if (payloadParcelas.length > 0) {
@@ -278,22 +280,8 @@ export default function RegistrarPagamentoModal({
   }
 
   async function atualizarValorFatura(faturaId, valorSomar) {
-    const { data: fatura, error: erroBusca } = await supabase
-      .from("faturas_cartao")
-      .select("valor_total")
-      .eq("id", faturaId)
-      .single();
-
-    if (erroBusca) throw erroBusca;
-
-    const novoTotal = Number(fatura.valor_total || 0) + Number(valorSomar || 0);
-
-    const { error: erroUpdate } = await supabase
-      .from("faturas_cartao")
-      .update({ valor_total: novoTotal })
-      .eq("id", faturaId);
-
-    if (erroUpdate) throw erroUpdate;
+    const { error } = await incrementarValorTotalFatura(supabase, faturaId, valorSomar);
+    if (error) throw error;
   }
 
   if (!aberto || !contaPagar) return null;

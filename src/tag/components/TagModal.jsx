@@ -17,8 +17,11 @@ import {
   buscarFaturaPorCompetencia,
   calcularCompetenciaFaturaPorCompra,
   criarFaturaPadrao,
+  criarPayloadParcela,
   dataComDiaSeguro,
+  incrementarValorTotalFatura,
   nomeCartaoComFinal,
+  recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
   somarMesesData,
 } from "../../cartoes/cartoesUtils";
 
@@ -827,61 +830,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
   
   async function recalcularFaturaPorParcelas(faturaId) {
-    if (!faturaId) return;
-
-    const idFatura = Number(faturaId);
-
-    const { data: parcelas, error: erroParcelas } = await supabase
-      .from("saidas_parcelas")
-      .select("valor_parcela")
-      .eq("fatura_id", idFatura);
-
-    if (erroParcelas) throw erroParcelas;
-
-    const total = Math.round(
-      (parcelas || []).reduce((soma, parcela) => soma + Number(parcela.valor_parcela || 0), 0) * 100
-    ) / 100;
-
-    const { data: fatura, error: erroFatura } = await supabase
-      .from("faturas_cartao")
-      .select("valor_pago, status")
-      .eq("id", idFatura)
-      .maybeSingle();
-
-    if (erroFatura) throw erroFatura;
-    if (!fatura) return;
-
-    if (total <= 0) {
-      const { error: erroDelete } = await supabase
-        .from("faturas_cartao")
-        .delete()
-        .eq("id", idFatura);
-
-      if (erroDelete) throw erroDelete;
-      return;
-    }
-
-    const valorPago = Math.min(Number(fatura.valor_pago || 0), total);
-    const statusAnterior = String(fatura.status || "aberta").toLowerCase();
-    const novoStatus =
-      valorPago >= total
-        ? "paga"
-        : valorPago > 0
-        ? "parcial"
-        : statusAnterior === "fechada"
-        ? "fechada"
-        : "aberta";
-
-    const { error: erroUpdate } = await supabase
-      .from("faturas_cartao")
-      .update({
-        valor_total: total,
-        valor_pago: valorPago,
-        status: novoStatus,
-      })
-      .eq("id", idFatura);
-
-    if (erroUpdate) throw erroUpdate;
+    return recalcularFaturaPorParcelasCompartilhada(supabase, faturaId);
   }
 
   async function recalcularFaturasDaSaida(saidaId) {
@@ -902,22 +851,8 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   }
 
 async function atualizarValorFatura(faturaId, valorSomar) {
-    const { data: fatura, error: erroBusca } = await supabase
-      .from("faturas_cartao")
-      .select("valor_total")
-      .eq("id", faturaId)
-      .single();
-
-    if (erroBusca) throw erroBusca;
-
-    const novoTotal = Number(fatura.valor_total || 0) + Number(valorSomar || 0);
-
-    const { error: erroUpdate } = await supabase
-      .from("faturas_cartao")
-      .update({ valor_total: novoTotal })
-      .eq("id", faturaId);
-
-    if (erroUpdate) throw erroUpdate;
+    const { error } = await incrementarValorTotalFatura(supabase, faturaId, valorSomar);
+    if (error) throw error;
   }
 
   async function verificarLimiteCartaoRecarga(total) {
@@ -964,7 +899,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
 
       await atualizarValorFatura(fatura.id, parcelaValor);
 
-      parcelasPayload.push({
+      parcelasPayload.push(criarPayloadParcela({
         saida_id: saidaId,
         cartao_id: Number(cartaoRecargaId),
         fatura_id: fatura.id,
@@ -973,7 +908,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         valor_parcela: parcelaValor,
         data_vencimento: fatura.data_vencimento,
         status: "pendente",
-      });
+      }));
     }
 
     if (parcelasPayload.length > 0) {
@@ -1002,7 +937,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
     const fatura = await buscarOuCriarFatura({ cartao, dataBase });
     await atualizarValorFatura(fatura.id, valor);
 
-    const { error } = await supabase.from("saidas_parcelas").insert({
+    const { error } = await supabase.from("saidas_parcelas").insert(criarPayloadParcela({
       saida_id: saidaId,
       cartao_id: Number(cartao.id),
       fatura_id: fatura.id,
@@ -1011,7 +946,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
       valor_parcela: valor,
       data_vencimento: fatura.data_vencimento,
       status: "pendente",
-    });
+    }));
 
     if (error) throw error;
     await recalcularFaturasDaSaida(saidaId);
