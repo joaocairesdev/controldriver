@@ -7,7 +7,8 @@ import {
   calcularDiaFechamentoTerceiro,
   ajustarVencimentoFimDeSemana,
   calcularCompetenciaFaturaPorVencimento,
-  buscarFaturaPorCompetencia,
+  calcularStatusFaturaComPagamento,
+  buscarFaturaAtivaPorCompetencia,
   criarPayloadParcela,
   formatarDataBR,
   moedaParaNumero,
@@ -535,7 +536,7 @@ export default function CartaoCadastroModal({
   async function buscarOuCriarFaturaPorVencimento(cartaoId, dataVencimento, valorSomar) {
     const competencia = calcularFaturaInicialPorVencimento(dataVencimento);
 
-    const { data: faturaExistente, error: erroBusca } = await buscarFaturaPorCompetencia(
+    const { data: faturaExistente, error: erroBusca } = await buscarFaturaAtivaPorCompetencia(
       supabase,
       Number(cartaoId),
       competencia.mes,
@@ -546,6 +547,13 @@ export default function CartaoCadastroModal({
 
     if (faturaExistente) {
       const novoTotal = Number(faturaExistente.valor_total || 0) + Number(valorSomar || 0);
+      const novoStatus = calcularStatusFaturaComPagamento({
+        valorTotal: novoTotal,
+        valorPago: faturaExistente.valor_pago,
+        statusAnterior: faturaExistente.status,
+        renegociacaoId: faturaExistente.renegociacao_id,
+        dataFechamento: competencia.dataFechamento,
+      });
 
       const { data: faturaAtualizada, error: erroUpdate } = await supabase
         .from("faturas_cartao")
@@ -553,6 +561,7 @@ export default function CartaoCadastroModal({
           data_fechamento: competencia.dataFechamento,
           data_vencimento: competencia.dataVencimento,
           valor_total: novoTotal,
+          status: novoStatus,
         })
         .eq("id", faturaExistente.id)
         .select()

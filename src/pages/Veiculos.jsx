@@ -10,7 +10,7 @@ import { FiArrowDown, FiArrowLeft, FiArrowUp, FiEdit2, FiShield, FiStar, FiTag, 
 import {
   adicionarMesCompetencia,
   ajustarVencimentoFimDeSemana,
-  buscarFaturaPorCompetencia,
+  buscarFaturaAtivaPorCompetencia,
   calcularSaldoAbertoFatura,
   criarPayloadParcela,
   dataComDiaSeguro,
@@ -670,7 +670,7 @@ export default function Veiculos() {
       cartao.dia_vencimento
     );
 
-    const { data: existente, error: erroBusca } = await buscarFaturaPorCompetencia(
+    const { data: existente, error: erroBusca } = await buscarFaturaAtivaPorCompetencia(
       supabase,
       Number(cartao.id),
       competencia.mes,

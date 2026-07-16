@@ -206,8 +206,8 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   async function carregarUsoDosCartoes(listaCartoes) {
     if (!listaCartoes.length) return [];
     const ids = listaCartoes.map((c) => c.id);
-    const { data: faturasData } = await supabase.from("faturas_cartao").select("cartao_id, valor_total, status").in("cartao_id", ids).in("status", ["aberta", "fechada"]);
-    return listaCartoes.map((cartao) => ({ ...cartao, usado: (faturasData || []).filter((f) => Number(f.cartao_id) === Number(cartao.id)).reduce((t, f) => t + Number(f.valor_total || 0), 0) }));
+    const { data: faturasData } = await supabase.from("faturas_cartao").select("cartao_id, valor_total, valor_pago, status").in("cartao_id", ids).in("status", ["aberta", "fechada", "parcial"]);
+    return listaCartoes.map((cartao) => ({ ...cartao, usado: calcularUsoELimiteCartao((faturasData || []).filter((f) => Number(f.cartao_id) === Number(cartao.id)), cartao.limite_total).usado }));
   }
 
   function limparFormulario(limparTudo = true) {
@@ -282,7 +282,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
 
   async function verificarLimiteCartao(total) {
     if (!cartaoSelecionado) return true;
-    const { data, error } = await supabase.from("faturas_cartao").select("valor_total").eq("cartao_id", Number(cartaoId)).in("status", ["aberta", "fechada"]);
+    const { data, error } = await supabase.from("faturas_cartao").select("valor_total, valor_pago, status").eq("cartao_id", Number(cartaoId)).in("status", ["aberta", "fechada", "parcial"]);
     if (error) throw error;
     const { limite, disponivel } = calcularUsoELimiteCartao(data, cartaoSelecionado.limite_total);
     if (limite > 0 && total > disponivel) return window.confirm("⚠ Esta compra ultrapassará o limite do cartão.\n\nDeseja continuar mesmo assim?");

@@ -185,8 +185,10 @@ export default function Cartoes() {
     }, {});
 
     const cartoesComResumo = (data || []).map((cartao) => {
-      const usado = (faturasData || [])
-        .filter((fatura) => String(fatura.cartao_id) === String(cartao.id))
+      const faturasAtivasDoCartao = (faturasData || []).filter(
+        (fatura) => String(fatura.cartao_id) === String(cartao.id)
+      );
+      const usado = faturasAtivasDoCartao
         .reduce((soma, fatura) => {
           const totalFatura = Math.max(
             Number(fatura.valor_total || 0),
@@ -210,6 +212,7 @@ export default function Cartoes() {
         percentual,
         percentualBarra,
         limiteEstourado,
+        temFaturasAtivas: faturasAtivasDoCartao.length > 0,
       };
     });
 
@@ -315,7 +318,7 @@ export default function Cartoes() {
           <div
             key={cartao.id}
             onClick={() => {
-              if (Number(cartao.usado || 0) <= 0) {
+              if (!cartao.temFaturasAtivas) {
                 abrirAviso("Sem faturas em aberto", "Esse cartão ainda não possui faturas em aberto.", "info");
                 return;
               }
@@ -323,7 +326,7 @@ export default function Cartoes() {
               setCartaoSelecionado(cartao);
             }}
             className={`relative rounded-2xl border border-gray-800 bg-[#111827] p-6 overflow-hidden transition ${
-              Number(cartao.usado || 0) > 0
+              cartao.temFaturasAtivas
                 ? "cursor-pointer hover:border-green-400/60"
                 : "cursor-not-allowed opacity-80"
             }`}

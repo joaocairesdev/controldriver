@@ -54,6 +54,7 @@ export default function TelaFaturasCartao({
       .from("faturas_cartao")
       .select("*")
       .eq("cartao_id", cartao.id)
+      .in("status", ["aberta", "fechada", "parcial", "paga"])
       .order("data_vencimento", { ascending: true });
 
     if (error) {
@@ -91,6 +92,13 @@ export default function TelaFaturasCartao({
       return { texto: "Parcial", classe: "bg-yellow-500/10 text-yellow-400" };
     }
 
+    if (
+      Number(fatura.valor_total || 0) > 0 &&
+      Number(fatura.valor_pago || 0) >= Number(fatura.valor_total || 0)
+    ) {
+      return { texto: "Paga antecipadamente", classe: "bg-green-500/10 text-green-400" };
+    }
+
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
 
@@ -115,7 +123,7 @@ export default function TelaFaturasCartao({
       };
     }
 
-    if (status === "parcial") {
+    if (status === "parcial" || Number(fatura.valor_pago || 0) > 0) {
       return {
         label: "Em aberto",
         valor: calcularSaldoAbertoFatura(fatura),

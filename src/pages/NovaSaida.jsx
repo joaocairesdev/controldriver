@@ -383,14 +383,18 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
 
     const { data: faturasData } = await supabase
       .from("faturas_cartao")
-      .select("cartao_id, valor_total, status")
+      .select("cartao_id, valor_total, valor_pago, status")
       .in("cartao_id", ids)
-      .in("status", ["aberta", "fechada"]);
+      .in("status", ["aberta", "fechada", "parcial"]);
 
     return listaCartoes.map((cartao) => {
-      const usado = (faturasData || [])
-        .filter((fatura) => Number(fatura.cartao_id) === Number(cartao.id))
-        .reduce((total, fatura) => total + Number(fatura.valor_total || 0), 0);
+      const faturasDoCartao = (faturasData || []).filter(
+        (fatura) => Number(fatura.cartao_id) === Number(cartao.id)
+      );
+      const { usado } = calcularUsoELimiteCartao(
+        faturasDoCartao,
+        cartao.limite_total
+      );
 
       return {
         ...cartao,
@@ -567,9 +571,9 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
 
     const { data: faturasAbertas, error: erroFaturas } = await supabase
       .from("faturas_cartao")
-      .select("valor_total")
+      .select("valor_total, valor_pago, status")
       .eq("cartao_id", Number(cartaoId))
-      .in("status", ["aberta", "fechada"]);
+      .in("status", ["aberta", "fechada", "parcial"]);
 
     if (erroFaturas) {
       console.error("Erro ao verificar limite do cartão:", erroFaturas);

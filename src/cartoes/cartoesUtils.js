@@ -47,8 +47,13 @@ export function calcularSaldoAbertoFatura(fatura) {
 }
 
 export function calcularUsoELimiteCartao(faturas, limiteTotal) {
-  const usado = (faturas || []).reduce(
-    (totalAtual, fatura) => totalAtual + Number(fatura.valor_total || 0),
+  const faturasAtivas = (faturas || []).filter((fatura) =>
+    ["aberta", "fechada", "parcial"].includes(
+      String(fatura?.status || "").toLowerCase()
+    )
+  );
+  const usado = faturasAtivas.reduce(
+    (totalAtual, fatura) => totalAtual + calcularSaldoAbertoFatura(fatura),
     0
   );
   const limite = Number(limiteTotal || 0);
@@ -64,13 +69,24 @@ export function calcularStatusFaturaComPagamento({
   valorTotal,
   valorPago,
   statusAnterior,
+  renegociacaoId,
+  dataFechamento,
+  dataReferencia,
 }) {
   const total = Number(valorTotal || 0);
   const pago = Number(valorPago || 0);
   const statusAtual = String(statusAnterior || "aberta").toLowerCase();
 
+  if (renegociacaoId !== null && renegociacaoId !== undefined) return "renegociada";
+  if (statusAtual === "renegociada") return "renegociada";
   if (total <= 0) return "aberta";
-  if (pago >= total) return "paga";
+  if (pago >= total) {
+    const referencia = dataReferencia || new Date().toISOString().split("T")[0];
+    if (statusAtual !== "paga" && dataFechamento && referencia < dataFechamento) {
+      return "aberta";
+    }
+    return "paga";
+  }
   if (pago > 0) return "parcial";
   if (statusAtual === "fechada") return "fechada";
   return "aberta";
@@ -211,6 +227,22 @@ export async function buscarFaturaPorCompetencia(supabase, cartaoId, mes, ano) {
     .maybeSingle();
 }
 
+export async function buscarFaturaAtivaPorCompetencia(
+  supabase,
+  cartaoId,
+  mes,
+  ano
+) {
+  return supabase
+    .from("faturas_cartao")
+    .select("*")
+    .eq("cartao_id", cartaoId)
+    .eq("mes", mes)
+    .eq("ano", ano)
+    .in("status", ["aberta", "fechada", "parcial"])
+    .maybeSingle();
+}
+
 export async function criarFaturaPadrao(
   supabase,
   { cartao_id, mes, ano, data_fechamento, data_vencimento }
@@ -235,7 +267,7 @@ export async function obterOuCriarFaturaPadrao(
   { cartao_id, mes, ano, data_fechamento, data_vencimento }
 ) {
   const { data: faturaExistente, error: erroBusca } =
-    await buscarFaturaPorCompetencia(supabase, cartao_id, mes, ano);
+    await buscarFaturaAtivaPorCompetencia(supabase, cartao_id, mes, ano);
 
   if (erroBusca) throw erroBusca;
   if (faturaExistente) return faturaExistente;
@@ -245,6 +277,14 @@ export async function obterOuCriarFaturaPadrao(
     { cartao_id, mes, ano, data_fechamento, data_vencimento }
   );
 
+  if (erroCriar?.code === "23505") {
+    const { data: faturaCriadaEmParalelo, error: erroNovaBusca } =
+      await buscarFaturaAtivaPorCompetencia(supabase, cartao_id, mes, ano);
+
+    if (erroNovaBusca) throw erroNovaBusca;
+    if (faturaCriadaEmParalelo) return faturaCriadaEmParalelo;
+  }
+
   if (erroCriar) throw erroCriar;
   return novaFatura;
 }
@@ -252,17 +292,27 @@ export async function obterOuCriarFaturaPadrao(
 export async function incrementarValorTotalFatura(supabase, faturaId, valorSomar) {
   const resultadoBusca = await supabase
     .from("faturas_cartao")
-    .select("valor_total")
+    .select("valor_total, valor_pago, status, renegociacao_id, data_fechamento")
     .eq("id", faturaId)
     .single();
 
   if (resultadoBusca.error) return resultadoBusca;
 
+  const novoValorTotal =
+    Number(resultadoBusca.data.valor_total || 0) + Number(valorSomar || 0);
+  const novoStatus = calcularStatusFaturaComPagamento({
+    valorTotal: novoValorTotal,
+    valorPago: resultadoBusca.data.valor_pago,
+    statusAnterior: resultadoBusca.data.status,
+    renegociacaoId: resultadoBusca.data.renegociacao_id,
+    dataFechamento: resultadoBusca.data.data_fechamento,
+  });
+
   return supabase
     .from("faturas_cartao")
     .update({
-      valor_total:
-        Number(resultadoBusca.data.valor_total || 0) + Number(valorSomar || 0),
+      valor_total: novoValorTotal,
+      status: novoStatus,
     })
     .eq("id", faturaId);
 }
@@ -379,7 +429,7 @@ export async function recalcularFaturaPorParcelas(supabase, faturaId) {
 
   const { data: fatura, error: erroFatura } = await supabase
     .from("faturas_cartao")
-    .select("valor_pago, status")
+    .select("valor_pago, status, renegociacao_id, data_fechamento")
     .eq("id", idFatura)
     .maybeSingle();
 
@@ -401,6 +451,8 @@ export async function recalcularFaturaPorParcelas(supabase, faturaId) {
     valorTotal: total,
     valorPago,
     statusAnterior: fatura.status,
+    renegociacaoId: fatura.renegociacao_id,
+    dataFechamento: fatura.data_fechamento,
   });
 
   const { error: erroUpdate } = await supabase

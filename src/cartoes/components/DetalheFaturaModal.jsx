@@ -3,7 +3,8 @@ import { supabase } from "../../services/supabase";
 import {
   ajustarVencimentoFimDeSemana,
   calcularCompetenciaFaturaPorVencimento,
-  buscarFaturaPorCompetencia,
+  calcularStatusFaturaComPagamento,
+  buscarFaturaAtivaPorCompetencia,
   somarMesesDataISO,
   TIPOS_CARTAO,
 } from "../cartoesUtils";
@@ -298,7 +299,14 @@ export default function DetalheFaturaModal({
         ) * 100
       ) / 100;
 
-    const novoStatus = novoSaldo <= 0 ? "paga" : "parcial";
+    const novoStatus = calcularStatusFaturaComPagamento({
+      valorTotal: faturaBanco.valor_total,
+      valorPago: novoValorPago,
+      statusAnterior: faturaBanco.status,
+      renegociacaoId: faturaBanco.renegociacao_id,
+      dataFechamento: faturaBanco.data_fechamento,
+      dataReferencia: dataPagamento,
+    });
 
     const { error: erroFatura } = await supabase
       .from("faturas_cartao")
@@ -356,6 +364,7 @@ export default function DetalheFaturaModal({
       .from("faturas_cartao")
       .select("*")
       .eq("cartao_id", Number(cartao.id))
+      .in("status", ["aberta", "fechada", "parcial"])
       .order("data_vencimento", { ascending: true });
 
     if (error) {
@@ -436,6 +445,7 @@ export default function DetalheFaturaModal({
       .select("*")
       .eq("id", idDestino)
       .eq("cartao_id", Number(cartao.id))
+      .in("status", ["aberta", "fechada", "parcial"])
       .maybeSingle();
 
     if (error) throw error;
@@ -450,7 +460,7 @@ export default function DetalheFaturaModal({
   async function buscarOuCriarFaturaDestino(dataVencimento, valorSomar = 0) {
     const competencia = calcularCompetenciaPorVencimento(dataVencimento);
 
-    const { data: faturaExistente, error: erroBusca } = await buscarFaturaPorCompetencia(
+    const { data: faturaExistente, error: erroBusca } = await buscarFaturaAtivaPorCompetencia(
       supabase,
       Number(cartao.id),
       competencia.mes,
@@ -618,7 +628,13 @@ export default function DetalheFaturaModal({
     }
 
     const pago = Math.min(Number(faturaBanco.valor_pago || 0), total);
-    const status = pago >= total ? "paga" : pago > 0 ? "parcial" : "aberta";
+    const status = calcularStatusFaturaComPagamento({
+      valorTotal: total,
+      valorPago: pago,
+      statusAnterior: faturaBanco.status,
+      renegociacaoId: faturaBanco.renegociacao_id,
+      dataFechamento: faturaBanco.data_fechamento,
+    });
 
     const { data: faturaAtualizada, error: erroUpdate } = await supabase
       .from("faturas_cartao")

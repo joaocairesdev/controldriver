@@ -295,15 +295,18 @@ export default function RecargaEletricaModal({
 
     const { data: faturasData } = await supabase
       .from("faturas_cartao")
-      .select("cartao_id, valor_total, status")
+      .select("cartao_id, valor_total, valor_pago, status")
       .in("cartao_id", ids)
-      .in("status", ["aberta", "fechada"]);
+      .in("status", ["aberta", "fechada", "parcial"]);
 
     return listaCartoes.map((cartao) => ({
       ...cartao,
-      usado: (faturasData || [])
-        .filter((fatura) => Number(fatura.cartao_id) === Number(cartao.id))
-        .reduce((total, fatura) => total + Number(fatura.valor_total || 0), 0),
+      usado: calcularUsoELimiteCartao(
+        (faturasData || []).filter(
+          (fatura) => Number(fatura.cartao_id) === Number(cartao.id)
+        ),
+        cartao.limite_total
+      ).usado,
     }));
   }
 
@@ -527,9 +530,9 @@ export default function RecargaEletricaModal({
 
     const { data, error } = await supabase
       .from("faturas_cartao")
-      .select("valor_total")
+      .select("valor_total, valor_pago, status")
       .eq("cartao_id", Number(cartaoId))
-      .in("status", ["aberta", "fechada"]);
+      .in("status", ["aberta", "fechada", "parcial"]);
 
     if (error) throw error;
 
