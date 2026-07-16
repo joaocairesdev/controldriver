@@ -225,7 +225,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     if (isDinheiro) return carteiraSelecionada?.nome || "Carteira";
     return contaSelecionada?.nome || "Selecionar conta";
   }
-  function textoCombustivel() { return combustiveis.find((c) => c.valor === tipoCombustivel)?.titulo || "Selecionar"; }
+  function textoCombustivel() { return COMBUSTIVEIS.find((c) => c.valor === tipoCombustivel)?.titulo || "Selecionar"; }
   function litrosCalculados() { const total = moedaParaNumero(valorTotal); const litro = moedaParaNumero(valorLitro); return total > 0 && litro > 0 ? total / litro : 0; }
   function consumoCalculado() { const km = Number(kmRodados || 0); const litros = litrosCalculados(); return km > 0 && litros > 0 ? km / litros : 0; }
 
