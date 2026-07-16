@@ -31,6 +31,8 @@ export default function PlataformaEntradaModal({
     titulo: "",
     mensagem: "",
   });
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
 
   const resumoAnterior = useMemo(() => {
     return {
@@ -69,6 +71,7 @@ export default function PlataformaEntradaModal({
     setHouvePedagio(dadosIniciais?.houve_pedagio || false);
     setValorReembolso(dadosIniciais?.valor_reembolso || "");
     setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+    setErros({});
   }, [aberto, dadosIniciais, temLancamentoAnterior, resumoAnterior.faturamento, resumoAnterior.corridas]);
 
   if (!aberto || !plataforma) return null;
@@ -81,6 +84,10 @@ export default function PlataformaEntradaModal({
     setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
   }
 
+  function limparErro(campo) {
+    setErros((atuais) => ({ ...atuais, [campo]: undefined }));
+  }
+
   function numeroParaMoedaInput(numero) {
     return Number(numero || 0).toLocaleString("pt-BR", {
       minimumFractionDigits: 2,
@@ -89,6 +96,7 @@ export default function PlataformaEntradaModal({
   }
 
   function alterarFaturamentoDiferenca(valorDigitado) {
+    limparErro("faturamento");
     const valorFormatado = formatarMoedaDigitada(valorDigitado);
     setFaturamento(valorFormatado);
 
@@ -105,6 +113,7 @@ export default function PlataformaEntradaModal({
   }
 
   function alterarFaturamentoTotal(valorDigitado) {
+    limparErro("faturamento");
     const valorFormatado = formatarMoedaDigitada(valorDigitado);
     setFaturamentoTotal(valorFormatado);
 
@@ -125,6 +134,7 @@ export default function PlataformaEntradaModal({
   }
 
   function alterarCorridasDiferenca(valorDigitado) {
+    limparErro("numeroCorridas");
     const valorNumerico = somenteNumeros(valorDigitado);
     setNumeroCorridas(valorNumerico);
 
@@ -139,6 +149,7 @@ export default function PlataformaEntradaModal({
   }
 
   function alterarCorridasTotal(valorDigitado) {
+    limparErro("numeroCorridas");
     const valorNumerico = somenteNumeros(valorDigitado);
     setNumeroCorridasTotal(valorNumerico);
 
@@ -176,27 +187,18 @@ export default function PlataformaEntradaModal({
       return;
     }
 
-    if (moedaParaNumero(faturamento) <= 0) {
-      abrirFeedback("erro", "Faturamento obrigatório", "Informe o faturamento da plataforma.");
-      return;
-    }
-
-    if (numeroCorridas === "") {
-      abrirFeedback(
-        "erro",
-        "Corridas obrigatórias",
-        "Informe o número de corridas. Use 0 se foi apenas ajuste de valor."
-      );
+    const novos = {};
+    if (moedaParaNumero(faturamento) <= 0) novos.faturamento = "Informe o faturamento da plataforma.";
+    if (numeroCorridas === "") novos.numeroCorridas = "Informe o número de corridas; use 0 para ajuste.";
+    if (houvePedagio && moedaParaNumero(valorReembolso) <= 0) novos.valorReembolso = "Informe o reembolso de pedágio.";
+    setErros(novos);
+    if (Object.keys(novos).length) {
+      setShakeKey(Date.now());
       return;
     }
 
     if (Number(numeroCorridas || 0) < 0) {
       abrirFeedback("erro", "Corridas inválidas", "O número de corridas não pode ser negativo.");
-      return;
-    }
-
-    if (houvePedagio && moedaParaNumero(valorReembolso) <= 0) {
-      abrirFeedback("erro", "Reembolso obrigatório", "Informe o valor do reembolso de pedágio.");
       return;
     }
 
@@ -248,15 +250,19 @@ export default function PlataformaEntradaModal({
                 </p>
 
                 <div className="grid grid-cols-1 gap-4 mt-4">
-                  <Campo label="Faturamento deste turno">
+                  <Campo label="Faturamento deste turno" erro={erros.faturamento} shakeKey={shakeKey}>
                     <CampoMoeda
+                      erro={erros.faturamento}
+                      shakeKey={shakeKey}
                       value={faturamento}
                       onChange={alterarFaturamentoDiferenca}
                     />
                   </Campo>
 
-                  <Campo label="Corridas deste turno">
+                  <Campo label="Corridas deste turno" erro={erros.numeroCorridas} shakeKey={shakeKey}>
                     <CampoCorridas
+                      erro={erros.numeroCorridas}
+                      shakeKey={shakeKey}
                       value={numeroCorridas}
                       onChange={alterarCorridasDiferenca}
                     />
@@ -300,17 +306,21 @@ export default function PlataformaEntradaModal({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Campo label="Faturamento">
+            <Campo label="Faturamento" erro={erros.faturamento} shakeKey={shakeKey}>
               <CampoMoeda
+                erro={erros.faturamento}
+                shakeKey={shakeKey}
                 value={faturamento}
-                onChange={(valor) => setFaturamento(formatarMoedaDigitada(valor))}
+                onChange={(valor) => { limparErro("faturamento"); setFaturamento(formatarMoedaDigitada(valor)); }}
               />
             </Campo>
 
-            <Campo label="Número de Corridas">
+            <Campo label="Número de Corridas" erro={erros.numeroCorridas} shakeKey={shakeKey}>
               <CampoCorridas
+                erro={erros.numeroCorridas}
+                shakeKey={shakeKey}
                 value={numeroCorridas}
-                onChange={(valor) => setNumeroCorridas(somenteNumeros(valor))}
+                onChange={(valor) => { limparErro("numeroCorridas"); setNumeroCorridas(somenteNumeros(valor)); }}
               />
             </Campo>
           </div>
@@ -337,10 +347,12 @@ export default function PlataformaEntradaModal({
         </div>
 
         {houvePedagio && (
-          <Campo label="Valor do reembolso de pedágio">
+          <Campo label="Valor do reembolso de pedágio" erro={erros.valorReembolso} shakeKey={shakeKey}>
             <CampoMoeda
+              erro={erros.valorReembolso}
+              shakeKey={shakeKey}
               value={valorReembolso}
-              onChange={(valor) => setValorReembolso(formatarMoedaDigitada(valor))}
+              onChange={(valor) => { limparErro("valorReembolso"); setValorReembolso(formatarMoedaDigitada(valor)); }}
             />
           </Campo>
         )}
@@ -375,18 +387,19 @@ export default function PlataformaEntradaModal({
   );
 }
 
-function Campo({ label, children }) {
+function Campo({ label, children, erro, shakeKey }) {
   return (
-    <div className="mt-4 first:mt-0">
-      <label className="text-sm text-gray-300">{label}</label>
+    <div key={erro ? shakeKey : "ok"} className={`mt-4 first:mt-0 ${erro ? "animate-shake" : ""}`}>
+      <label className={erro ? "text-sm text-red-400" : "text-sm text-gray-300"}>{label}</label>
       {children}
+      {erro && <p className="mt-1 text-xs text-red-400">{erro}</p>}
     </div>
   );
 }
 
-function CampoMoeda({ value, onChange }) {
+function CampoMoeda({ value, onChange, erro }) {
   return (
-    <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden focus-within:border-green-400">
+    <div className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500" : "border-gray-700 focus-within:border-green-400"} rounded-xl overflow-hidden`}>
       <span className="px-3 text-gray-400">R$</span>
 
       <input
@@ -401,9 +414,9 @@ function CampoMoeda({ value, onChange }) {
   );
 }
 
-function CampoCorridas({ value, onChange }) {
+function CampoCorridas({ value, onChange, erro }) {
   return (
-    <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden focus-within:border-green-400">
+    <div className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500" : "border-gray-700 focus-within:border-green-400"} rounded-xl overflow-hidden`}>
       <input
         type="text"
         inputMode="numeric"
@@ -442,4 +455,3 @@ function Toggle({ ativo, onClick, children }) {
     </button>
   );
 }
-

@@ -7,6 +7,7 @@ import DatePickerModal from "../../../shared/components/modals/DatePickerModal";
 import SelecionarContaModal from "../../../shared/components/modals/SelecionarContaModal";
 import SelecionarCartaoModal from "../../../shared/components/modals/SelecionarCartaoModal";
 import FeedbackModal from "../../../shared/components/modals/FeedbackModal";
+import { FORMA_PAGAMENTO_DEBITO_CONTA } from "../../../shared/constants/formasPagamento";
 import {
   gerarParcelasEFaturasPadrao,
   nomeCartaoComFinal,
@@ -35,6 +36,8 @@ export default function RegistrarPagamentoModal({
   const [confirmarParcial, setConfirmarParcial] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
 
   const saldo = useMemo(() => saldoContaPagar(contaPagar), [contaPagar, saldoContaPagar]);
   const valor = moedaParaNumero(valorPago);
@@ -50,20 +53,19 @@ export default function RegistrarPagamentoModal({
 
     setDataPagamento(HOJE);
     setValorPago(numeroParaMoedaInput(saldoContaPagar(contaPagar)));
-    setFormaPagamento("pix");
+    setFormaPagamento("");
     setNumeroParcelas("1");
     setConfirmarParcial(false);
+    setErros({});
 
-    const principal = contas.find((conta) => conta.principal) || contas[0];
-    setContaId(principal ? String(principal.id) : "");
+    setContaId(contas.length === 1 ? String(contas[0].id) : "");
 
     carregarCartoes();
   }, [aberto, contaPagar?.id]);
 
   useEffect(() => {
     if (!isCredito) return;
-    const principal = cartoes.find((cartao) => cartao.principal) || cartoes[0];
-    if (principal && !cartaoId) setCartaoId(String(principal.id));
+    if (cartoes.length === 1 && !cartaoId) setCartaoId(String(cartoes[0].id));
   }, [isCredito, cartoes, cartaoId]);
 
   async function carregarCartoes() {
@@ -90,34 +92,27 @@ export default function RegistrarPagamentoModal({
     setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
   }
 
+  function limparErro(campo) {
+    setErros((atuais) => {
+      if (!atuais[campo]) return atuais;
+      const proximos = { ...atuais };
+      delete proximos[campo];
+      return proximos;
+    });
+  }
+
   function validar() {
-    if (!dataPagamento) {
-      abrirFeedback("erro", "Data obrigatória", "Informe a data do pagamento.");
-      return false;
-    }
+    const novos = {};
+    if (!dataPagamento) novos.dataPagamento = "Informe a data do pagamento.";
+    if (!formaPagamento) novos.formaPagamento = "Escolha a forma de pagamento.";
+    if (!isCredito && !contaId) novos.contaId = "Selecione a conta usada para pagar.";
+    if (isCredito && !cartaoId) novos.cartaoId = "Selecione o cartão usado para pagar esta conta.";
+    if (isParcelado && Number(numeroParcelas || 0) < 2) novos.numeroParcelas = "Informe 2 parcelas ou mais.";
+    if (valor <= 0) novos.valorPago = "Informe um valor maior que zero.";
 
-    if (!formaPagamento) {
-      abrirFeedback("erro", "Forma obrigatória", "Escolha a forma de pagamento.");
-      return false;
-    }
-
-    if (!isCredito && !contaId) {
-      abrirFeedback("erro", "Conta obrigatória", "Selecione a conta usada para pagar.");
-      return false;
-    }
-
-    if (isCredito && !cartaoId) {
-      abrirFeedback("erro", "Cartão obrigatório", "Selecione o cartão usado para pagar esta conta.");
-      return false;
-    }
-
-    if (isParcelado && Number(numeroParcelas || 0) < 2) {
-      abrirFeedback("erro", "Parcelas inválidas", "Informe 2 parcelas ou mais para crédito parcelado.");
-      return false;
-    }
-
-    if (valor <= 0) {
-      abrirFeedback("erro", "Valor inválido", "Informe um valor maior que zero.");
+    setErros(novos);
+    if (Object.keys(novos).length) {
+      setShakeKey((valor) => valor + 1);
       return false;
     }
 
@@ -252,28 +247,29 @@ export default function RegistrarPagamentoModal({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Campo label="Data do pagamento">
-              <ButtonField onClick={() => setModalDataAberto(true)}>{formatarDataBR(dataPagamento)}</ButtonField>
+            <Campo label="Data do pagamento" erro={erros.dataPagamento} shakeKey={shakeKey}>
+              <ButtonField erro={erros.dataPagamento} shakeKey={shakeKey} onClick={() => setModalDataAberto(true)}>{formatarDataBR(dataPagamento)}</ButtonField>
             </Campo>
 
             {!isCredito ? (
-              <Campo label="Conta utilizada">
-                <ButtonField onClick={() => setModalContaAberto(true)}>{contaSelecionada?.nome || "Selecionar conta"}</ButtonField>
+              <Campo label="Conta utilizada" erro={erros.contaId} shakeKey={shakeKey}>
+                <ButtonField erro={erros.contaId} shakeKey={shakeKey} onClick={() => setModalContaAberto(true)}>{contaSelecionada?.nome || "Selecionar conta"}</ButtonField>
               </Campo>
             ) : (
-              <Campo label="Cartão utilizado">
-                <ButtonField onClick={() => setModalCartaoAberto(true)}>
+              <Campo label="Cartão utilizado" erro={erros.cartaoId} shakeKey={shakeKey}>
+                <ButtonField erro={erros.cartaoId} shakeKey={shakeKey} onClick={() => setModalCartaoAberto(true)}>
                   {cartaoSelecionado ? nomeCartaoComFinal(cartaoSelecionado) : "Selecionar cartão"}
                 </ButtonField>
               </Campo>
             )}
           </div>
 
-          <Campo label="Forma do pagamento">
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+          <Campo label="Forma do pagamento" erro={erros.formaPagamento} shakeKey={shakeKey}>
+            <div key={erros.formaPagamento ? shakeKey : "ok"} className={`grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2 ${erros.formaPagamento ? "animate-shake rounded-xl ring-1 ring-red-500" : ""}`}>
               {[
                 { valor: "pix", titulo: "Pix" },
                 { valor: "debito", titulo: "Débito" },
+                FORMA_PAGAMENTO_DEBITO_CONTA,
                 { valor: "dinheiro", titulo: "Dinheiro" },
                 { valor: "credito_avista", titulo: "Crédito" },
                 { valor: "credito_parcelado", titulo: "Crédito parcelado" },
@@ -282,6 +278,7 @@ export default function RegistrarPagamentoModal({
                   key={forma.valor}
                   type="button"
                   onClick={() => {
+                    limparErro("formaPagamento");
                     setFormaPagamento(forma.valor);
                     setConfirmarParcial(false);
                     if (forma.valor !== "credito_parcelado") setNumeroParcelas("1");
@@ -299,25 +296,26 @@ export default function RegistrarPagamentoModal({
           </Campo>
 
           {isParcelado && (
-            <Campo label="Quantidade de parcelas">
+            <Campo label="Quantidade de parcelas" erro={erros.numeroParcelas} shakeKey={shakeKey}>
               <input
                 type="number"
                 min="2"
                 value={numeroParcelas}
-                onChange={(event) => setNumeroParcelas(event.target.value.replace(/\D/g, "") || "")}
-                className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
+                onChange={(event) => { limparErro("numeroParcelas"); setNumeroParcelas(event.target.value.replace(/\D/g, "") || ""); }}
+                className={`w-full mt-2 bg-[#0B1120] border ${erros.numeroParcelas ? "border-red-500 animate-shake" : "border-gray-700 focus:border-green-400"} rounded-xl p-3 outline-none`}
               />
             </Campo>
           )}
 
-          <Campo label="Valor pago">
-            <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+          <Campo label="Valor pago" erro={erros.valorPago} shakeKey={shakeKey}>
+            <div key={erros.valorPago ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#0B1120] border ${erros.valorPago ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
               <span className="px-3 text-gray-400">R$</span>
               <input
                 type="text"
                 inputMode="numeric"
                 value={valorPago}
                 onChange={(event) => {
+                  limparErro("valorPago");
                   setConfirmarParcial(false);
                   setValorPago(formatarMoedaDigitada(event.target.value));
                 }}
@@ -363,7 +361,7 @@ export default function RegistrarPagamentoModal({
       <DatePickerModal
         aberto={modalDataAberto}
         valor={dataPagamento}
-        onChange={setDataPagamento}
+        onChange={(valor) => { limparErro("dataPagamento"); setDataPagamento(valor); }}
         onClose={() => setModalDataAberto(false)}
         titulo="Data do pagamento"
         descricao="Escolha quando a conta foi paga."
@@ -373,7 +371,7 @@ export default function RegistrarPagamentoModal({
         aberto={modalContaAberto}
         contas={contas}
         contaId={contaId}
-        onSelecionar={setContaId}
+        onSelecionar={(valor) => { limparErro("contaId"); setContaId(valor); }}
         onClose={() => setModalContaAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -382,7 +380,7 @@ export default function RegistrarPagamentoModal({
         aberto={modalCartaoAberto}
         cartoes={cartoes}
         cartaoId={cartaoId}
-        onSelecionar={setCartaoId}
+        onSelecionar={(valor) => { limparErro("cartaoId"); setCartaoId(valor); }}
         onClose={() => setModalCartaoAberto(false)}
         formatarMoeda={formatarMoeda}
       />

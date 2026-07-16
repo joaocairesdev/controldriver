@@ -17,6 +17,7 @@ import {
   recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
   removerParcelasDaSaidaERecalcularFaturas,
 } from "../../cartoes/utils/cartoesUtils";
+import { FORMA_PAGAMENTO_DEBITO_CONTA } from "../../../shared/constants/formasPagamento";
 
 export default function RecargaEletricaModal({
   aberto,
@@ -31,6 +32,7 @@ export default function RecargaEletricaModal({
     { valor: "dinheiro", titulo: "Dinheiro", descricao: "Sai da carteira" },
     { valor: "pix", titulo: "Pix", descricao: "Sai direto da conta" },
     { valor: "debito", titulo: "Débito", descricao: "Sai direto da conta" },
+    FORMA_PAGAMENTO_DEBITO_CONTA,
     { valor: "credito_avista", titulo: "Crédito à Vista", descricao: "Entra na próxima fatura do cartão" },
     { valor: "credito_parcelado", titulo: "Crédito Parcelado", descricao: "Divide em 2x ou mais no cartão" },
     { valor: "boleto", titulo: "Boleto", descricao: "Registra uma conta a pagar" },
@@ -41,7 +43,7 @@ export default function RecargaEletricaModal({
   const [veiculos, setVeiculos] = useState([]);
 
   const [dataCompra, setDataCompra] = useState(hoje);
-  const [formaPagamento, setFormaPagamento] = useState("pix");
+  const [formaPagamento, setFormaPagamento] = useState("");
   const [contaId, setContaId] = useState("");
   const [cartaoId, setCartaoId] = useState("");
   const [dataVencimento, setDataVencimento] = useState(hoje);
@@ -68,6 +70,8 @@ export default function RecargaEletricaModal({
   const [modalParcelasAberto, setModalParcelasAberto] = useState(false);
 
   const [salvando, setSalvando] = useState(false);
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
   const [feedback, setFeedback] = useState({
     aberto: false,
     tipo: "sucesso",
@@ -279,14 +283,12 @@ export default function RecargaEletricaModal({
     setVeiculos(listaVeiculos);
 
     const carteira = contasComSaldo.find((c) => c.tipo_conta === "carteira");
-    const principal = contasComSaldo.find((c) => c.principal);
-    const veiculoPrincipal =
-      listaVeiculos.find((v) => v.principal) || listaVeiculos[0];
+    const contasValidas = contasComSaldo.filter((c) => (c.tipo_conta || "banco") === "banco");
 
     if (formaPagamento === "dinheiro" && carteira) setContaId(String(carteira.id));
-    else if (principal) setContaId(String(principal.id));
-
-    if (veiculoPrincipal) setVeiculoId(String(veiculoPrincipal.id));
+    else setContaId(contasValidas.length === 1 ? String(contasValidas[0].id) : "");
+    setCartaoId(cartoesComUso.length === 1 ? String(cartoesComUso[0].id) : "");
+    setVeiculoId(listaVeiculos.length === 1 ? String(listaVeiculos[0].id) : "");
   }
 
   async function carregarUsoDosCartoes(listaCartoes) {
@@ -314,7 +316,7 @@ export default function RecargaEletricaModal({
   function limparFormulario(limparTudo = true) {
     setDataCompra(hoje);
     setDataVencimento(hoje);
-    setFormaPagamento("pix");
+    setFormaPagamento("");
     setValorTotal("");
     setNumeroParcelas("1");
     setValorParcela("");
@@ -454,6 +456,15 @@ export default function RecargaEletricaModal({
     setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois });
   }
 
+  function limparErro(campo) {
+    setErros((atuais) => {
+      if (!atuais[campo]) return atuais;
+      const proximos = { ...atuais };
+      delete proximos[campo];
+      return proximos;
+    });
+  }
+
   async function fecharFeedback() {
     const fechar = feedback.fecharDepois;
 
@@ -472,8 +483,7 @@ export default function RecargaEletricaModal({
   }
 
   function definirContaBancariaPadrao() {
-    const conta = contasBancarias.find((c) => c.principal) || contasBancarias[0];
-    if (conta) setContaId(String(conta.id));
+    setContaId(contasBancarias.length === 1 ? String(contasBancarias[0].id) : "");
   }
 
   function definirStatus() {
@@ -552,19 +562,13 @@ export default function RecargaEletricaModal({
   }
 
   function validar() {
-    if (!dataCompra || !valorTotal || !veiculoId || !kwh) {
-      abrirFeedback(
-        "erro",
-        "Campos obrigatórios",
-        "Preencha data, veículo, valor total e kWh carregado."
-      );
-      return false;
-    }
-
-    if (isCredito && !cartaoId) {
-      abrirFeedback("erro", "Cartão obrigatório", "Selecione um cartão.");
-      return false;
-    }
+    const novos = {};
+    if (!dataCompra) novos.dataCompra = "Selecione a data.";
+    if (!formaPagamento) novos.formaPagamento = "Selecione a forma de pagamento.";
+    if (moedaParaNumero(valorTotal) <= 0) novos.valorTotal = "Informe o valor total.";
+    if (!veiculoId) novos.veiculoId = "Selecione o veículo.";
+    if (decimalParaNumero(kwh) <= 0) novos.kwh = "Informe a quantidade carregada.";
+    if (isCredito && !cartaoId) novos.cartaoId = "Selecione um cartão.";
 
     if (isDinheiro && !carteiraSelecionada) {
       abrirFeedback(
@@ -575,25 +579,16 @@ export default function RecargaEletricaModal({
       return false;
     }
 
-    if (!isCredito && !isBoleto && !contaId) {
-      abrirFeedback("erro", "Conta obrigatória", "Selecione uma conta.");
-      return false;
-    }
+    if (!isCredito && !isBoleto && !contaId) novos.contaId = "Selecione uma conta.";
 
-    if (isBoleto && !dataVencimento) {
-      abrirFeedback("erro", "Vencimento obrigatório", "Informe a data de vencimento.");
-      return false;
-    }
+    if (isBoleto && !dataVencimento) novos.dataVencimento = "Informe a data de vencimento.";
 
     if (isCreditoParcelado && Number(numeroParcelas || 0) < 2) {
       abrirFeedback("erro", "Parcelamento inválido", "Crédito parcelado precisa começar em 2x.");
       return false;
     }
 
-    if (!kmRodados && !odometro) {
-      abrirFeedback("erro", "KM obrigatório", "Informe o KM rodado ou o odômetro.");
-      return false;
-    }
+    if (!kmRodados && !odometro) novos.km = "Informe o KM rodado ou o odômetro.";
 
     if (
       modoKm === "odometro" &&
@@ -610,7 +605,8 @@ export default function RecargaEletricaModal({
       return false;
     }
 
-    return true;
+    setErros(novos); if (Object.keys(novos).length) setShakeKey(Date.now());
+    return Object.keys(novos).length === 0;
   }
 
   async function salvar() {
@@ -738,21 +734,23 @@ export default function RecargaEletricaModal({
             <h3 className="font-bold text-lg">Dados principais</h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
-              <Campo label="Data da recarga">
-                <ButtonField onClick={() => setModalDataAberto(true)}>
+              <Campo label="Data da recarga" erro={erros.dataCompra} shakeKey={shakeKey}>
+                <ButtonField erro={erros.dataCompra} shakeKey={shakeKey} onClick={() => setModalDataAberto(true)}>
                   {formatarDataBR(dataCompra)}
                 </ButtonField>
               </Campo>
 
-              <Campo label="Forma de pagamento">
-                <ButtonField onClick={() => setModalPagamentoAberto(true)}>
+              <Campo label="Forma de pagamento" erro={erros.formaPagamento} shakeKey={shakeKey}>
+                <ButtonField erro={erros.formaPagamento} shakeKey={shakeKey} onClick={() => setModalPagamentoAberto(true)}>
                   {textoFormaPagamento()}
                 </ButtonField>
               </Campo>
 
               {!isBoleto && (
-                <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"}>
+                <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"} erro={isCredito ? erros.cartaoId : erros.contaId} shakeKey={shakeKey}>
                   <ButtonField
+                    erro={isCredito ? erros.cartaoId : erros.contaId}
+                    shakeKey={shakeKey}
                     onClick={() => {
                       if (isDinheiro) return;
                       isCredito
@@ -766,17 +764,19 @@ export default function RecargaEletricaModal({
               )}
 
               {isBoleto && (
-                <Campo label="Vencimento do boleto">
-                  <ButtonField onClick={() => setModalVencimentoAberto(true)}>
+                <Campo label="Vencimento do boleto" erro={erros.dataVencimento} shakeKey={shakeKey}>
+                  <ButtonField erro={erros.dataVencimento} shakeKey={shakeKey} onClick={() => setModalVencimentoAberto(true)}>
                     {formatarDataBR(dataVencimento)}
                   </ButtonField>
                 </Campo>
               )}
 
-              <Campo label="Valor total">
+              <Campo label="Valor total" erro={erros.valorTotal} shakeKey={shakeKey}>
                 <MoneyInput
+                  erro={erros.valorTotal}
+                  shakeKey={shakeKey}
                   value={valorTotal}
-                  onChange={atualizarValorTotal}
+                  onChange={(valor) => { limparErro("valorTotal"); atualizarValorTotal(valor); }}
                   prefix="R$"
                   placeholder=""
                 />
@@ -810,16 +810,18 @@ export default function RecargaEletricaModal({
             <h3 className="font-bold text-lg">Dados da recarga</h3>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
-              <Campo label="Veículo">
-                <ButtonField onClick={() => setModalVeiculoAberto(true)}>
+              <Campo label="Veículo" erro={erros.veiculoId} shakeKey={shakeKey}>
+                <ButtonField erro={erros.veiculoId} shakeKey={shakeKey} onClick={() => setModalVeiculoAberto(true)}>
                   {veiculoSelecionado?.nome || "Selecionar veículo"}
                 </ButtonField>
               </Campo>
 
-              <Campo label="kWh carregado">
+              <Campo label="kWh carregado" erro={erros.kwh} shakeKey={shakeKey}>
                 <MoneyInput
+                  erro={erros.kwh}
+                  shakeKey={shakeKey}
                   value={kwh}
-                  onChange={(valor) => setKwh(formatarDecimalDigitado(valor, 3))}
+                  onChange={(valor) => { limparErro("kwh"); setKwh(formatarDecimalDigitado(valor, 3)); }}
                   suffix="kWh"
                   placeholder="0,000"
                 />
@@ -859,19 +861,23 @@ export default function RecargaEletricaModal({
               </Campo>
 
               {modoKm === "trip" ? (
-                <Campo label="KM rodados">
+                <Campo label="KM rodados" erro={erros.km} shakeKey={shakeKey}>
                   <MoneyInput
+                    erro={erros.km}
+                    shakeKey={shakeKey}
                     value={kmRodados}
-                    onChange={atualizarKmRodados}
+                    onChange={(valor) => { limparErro("km"); atualizarKmRodados(valor); }}
                     suffix="km"
                     placeholder="0"
                   />
                 </Campo>
               ) : (
-                <Campo label="Odômetro atual">
+                <Campo label="Odômetro atual" erro={erros.km} shakeKey={shakeKey}>
                   <MoneyInput
+                    erro={erros.km}
+                    shakeKey={shakeKey}
                     value={odometro}
-                    onChange={atualizarOdometro}
+                    onChange={(valor) => { limparErro("km"); atualizarOdometro(valor); }}
                     suffix="km"
                     placeholder="0"
                   />
@@ -921,7 +927,7 @@ export default function RecargaEletricaModal({
       <DatePickerModal
         aberto={modalDataAberto}
         valor={dataCompra}
-        onChange={setDataCompra}
+        onChange={(valor) => { limparErro("dataCompra"); setDataCompra(valor); }}
         onClose={() => setModalDataAberto(false)}
         titulo="Selecionar data"
         descricao="Escolha a data da recarga."
@@ -930,7 +936,7 @@ export default function RecargaEletricaModal({
       <DatePickerModal
         aberto={modalVencimentoAberto}
         valor={dataVencimento}
-        onChange={setDataVencimento}
+        onChange={(valor) => { limparErro("dataVencimento"); setDataVencimento(valor); }}
         onClose={() => setModalVencimentoAberto(false)}
         titulo="Vencimento do boleto"
         descricao="Escolha a data em que esta conta precisa ser paga."
@@ -941,6 +947,7 @@ export default function RecargaEletricaModal({
         formasPagamento={formasPagamento}
         formaPagamento={formaPagamento}
         onSelecionar={(valor) => {
+          limparErro("formaPagamento");
           setFormaPagamento(valor);
 
           if (valor === "credito_parcelado") {
@@ -985,7 +992,7 @@ export default function RecargaEletricaModal({
         aberto={modalContaAberto}
         contas={contasBancarias}
         contaId={contaId}
-        onSelecionar={setContaId}
+        onSelecionar={(valor) => { limparErro("contaId"); setContaId(valor); }}
         onClose={() => setModalContaAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -994,7 +1001,7 @@ export default function RecargaEletricaModal({
         aberto={modalCartaoAberto}
         cartoes={cartoes}
         cartaoId={cartaoId}
-        onSelecionar={setCartaoId}
+        onSelecionar={(valor) => { limparErro("cartaoId"); setCartaoId(valor); }}
         onClose={() => setModalCartaoAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -1003,7 +1010,7 @@ export default function RecargaEletricaModal({
         aberto={modalVeiculoAberto}
         veiculos={veiculos}
         veiculoId={veiculoId}
-        onSelecionar={setVeiculoId}
+        onSelecionar={(valor) => { limparErro("veiculoId"); setVeiculoId(valor); }}
         onClose={() => setModalVeiculoAberto(false)}
       />
 
@@ -1025,21 +1032,21 @@ export default function RecargaEletricaModal({
   );
 }
 
-function ButtonField({ children, onClick }) {
+function ButtonField({ children, onClick, erro }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-cyan-400 rounded-xl p-3 text-left font-semibold"
+      className={`w-full mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} hover:border-cyan-400 rounded-xl p-3 text-left font-semibold`}
     >
       {children}
     </button>
   );
 }
 
-function MoneyInput({ value, onChange, prefix, suffix, placeholder }) {
+function MoneyInput({ value, onChange, prefix, suffix, placeholder, erro, shakeKey }) {
   return (
-    <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+    <div key={erro ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
       {prefix && <span className="px-3 text-gray-400">{prefix}</span>}
 
       <input

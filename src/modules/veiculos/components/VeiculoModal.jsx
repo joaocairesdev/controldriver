@@ -87,6 +87,8 @@ export default function VeiculoModal({
   somenteNumeros,
 }) {
   const [etapa, setEtapa] = useState(1);
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
 
   const [modalCategoriaAberto, setModalCategoriaAberto] = useState(false);
 
@@ -123,13 +125,17 @@ export default function VeiculoModal({
   }, [etapa]);
 
   useEffect(() => {
-    if (aberto) setEtapa(1);
+    if (aberto) {
+      setEtapa(1);
+      setErros({});
+    }
   }, [aberto, veiculoEditando?.id]);
 
   if (!aberto) return null;
 
   function selecionarCategoria(valor) {
     onSelecionarCategoria?.(valor);
+    limparErro("categoriaVeiculo");
     setModalCategoriaAberto(false);
   }
 
@@ -139,12 +145,62 @@ export default function VeiculoModal({
     return `${dia}/${mes}/${ano}`;
   }
 
+  function limparErro(campo) {
+    setErros((atuais) => {
+      if (!atuais[campo]) return atuais;
+      const novos = { ...atuais };
+      delete novos[campo];
+      return novos;
+    });
+  }
+
+  function validarEtapaAtual() {
+    const novos = {};
+    if (etapa === 1) {
+      if (!marca.trim()) novos.marca = "Informe a marca do veículo.";
+      if (!modelo.trim()) novos.modelo = "Informe o modelo do veículo.";
+      if (!ano || ano.length < 4) novos.ano = "Informe o ano com 4 dígitos.";
+      if (!odometroInicial) novos.odometroInicial = "Informe o KM inicial.";
+      if (!categoriaVeiculo) novos.categoriaVeiculo = "Selecione a categoria do veículo.";
+    }
+    if (etapa === 2 && temProtecao) {
+      if (!nomeProtecaoVeiculo.trim()) novos.nomeProtecao = "Informe o nome da proteção.";
+      if (!inicioVigenciaProtecao) novos.inicioVigencia = "Informe o início da vigência.";
+      if (!fimVigenciaProtecao) novos.fimVigencia = "Informe o fim da vigência.";
+      if (inicioVigenciaProtecao && fimVigenciaProtecao && fimVigenciaProtecao < inicioVigenciaProtecao) novos.fimVigencia = "O fim não pode ser anterior ao início.";
+      if (moedaParaNumero(valorProtecao) <= 0) novos.valorProtecao = "Informe o valor da proteção.";
+      if (protecaoParcelada && Number(numeroParcelasProtecao || 0) < 2) novos.numeroParcelasProtecao = "Informe pelo menos 2 parcelas.";
+      if (protecaoParcelada && Number(parcelasPagasProtecao || 0) > Number(numeroParcelasProtecao || 0)) novos.parcelasPagasProtecao = "As parcelas pagas não podem superar o total.";
+      if (!primeiroVencimentoProtecao && Number(parcelasPagasProtecao || 0) < Number(numeroParcelasProtecao || 1)) novos.primeiroVencimentoProtecao = "Informe o próximo vencimento em aberto.";
+      if (protecaoUsaConta && !contaProtecaoId) novos.contaProtecao = "Selecione a conta usada no pagamento.";
+      if (protecaoUsaCartao && !cartaoProtecaoId) novos.cartaoProtecao = "Selecione o cartão usado no pagamento.";
+    }
+    if (etapa === 3 && possuiTag) {
+      if (!nomeTag.trim()) novos.nomeTag = "Informe o nome da TAG.";
+      const exigeOrigem = tagPosPaga || (tagPrePaga && recargaAutomaticaTag);
+      if (tagPrePaga && recargaAutomaticaTag && moedaParaNumero(valorRecargaTag) <= 0) novos.valorRecargaTag = "Informe o valor da recarga.";
+      if (exigeOrigem && formaRecargaTag === "credito_avista" && !cartaoRecargaTagId) novos.cartaoRecargaTag = "Selecione o cartão vinculado.";
+      if (exigeOrigem && ["debito", "pix"].includes(formaRecargaTag) && !contaRecargaTagId) novos.contaRecargaTag = "Selecione a conta vinculada.";
+    }
+    setErros(novos);
+    if (Object.keys(novos).length) setShakeKey(Date.now());
+    return Object.keys(novos).length === 0;
+  }
+
   function irProximaEtapa() {
+    if (!validarEtapaAtual()) return;
+    setErros({});
     setEtapa((atual) => Math.min(atual + 1, 3));
   }
 
   function voltarEtapa() {
+    setErros({});
     setEtapa((atual) => Math.max(atual - 1, 1));
+  }
+
+  function salvar() {
+    if (!validarEtapaAtual()) return;
+    onSalvar();
   }
 
   function selecionarFormaProtecao(valor) {
@@ -203,14 +259,18 @@ export default function VeiculoModal({
                   label="Marca"
                   value={marca}
                   placeholder="Ex: Nissan"
-                  onChange={setMarca}
+                  onChange={(valor) => { limparErro("marca"); setMarca(valor); }}
+                  erro={erros.marca}
+                  shakeKey={shakeKey}
                 />
 
                 <InputTexto
                   label="Modelo"
                   value={modelo}
                   placeholder="Ex: Versa"
-                  onChange={setModelo}
+                  onChange={(valor) => { limparErro("modelo"); setModelo(valor); }}
+                  erro={erros.modelo}
+                  shakeKey={shakeKey}
                 />
               </div>
 
@@ -219,7 +279,9 @@ export default function VeiculoModal({
                   label="Ano"
                   value={ano}
                   placeholder="Ex: 2019"
-                  onChange={(valor) => setAno(somenteNumeros(valor).slice(0, 4))}
+                  onChange={(valor) => { limparErro("ano"); setAno(somenteNumeros(valor).slice(0, 4)); }}
+                  erro={erros.ano}
+                  shakeKey={shakeKey}
                 />
 
                 <InputTexto
@@ -237,7 +299,9 @@ export default function VeiculoModal({
                   placeholder="Ex: 125000"
                   suffix="km"
                   inputMode="numeric"
-                  onChange={(valor) => setOdometroInicial(somenteNumeros(valor))}
+                  onChange={(valor) => { limparErro("odometroInicial"); setOdometroInicial(somenteNumeros(valor)); }}
+                  erro={erros.odometroInicial}
+                  shakeKey={shakeKey}
                 />
 
                 <div>
@@ -246,10 +310,11 @@ export default function VeiculoModal({
                   <button
                     type="button"
                     onClick={() => setModalCategoriaAberto(true)}
-                    className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                    className={`w-full mt-2 bg-[#0B1120] border ${erros.categoriaVeiculo ? "border-red-500 animate-shake" : "border-gray-700"} hover:border-green-400 rounded-xl p-3 text-left font-semibold`}
                   >
                     {nomeCategoria(categoriaVeiculo)}
                   </button>
+                  {erros.categoriaVeiculo && <ErroCampo mensagem={erros.categoriaVeiculo} shakeKey={shakeKey} />}
                 </div>
               </div>
             </section>
@@ -279,7 +344,9 @@ export default function VeiculoModal({
                       label="Nome da proteção"
                       value={nomeProtecaoVeiculo}
                       placeholder="Ex: Suhai, Porto Seguro, APVS"
-                      onChange={setNomeProtecaoVeiculo}
+                      onChange={(valor) => { limparErro("nomeProtecao"); setNomeProtecaoVeiculo(valor); }}
+                      erro={erros.nomeProtecao}
+                      shakeKey={shakeKey}
                     />
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -288,6 +355,8 @@ export default function VeiculoModal({
                         value={inicioVigenciaProtecao}
                         formatarDataBR={formatarDataBR}
                         onClick={() => setModalInicioVigenciaAberto(true)}
+                        erro={erros.inicioVigencia}
+                        shakeKey={shakeKey}
                       />
 
                       <CampoDataBotao
@@ -295,6 +364,8 @@ export default function VeiculoModal({
                         value={fimVigenciaProtecao}
                         formatarDataBR={formatarDataBR}
                         onClick={() => setModalFimVigenciaAberto(true)}
+                        erro={erros.fimVigencia}
+                        shakeKey={shakeKey}
                       />
                     </div>
 
@@ -317,10 +388,11 @@ export default function VeiculoModal({
                         <button
                           type="button"
                           onClick={() => setModalContaProtecaoAberto(true)}
-                          className="w-full mt-2 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                          className={`w-full mt-2 bg-[#111827] border ${erros.contaProtecao ? "border-red-500 animate-shake" : "border-gray-700"} hover:border-green-400 rounded-xl p-3 text-left font-semibold`}
                         >
                           {textoContaProtecao(contaProtecaoId)}
                         </button>
+                        {erros.contaProtecao && <ErroCampo mensagem={erros.contaProtecao} shakeKey={shakeKey} />}
                       </div>
                     )}
 
@@ -331,10 +403,11 @@ export default function VeiculoModal({
                         <button
                           type="button"
                           onClick={() => setModalCartaoProtecaoAberto(true)}
-                          className="w-full mt-2 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                          className={`w-full mt-2 bg-[#111827] border ${erros.cartaoProtecao ? "border-red-500 animate-shake" : "border-gray-700"} hover:border-green-400 rounded-xl p-3 text-left font-semibold`}
                         >
                           {textoCartaoProtecao(cartaoProtecaoId)}
                         </button>
+                        {erros.cartaoProtecao && <ErroCampo mensagem={erros.cartaoProtecao} shakeKey={shakeKey} />}
                       </div>
                     )}
 
@@ -344,6 +417,8 @@ export default function VeiculoModal({
                         value={valorProtecao}
                         placeholder="0,00"
                         onChange={(valor) => setValorProtecao(formatarMoedaDigitada(valor))}
+                        erro={erros.valorProtecao}
+                        shakeKey={shakeKey}
                       />
 
                       <CampoDataBotao
@@ -351,6 +426,8 @@ export default function VeiculoModal({
                         value={primeiroVencimentoProtecao}
                         formatarDataBR={formatarDataBR}
                         onClick={() => setModalPrimeiroVencimentoAberto(true)}
+                        erro={erros.primeiroVencimentoProtecao}
+                        shakeKey={shakeKey}
                       />
                     </div>
 
@@ -359,19 +436,23 @@ export default function VeiculoModal({
                         <div>
                           <label className="text-sm text-gray-300">Total de parcelas</label>
                           <button
+                            key={erros.numeroParcelasProtecao ? shakeKey : "ok"}
                             type="button"
                             onClick={() => setModalParcelasProtecaoAberto(true)}
-                            className="w-full mt-2 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                            className={`w-full mt-2 bg-[#111827] border ${erros.numeroParcelasProtecao ? "border-red-500 animate-shake" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
                           >
                             {numeroParcelasProtecao || "Selecionar"}x
                           </button>
+                          {erros.numeroParcelasProtecao && <ErroCampo mensagem={erros.numeroParcelasProtecao} shakeKey={shakeKey} />}
                         </div>
 
                         <InputTexto
                           label="Parcelas já pagas"
                           value={parcelasPagasProtecao}
                           placeholder="Ex: 5"
-                          onChange={(valor) => setParcelasPagasProtecao(somenteNumeros(valor))}
+                          onChange={(valor) => { limparErro("parcelasPagasProtecao"); setParcelasPagasProtecao(somenteNumeros(valor)); }}
+                          erro={erros.parcelasPagasProtecao}
+                          shakeKey={shakeKey}
                         />
                       </div>
                     )}
@@ -416,7 +497,9 @@ export default function VeiculoModal({
                       label="Nome da TAG"
                       value={nomeTag}
                       placeholder="Ex: Veloe"
-                      onChange={setNomeTag}
+                      onChange={(valor) => { limparErro("nomeTag"); setNomeTag(valor); }}
+                      erro={erros.nomeTag}
+                      shakeKey={shakeKey}
                     />
 
                     <div className="grid grid-cols-2 gap-3">
@@ -487,6 +570,7 @@ export default function VeiculoModal({
                             >
                               {textoCartaoRecargaTag(cartaoRecargaTagId)}
                             </button>
+                            {erros.cartaoRecargaTag && <ErroCampo mensagem={erros.cartaoRecargaTag} shakeKey={shakeKey} />}
                           </div>
                         ) : (
                           <div>
@@ -499,6 +583,7 @@ export default function VeiculoModal({
                             >
                               {textoContaRecargaTag(contaRecargaTagId)}
                             </button>
+                            {erros.contaRecargaTag && <ErroCampo mensagem={erros.contaRecargaTag} shakeKey={shakeKey} />}
                           </div>
                         )}
                       </div>
@@ -528,6 +613,8 @@ export default function VeiculoModal({
                                 value={valorRecargaTag}
                                 placeholder="30,00"
                                 onChange={(valor) => setValorRecargaTag(formatarMoedaDigitada(valor))}
+                                erro={erros.valorRecargaTag}
+                                shakeKey={shakeKey}
                               />
 
                               <CampoTextoComSufixo
@@ -567,6 +654,7 @@ export default function VeiculoModal({
                                 >
                                   {textoCartaoRecargaTag(cartaoRecargaTagId)}
                                 </button>
+                                {erros.cartaoRecargaTag && <ErroCampo mensagem={erros.cartaoRecargaTag} shakeKey={shakeKey} />}
                               </div>
                             ) : (
                               <div>
@@ -579,6 +667,7 @@ export default function VeiculoModal({
                                 >
                                   {textoContaRecargaTag(contaRecargaTagId)}
                                 </button>
+                                {erros.contaRecargaTag && <ErroCampo mensagem={erros.contaRecargaTag} shakeKey={shakeKey} />}
                               </div>
                             )}
 
@@ -638,7 +727,7 @@ export default function VeiculoModal({
             ) : (
               <button
                 type="button"
-                onClick={onSalvar}
+                onClick={salvar}
                 className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
               >
                 {veiculoEditando ? "Salvar Alterações" : "Salvar"}
@@ -678,7 +767,7 @@ export default function VeiculoModal({
       <DatePickerModal
         aberto={modalInicioVigenciaAberto}
         valor={inicioVigenciaProtecao}
-        onChange={setInicioVigenciaProtecao}
+        onChange={(valor) => { limparErro("inicioVigencia"); setInicioVigenciaProtecao(valor); }}
         onClose={() => setModalInicioVigenciaAberto(false)}
         titulo="Início da vigência"
         descricao="Escolha quando a proteção começou."
@@ -687,7 +776,7 @@ export default function VeiculoModal({
       <DatePickerModal
         aberto={modalFimVigenciaAberto}
         valor={fimVigenciaProtecao}
-        onChange={setFimVigenciaProtecao}
+        onChange={(valor) => { limparErro("fimVigencia"); setFimVigenciaProtecao(valor); }}
         onClose={() => setModalFimVigenciaAberto(false)}
         titulo="Fim da vigência"
         descricao="Escolha quando a proteção termina."
@@ -696,7 +785,7 @@ export default function VeiculoModal({
       <DatePickerModal
         aberto={modalPrimeiroVencimentoAberto}
         valor={primeiroVencimentoProtecao}
-        onChange={setPrimeiroVencimentoProtecao}
+        onChange={(valor) => { limparErro("primeiroVencimentoProtecao"); setPrimeiroVencimentoProtecao(valor); }}
         onClose={() => setModalPrimeiroVencimentoAberto(false)}
         titulo="Próximo vencimento em aberto"
         descricao="Escolha o vencimento da próxima parcela que ainda precisa controlar."
@@ -714,7 +803,7 @@ export default function VeiculoModal({
         aberto={modalContaProtecaoAberto}
         contas={contasBanco}
         contaId={contaProtecaoId}
-        onSelecionar={setContaProtecaoId}
+        onSelecionar={(valor) => { limparErro("contaProtecao"); setContaProtecaoId(valor); }}
         onClose={() => setModalContaProtecaoAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -723,7 +812,7 @@ export default function VeiculoModal({
         aberto={modalCartaoProtecaoAberto}
         cartoes={cartoes}
         cartaoId={cartaoProtecaoId}
-        onSelecionar={setCartaoProtecaoId}
+        onSelecionar={(valor) => { limparErro("cartaoProtecao"); setCartaoProtecaoId(valor); }}
         onClose={() => setModalCartaoProtecaoAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -731,7 +820,7 @@ export default function VeiculoModal({
       <SelecionarParcelasModal
         aberto={modalParcelasProtecaoAberto}
         numeroParcelas={numeroParcelasProtecao}
-        onSelecionar={setNumeroParcelasProtecao}
+        onSelecionar={(valor) => { limparErro("numeroParcelasProtecao"); setNumeroParcelasProtecao(valor); }}
         onClose={() => setModalParcelasProtecaoAberto(false)}
       />
 
@@ -747,7 +836,7 @@ export default function VeiculoModal({
         aberto={modalContaRecargaTagAberto}
         contas={contasBanco}
         contaId={contaRecargaTagId}
-        onSelecionar={setContaRecargaTagId}
+        onSelecionar={(valor) => { limparErro("contaRecargaTag"); setContaRecargaTagId(valor); }}
         onClose={() => setModalContaRecargaTagAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -756,7 +845,7 @@ export default function VeiculoModal({
         aberto={modalCartaoRecargaTagAberto}
         cartoes={cartoes}
         cartaoId={cartaoRecargaTagId}
-        onSelecionar={setCartaoRecargaTagId}
+        onSelecionar={(valor) => { limparErro("cartaoRecargaTag"); setCartaoRecargaTagId(valor); }}
         onClose={() => setModalCartaoRecargaTagAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -781,7 +870,7 @@ function IndicadorEtapas({ etapa }) {
   );
 }
 
-function InputTexto({ label, value, placeholder, onChange }) {
+function InputTexto({ label, value, placeholder, onChange, erro, shakeKey }) {
   return (
     <div>
       <label className="text-sm text-gray-300">{label}</label>
@@ -791,8 +880,9 @@ function InputTexto({ label, value, placeholder, onChange }) {
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 outline-none focus:border-green-400"
+        className={`w-full mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl p-3 outline-none focus:border-green-400`}
       />
+      {erro && <ErroCampo mensagem={erro} shakeKey={shakeKey} />}
     </div>
   );
 }
@@ -804,12 +894,14 @@ function CampoTextoComSufixo({
   suffix,
   inputMode = "text",
   onChange,
+  erro,
+  shakeKey,
 }) {
   return (
     <div>
       <label className="text-sm text-gray-300">{label}</label>
 
-      <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden focus-within:border-green-400">
+      <div className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden focus-within:border-green-400`}>
         <input
           type="text"
           inputMode={inputMode}
@@ -821,11 +913,16 @@ function CampoTextoComSufixo({
 
         {suffix ? <span className="px-3 text-gray-400">{suffix}</span> : null}
       </div>
+      {erro && <ErroCampo mensagem={erro} shakeKey={shakeKey} />}
     </div>
   );
 }
 
-function CampoDataBotao({ label, value, onClick, formatarDataBR }) {
+function ErroCampo({ mensagem, shakeKey }) {
+  return <p key={shakeKey} className="animate-shake text-xs text-red-400 font-semibold mt-2">{mensagem}</p>;
+}
+
+function CampoDataBotao({ label, value, onClick, formatarDataBR, erro, shakeKey }) {
   return (
     <div>
       <label className="text-sm text-gray-300">{label}</label>
@@ -833,20 +930,21 @@ function CampoDataBotao({ label, value, onClick, formatarDataBR }) {
       <button
         type="button"
         onClick={onClick}
-        className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+        className={`w-full mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} hover:border-green-400 rounded-xl p-3 text-left font-semibold`}
       >
         {formatarDataBR(value)}
       </button>
+      {erro && <ErroCampo mensagem={erro} shakeKey={shakeKey} />}
     </div>
   );
 }
 
-function CampoMoeda({ label, value, placeholder, onChange }) {
+function CampoMoeda({ label, value, placeholder, onChange, erro, shakeKey }) {
   return (
     <div>
       <label className="text-sm text-gray-300">{label}</label>
 
-      <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden focus-within:border-green-400">
+      <div className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden focus-within:border-green-400`}>
         <span className="px-3 text-gray-400">R$</span>
 
         <input
@@ -858,6 +956,7 @@ function CampoMoeda({ label, value, placeholder, onChange }) {
           className="w-full bg-transparent p-3 outline-none"
         />
       </div>
+      {erro && <ErroCampo mensagem={erro} shakeKey={shakeKey} />}
     </div>
   );
 }
@@ -879,4 +978,3 @@ function SwitchButton({ ativo, onClick }) {
     </button>
   );
 }
-

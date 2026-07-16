@@ -16,6 +16,8 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
   const [aviso, setAviso] = useState({ aberto: false, titulo: "", mensagem: "", tipo: "erro" });
   const [confirmarZerarAberto, setConfirmarZerarAberto] = useState(false);
   const [contagemRegressiva, setContagemRegressiva] = useState(null);
+  const [erroKm, setErroKm] = useState("");
+  const [shakeKmKey, setShakeKmKey] = useState(0);
   const contagemRef = useRef(null);
 
   useEffect(() => {
@@ -338,7 +340,8 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
     const kmRodados = numero(kmRodadosFinal);
 
     if (kmRodados <= 0) {
-      abrirAviso("KM obrigatório", "Informe quantos KM você rodou hoje para finalizar a jornada.");
+      setErroKm("Informe quantos KM você rodou hoje para finalizar a jornada.");
+      setShakeKmKey(Date.now());
       return;
     }
 
@@ -511,10 +514,8 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
                   const precisaInformarKm = mostrarFinalizar || jornada?.status === "aguardando_km";
 
                   if (precisaInformarKm) {
-                    abrirAviso(
-                      "KM obrigatório",
-                      "Informe os KM rodados e salve a jornada antes de fechar."
-                    );
+                    setErroKm("Informe os KM rodados e salve a jornada antes de fechar.");
+                    setShakeKmKey(Date.now());
                     return;
                   }
 
@@ -596,13 +597,13 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
                   <p className="text-5xl font-black mt-2 tabular-nums">{formatarTempo(tempoLiquidoSegundos)}</p>
                 </div>
 
-                <Campo label="Quantos KM você rodou hoje?">
-                  <div className="flex items-center bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden focus-within:border-green-400">
+                <Campo label="Quantos KM você rodou hoje?" erro={erroKm} shakeKey={shakeKmKey}>
+                  <div className={`flex items-center bg-[#0B1120] border ${erroKm ? "border-red-500" : "border-gray-700 focus-within:border-green-400"} rounded-xl overflow-hidden`}>
                     <input
                       type="text"
                       inputMode="numeric"
                       value={kmRodadosFinal}
-                      onChange={(e) => setKmRodadosFinal(somenteNumeros(e.target.value))}
+                      onChange={(e) => { setErroKm(""); setKmRodadosFinal(somenteNumeros(e.target.value)); }}
                       placeholder="Ex: 156"
                       className="w-full bg-transparent p-4 outline-none text-2xl font-black"
                     />
@@ -709,11 +710,12 @@ export default function CronometroJornada({ onLancarGanhos, onEstadoChange }) {
   );
 }
 
-function Campo({ label, children }) {
+function Campo({ label, children, erro, shakeKey }) {
   return (
-    <div>
-      <label className="text-sm text-gray-300">{label}</label>
+    <div key={erro ? shakeKey : "ok"} className={erro ? "animate-shake" : ""}>
+      <label className={erro ? "text-sm text-red-400" : "text-sm text-gray-300"}>{label}</label>
       <div className="mt-2">{children}</div>
+      {erro && <p className="mt-1 text-xs text-red-400">{erro}</p>}
     </div>
   );
 }
@@ -827,4 +829,3 @@ function ModalAviso({ aviso, onClose }) {
     </div>
   );
 }
-

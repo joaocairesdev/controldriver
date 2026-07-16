@@ -36,6 +36,8 @@ export default function Contas() {
   const [permitirSaldoNegativo, setPermitirSaldoNegativo] = useState(false);
   const [limiteChequeEspecial, setLimiteChequeEspecial] = useState("");
   const [finalidadeConta, setFinalidadeConta] = useState("trabalho");
+  const [errosFormulario, setErrosFormulario] = useState({});
+  const [shakeFormularioKey, setShakeFormularioKey] = useState(0);
 
   useEffect(() => {
     carregarContas();
@@ -216,6 +218,7 @@ export default function Contas() {
     setPermitirSaldoNegativo(false);
     setLimiteChequeEspecial("");
     setFinalidadeConta("trabalho");
+    setErrosFormulario({});
   }
 
   function abrirNovaConta() {
@@ -253,11 +256,8 @@ export default function Contas() {
 
   async function salvarConta() {
     if (!nomeConta.trim()) {
-      abrirAviso(
-        "Nome obrigatório",
-        "Digite o nome da conta bancária.",
-        "erro",
-      );
+      setErrosFormulario({ nomeConta: "Digite o nome da conta bancária." });
+      setShakeFormularioKey(Date.now());
       return;
     }
 
@@ -397,7 +397,7 @@ export default function Contas() {
   function solicitarExclusaoConta(conta) {
     if (isCarteira(conta)) {
       abrirAviso(
-        "Carteira obrigatória",
+        "Carteira protegida",
         "A carteira é uma conta padrão do sistema e não pode ser excluída.",
         "erro",
       );
@@ -442,7 +442,7 @@ export default function Contas() {
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
+        <div key={errosFormulario.nomeConta ? shakeFormularioKey : "ok"} className={errosFormulario.nomeConta ? "animate-shake" : ""}>
           <h1 className="text-3xl font-bold">Contas</h1>
           <p className="text-gray-400 mt-2">
             Gerencie bancos e a carteira padrão
@@ -777,9 +777,10 @@ export default function Contas() {
             type="text"
             value={nomeConta}
             placeholder="Ex: Nubank PJ, Itaú, Inter"
-            onChange={(e) => setNomeConta(e.target.value)}
-            className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-500 rounded-xl p-3 outline-none transition"
+            onChange={(e) => { setErrosFormulario({}); setNomeConta(e.target.value); }}
+            className={`w-full mt-2 bg-[#0B1120] border ${errosFormulario.nomeConta ? "border-red-500" : "border-gray-700 focus:border-green-500"} rounded-xl p-3 outline-none transition`}
           />
+          {errosFormulario.nomeConta && <p className="mt-2 text-xs font-semibold text-red-400">{errosFormulario.nomeConta}</p>}
         </div>
 
         <div className="mt-5">
@@ -1032,4 +1033,3 @@ function ModalConfirmacao({
     </div>
   );
 }
-

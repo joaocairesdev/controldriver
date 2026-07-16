@@ -12,6 +12,8 @@ import {
 import DatePickerModal from "../../../shared/components/modals/DatePickerModal";
 import SelecionarFormaPagamentoModal from "../../../shared/components/modals/SelecionarFormaPagamentoModal";
 import SelecionarContaModal from "../../../shared/components/modals/SelecionarContaModal";
+import SelecionarOpcaoModal from "../../../shared/components/modals/SelecionarOpcaoModal";
+import { FORMA_PAGAMENTO_DEBITO_CONTA } from "../../../shared/constants/formasPagamento";
 
 export default function DetalheFaturaModal({
   fatura,
@@ -46,6 +48,7 @@ export default function DetalheFaturaModal({
   const [modalMoverParcelaAberto, setModalMoverParcelaAberto] = useState(false);
   const [modalDataFechamentoAberto, setModalDataFechamentoAberto] = useState(false);
   const [modalDataVencimentoAberto, setModalDataVencimentoAberto] = useState(false);
+  const [modalStatusFaturaAberto, setModalStatusFaturaAberto] = useState(false);
   const [faturasDestino, setFaturasDestino] = useState([]);
   const [parcelaMovendo, setParcelaMovendo] = useState(null);
   const [faturaDestinoId, setFaturaDestinoId] = useState("");
@@ -58,6 +61,10 @@ export default function DetalheFaturaModal({
   const [editandoLancamentos, setEditandoLancamentos] = useState(false);
   const [parcelasSelecionadasIds, setParcelasSelecionadasIds] = useState([]);
   const [modoMovimento, setModoMovimento] = useState("item");
+  const [modalFaturaDestinoAberto, setModalFaturaDestinoAberto] = useState(false);
+  const [erroFaturaDestino, setErroFaturaDestino] = useState("");
+  const [erroSelecaoLancamentos, setErroSelecaoLancamentos] = useState("");
+  const [shakeMovimentoKey, setShakeMovimentoKey] = useState(0);
   const [avisoLocal, setAvisoLocal] = useState({
     aberto: false,
     titulo: "",
@@ -91,6 +98,10 @@ export default function DetalheFaturaModal({
   const [contaId, setContaId] = useState("");
   const [valorPago, setValorPago] = useState(numeroParaMoedaInput(saldoFatura(faturaAtual)));
   const [salvandoPagamento, setSalvandoPagamento] = useState(false);
+  const [errosPagamento, setErrosPagamento] = useState({});
+  const [shakePagamentoKey, setShakePagamentoKey] = useState(0);
+  const [errosEdicao, setErrosEdicao] = useState({});
+  const [shakeEdicaoKey, setShakeEdicaoKey] = useState(0);
 
   const isCartaoTerceiro = (cartao?.tipo_cartao || TIPOS_CARTAO.PROPRIO) === TIPOS_CARTAO.TERCEIRO;
 
@@ -102,6 +113,7 @@ export default function DetalheFaturaModal({
   { valor: "dinheiro", titulo: "Dinheiro", descricao: "Pagamento em espécie" },
   { valor: "pix", titulo: "Pix", descricao: "Sai direto da conta" },
   { valor: "debito", titulo: "Débito", descricao: "Sai direto da conta" },
+  FORMA_PAGAMENTO_DEBITO_CONTA,
 ];
 
   useEffect(() => {
@@ -119,9 +131,7 @@ export default function DetalheFaturaModal({
   }, [faturaAtual.id]);
 
   useEffect(() => {
-    const contaPrincipal = contas.find((conta) => conta.principal);
-    if (contaPrincipal) setContaId(String(contaPrincipal.id));
-    else if (contas[0]) setContaId(String(contas[0].id));
+    setContaId(contas.length === 1 ? String(contas[0].id) : "");
   }, [contas]);
 
   async function carregarParcelas() {
@@ -199,27 +209,14 @@ export default function DetalheFaturaModal({
   const valor =
     Math.round(moedaParaNumero(valorPago) * 100) / 100;
 
-  if (!dataPagamento) {
-    abrirAvisoLocal("Data obrigatória", "Informe a data do pagamento.", "erro");
-    return;
-  }
-
-  if (!formaPagamento) {
-    abrirAvisoLocal("Forma obrigatória", "Informe a forma de pagamento.", "erro");
-    return;
-  }
-
-  if (!contaId) {
-    abrirAvisoLocal(
-      "Conta obrigatória",
-      "Escolha a conta usada para marcar a fatura como paga.",
-      "erro"
-    );
-    return;
-  }
-
-  if (valor <= 0) {
-    abrirAvisoLocal("Valor inválido", "Informe um valor maior que zero.", "erro");
+  const novos = {};
+  if (!dataPagamento) novos.dataPagamento = "Informe a data do pagamento.";
+  if (!formaPagamento) novos.formaPagamento = "Informe a forma de pagamento.";
+  if (!contaId) novos.contaId = "Escolha a conta usada no pagamento.";
+  if (valor <= 0) novos.valorPago = "Informe um valor maior que zero.";
+  setErrosPagamento(novos);
+  if (Object.keys(novos).length) {
+    setShakePagamentoKey(Date.now());
     return;
   }
 
@@ -544,7 +541,11 @@ export default function DetalheFaturaModal({
 
   async function salvarEdicaoFatura() {
     if (!editDataFechamento || !editDataVencimento) {
-      abrirAvisoLocal("Datas obrigatórias", "Informe fechamento e vencimento da fatura.", "erro");
+      setErrosEdicao({
+        ...(!editDataFechamento ? { fechamento: "Informe a data de fechamento." } : {}),
+        ...(!editDataVencimento ? { vencimento: "Informe a data de vencimento." } : {}),
+      });
+      setShakeEdicaoKey(Date.now());
       return;
     }
 
@@ -649,6 +650,7 @@ export default function DetalheFaturaModal({
   }
 
   function alternarParcelaSelecionada(parcelaId) {
+    setErroSelecaoLancamentos("");
     setParcelasSelecionadasIds((ids) =>
       ids.some((id) => String(id) === String(parcelaId))
         ? ids.filter((id) => String(id) !== String(parcelaId))
@@ -676,7 +678,8 @@ export default function DetalheFaturaModal({
 
   async function abrirMoverSelecionados() {
     if (parcelasSelecionadasIds.length === 0) {
-      abrirAvisoLocal("Selecione lançamentos", "Marque pelo menos um lançamento para mover.", "erro");
+      setErroSelecaoLancamentos("Marque pelo menos um lançamento para mover.");
+      setShakeMovimentoKey(Date.now());
       return;
     }
 
@@ -711,7 +714,8 @@ export default function DetalheFaturaModal({
     }
 
     if (!faturaDestinoId) {
-      abrirAvisoLocal("Fatura destino", "Selecione a fatura para onde o lançamento deve ir.", "erro");
+      setErroFaturaDestino("Selecione a fatura para onde o lançamento deve ir.");
+      setShakeMovimentoKey(Date.now());
       return;
     }
 
@@ -727,7 +731,8 @@ export default function DetalheFaturaModal({
         : [parcelaMovendo?.id].filter(Boolean);
 
     if (idsParaMover.length === 0) {
-      abrirAvisoLocal("Selecione lançamentos", "Marque pelo menos um lançamento para mover.", "erro");
+      setErroSelecaoLancamentos("Marque pelo menos um lançamento para mover.");
+      setShakeMovimentoKey(Date.now());
       return;
     }
 
@@ -912,9 +917,10 @@ export default function DetalheFaturaModal({
             <div>
               <h3 className="text-lg font-bold">Lançamentos da fatura</h3>
               {!faturaPaga && editandoLancamentos && (
-                <p className="text-xs text-yellow-400 mt-1">
-                  Modo edição ativo. Use apenas para corrigir lançamento que caiu na fatura errada.
-                </p>
+                <>
+                  <p className="text-xs text-yellow-400 mt-1">Modo edição ativo. Use apenas para corrigir lançamento que caiu na fatura errada.</p>
+                  {erroSelecaoLancamentos && <p key={shakeMovimentoKey} className="mt-1 text-xs text-red-400 animate-shake">{erroSelecaoLancamentos}</p>}
+                </>
               )}
             </div>
 
@@ -1084,37 +1090,30 @@ export default function DetalheFaturaModal({
             </div>
 
             <div className="grid grid-cols-1 gap-4 mt-6">
-              <CampoFatura label="Fechamento">
+              <CampoFatura label="Fechamento" erro={errosEdicao.fechamento} shakeKey={shakeEdicaoKey}>
                 <button
                   type="button"
                   onClick={() => setModalDataFechamentoAberto(true)}
-                  className="w-full bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                  className={`w-full bg-[#0B1120] border ${errosEdicao.fechamento ? "border-red-500 animate-shake" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
                 >
                   {formatarDataBR(editDataFechamento)}
                 </button>
               </CampoFatura>
 
-              <CampoFatura label="Vencimento">
+              <CampoFatura label="Vencimento" erro={errosEdicao.vencimento} shakeKey={shakeEdicaoKey}>
                 <button
                   type="button"
                   onClick={() => setModalDataVencimentoAberto(true)}
-                  className="w-full bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                  className={`w-full bg-[#0B1120] border ${errosEdicao.vencimento ? "border-red-500 animate-shake" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
                 >
                   {formatarDataBR(editDataVencimento)}
                 </button>
               </CampoFatura>
 
               <CampoFatura label="Status">
-                <select
-                  value={editStatus}
-                  onChange={(e) => setEditStatus(e.target.value)}
-                  className="w-full bg-[#0B1120] border border-gray-700 rounded-xl p-3 outline-none focus:border-green-400"
-                >
-                  <option value="aberta">Aberta</option>
-                  <option value="fechada">Fechada</option>
-                  <option value="parcial">Parcial</option>
-                  <option value="paga">Paga</option>
-                </select>
+                <button type="button" onClick={() => setModalStatusFaturaAberto(true)} className="w-full bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold">
+                  {{ aberta: "Aberta", fechada: "Fechada", parcial: "Parcial", paga: "Paga" }[editStatus] || editStatus}
+                </button>
               </CampoFatura>
             </div>
 
@@ -1189,22 +1188,18 @@ export default function DetalheFaturaModal({
               </div>
             )}
 
-            <div className="mt-5">
-              <label className="text-sm text-gray-300">Fatura destino</label>
-              <select
-                value={faturaDestinoId}
-                onChange={(e) => setFaturaDestinoId(e.target.value)}
-                className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 outline-none focus:border-green-400"
+            <div key={erroFaturaDestino ? shakeMovimentoKey : "ok"} className={`mt-5 ${erroFaturaDestino ? "animate-shake" : ""}`}>
+              <label className={erroFaturaDestino ? "text-sm text-red-400" : "text-sm text-gray-300"}>Fatura destino</label>
+              <button
+                type="button"
+                onClick={() => setModalFaturaDestinoAberto(true)}
+                className={`w-full mt-2 bg-[#0B1120] border ${erroFaturaDestino ? "border-red-500" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
               >
-                <option value="">Selecionar fatura</option>
-                {faturasDestino
-                  .filter((item) => String(item.id) !== String(faturaAtual.id))
-                  .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {tituloFatura(item)} • vence {formatarDataBR(item.data_vencimento)}{item.nova ? " • nova" : ""}
-                    </option>
-                  ))}
-              </select>
+                {faturasDestino.find((item) => String(item.id) === String(faturaDestinoId))
+                  ? `${tituloFatura(faturasDestino.find((item) => String(item.id) === String(faturaDestinoId)))} • vence ${formatarDataBR(faturasDestino.find((item) => String(item.id) === String(faturaDestinoId)).data_vencimento)}`
+                  : "Selecionar fatura"}
+              </button>
+              {erroFaturaDestino && <p className="mt-1 text-xs text-red-400">{erroFaturaDestino}</p>}
             </div>
 
             {parcelaMovendo && Number(parcelaMovendo.total_parcelas || 1) > 1 && Number(parcelaMovendo.numero_parcela || 1) === 1 && (
@@ -1282,43 +1277,46 @@ export default function DetalheFaturaModal({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
-              <div>
-                <label className="text-sm text-gray-300 block mb-2">Data do pagamento</label>
+              <div key={errosPagamento.dataPagamento ? shakePagamentoKey : "ok"} className={errosPagamento.dataPagamento ? "animate-shake" : ""}>
+                <label className={errosPagamento.dataPagamento ? "text-sm text-red-400 block mb-2" : "text-sm text-gray-300 block mb-2"}>Data do pagamento</label>
                 <button
                   type="button"
                   onClick={() => setModalDataPagamentoAberto(true)}
-                  className="w-full bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                  className={`w-full bg-[#0B1120] border ${errosPagamento.dataPagamento ? "border-red-500" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
                 >
                   {formatarDataBR(dataPagamento)}
                 </button>
+                {errosPagamento.dataPagamento && <p className="mt-1 text-xs text-red-400">{errosPagamento.dataPagamento}</p>}
               </div>
 
-              <div>
-                <label className="text-sm text-gray-300 block mb-2">Forma de pagamento</label>
+              <div key={errosPagamento.formaPagamento ? shakePagamentoKey : "ok"} className={errosPagamento.formaPagamento ? "animate-shake" : ""}>
+                <label className={errosPagamento.formaPagamento ? "text-sm text-red-400 block mb-2" : "text-sm text-gray-300 block mb-2"}>Forma de pagamento</label>
                 <button
                   type="button"
                   onClick={() => setModalFormaPagamentoAberto(true)}
-                  className="w-full bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                  className={`w-full bg-[#0B1120] border ${errosPagamento.formaPagamento ? "border-red-500" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
                 >
                   {textoFormaPagamento()}
                 </button>
+                {errosPagamento.formaPagamento && <p className="mt-1 text-xs text-red-400">{errosPagamento.formaPagamento}</p>}
               </div>
 
-              <div>
-                <label className="text-sm text-gray-300 block mb-2">Conta</label>
+              <div key={errosPagamento.contaId ? shakePagamentoKey : "ok"} className={errosPagamento.contaId ? "animate-shake" : ""}>
+                <label className={errosPagamento.contaId ? "text-sm text-red-400 block mb-2" : "text-sm text-gray-300 block mb-2"}>Conta</label>
                 <button
                   type="button"
                   onClick={() => setModalContaAberto(true)}
-                  className="w-full bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                  className={`w-full bg-[#0B1120] border ${errosPagamento.contaId ? "border-red-500" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
                 >
                   {textoConta()}
                 </button>
+                {errosPagamento.contaId && <p className="mt-1 text-xs text-red-400">{errosPagamento.contaId}</p>}
               </div>
 
-              <div>
-                <label className="text-sm text-gray-300 block mb-2">Valor pago</label>
+              <div key={errosPagamento.valorPago ? shakePagamentoKey : "ok"} className={errosPagamento.valorPago ? "animate-shake" : ""}>
+                <label className={errosPagamento.valorPago ? "text-sm text-red-400 block mb-2" : "text-sm text-gray-300 block mb-2"}>Valor pago</label>
 
-                <div className="flex items-center bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+                <div className={`flex items-center bg-[#0B1120] border ${errosPagamento.valorPago ? "border-red-500" : "border-gray-700"} rounded-xl overflow-hidden`}>
                   <span className="px-3 text-gray-400">R$</span>
 
                   <input
@@ -1327,12 +1325,14 @@ export default function DetalheFaturaModal({
                     value={valorPago}
                     placeholder="0,00"
                     onChange={(e) => {
+                      setErrosPagamento((atuais) => ({ ...atuais, valorPago: undefined }));
                       setValorPago(formatarMoedaDigitada(e.target.value));
                       setConfirmarParcial(false);
                     }}
                     className="w-full bg-transparent p-3 outline-none"
                   />
                 </div>
+                {errosPagamento.valorPago && <p className="mt-1 text-xs text-red-400">{errosPagamento.valorPago}</p>}
               </div>
             </div>
 
@@ -1379,10 +1379,38 @@ export default function DetalheFaturaModal({
           </div>
         </div>
       )}
+      <SelecionarOpcaoModal
+        aberto={modalFaturaDestinoAberto}
+        titulo="Fatura destino"
+        descricao="Escolha para onde os lançamentos serão movidos."
+        opcoes={faturasDestino
+          .filter((item) => String(item.id) !== String(faturaAtual.id))
+          .map((item) => ({
+            valor: String(item.id),
+            titulo: tituloFatura(item),
+            descricao: `Vence em ${formatarDataBR(item.data_vencimento)}${item.nova ? " • será criada" : ""}`,
+          }))}
+        valor={String(faturaDestinoId)}
+        onSelecionar={(valor) => { setErroFaturaDestino(""); setFaturaDestinoId(valor); }}
+        onClose={() => setModalFaturaDestinoAberto(false)}
+      />
+      <SelecionarOpcaoModal
+        aberto={modalStatusFaturaAberto}
+        titulo="Status da fatura"
+        opcoes={[
+          { valor: "aberta", titulo: "Aberta" },
+          { valor: "fechada", titulo: "Fechada" },
+          { valor: "parcial", titulo: "Parcial" },
+          { valor: "paga", titulo: "Paga" },
+        ]}
+        valor={editStatus}
+        onSelecionar={setEditStatus}
+        onClose={() => setModalStatusFaturaAberto(false)}
+      />
       <DatePickerModal
         aberto={modalDataFechamentoAberto}
         valor={editDataFechamento}
-        onChange={setEditDataFechamento}
+        onChange={(valor) => { setErrosEdicao((atuais) => ({ ...atuais, fechamento: undefined })); setEditDataFechamento(valor); }}
         onClose={() => setModalDataFechamentoAberto(false)}
         titulo="Data de fechamento"
         descricao="Escolha a data de fechamento da fatura."
@@ -1391,7 +1419,7 @@ export default function DetalheFaturaModal({
       <DatePickerModal
         aberto={modalDataVencimentoAberto}
         valor={editDataVencimento}
-        onChange={setEditDataVencimento}
+        onChange={(valor) => { setErrosEdicao((atuais) => ({ ...atuais, vencimento: undefined })); setEditDataVencimento(valor); }}
         onClose={() => setModalDataVencimentoAberto(false)}
         titulo="Data de vencimento"
         descricao="Escolha a data de vencimento da fatura."
@@ -1400,7 +1428,7 @@ export default function DetalheFaturaModal({
       <DatePickerModal
         aberto={modalDataPagamentoAberto}
         valor={dataPagamento}
-        onChange={setDataPagamento}
+        onChange={(valor) => { setErrosPagamento((atuais) => ({ ...atuais, dataPagamento: undefined })); setDataPagamento(valor); }}
         onClose={() => setModalDataPagamentoAberto(false)}
         titulo="Data do pagamento"
         descricao="Escolha a data em que a fatura foi paga."
@@ -1410,7 +1438,7 @@ export default function DetalheFaturaModal({
         aberto={modalFormaPagamentoAberto}
         formasPagamento={formasPagamento}
         formaPagamento={formaPagamento}
-        onSelecionar={setFormaPagamento}
+        onSelecionar={(valor) => { setErrosPagamento((atuais) => ({ ...atuais, formaPagamento: undefined })); setFormaPagamento(valor); }}
         onClose={() => setModalFormaPagamentoAberto(false)}
       />
 
@@ -1418,7 +1446,7 @@ export default function DetalheFaturaModal({
         aberto={modalContaAberto}
         contas={contas}
         contaId={contaId}
-        onSelecionar={setContaId}
+        onSelecionar={(valor) => { setErrosPagamento((atuais) => ({ ...atuais, contaId: undefined })); setContaId(valor); }}
         onClose={() => setModalContaAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -1451,11 +1479,12 @@ export default function DetalheFaturaModal({
   );
 }
 
-function CampoFatura({ label, children }) {
+function CampoFatura({ label, children, erro, shakeKey }) {
   return (
-    <div>
-      <label className="text-sm text-gray-300 block mb-2">{label}</label>
+    <div key={erro ? shakeKey : "ok"} className={erro ? "animate-shake" : ""}>
+      <label className={erro ? "text-sm text-red-400 block mb-2" : "text-sm text-gray-300 block mb-2"}>{label}</label>
       {children}
+      {erro && <p className="mt-1 text-xs text-red-400">{erro}</p>}
     </div>
   );
 }
@@ -1480,4 +1509,3 @@ function ResumoFatura({ titulo, valor, destaque }) {
     </div>
   );
 }
-

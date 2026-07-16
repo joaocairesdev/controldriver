@@ -589,6 +589,15 @@ Itens não aplicáveis podem ser ignorados conscientemente, nunca automaticament
 - [ ] Resumi mudanças reais, testes, problemas e dúvidas.
 - [ ] Segui o formato de entrega solicitado.
 
+### 20.7 Padrões globais de formulários, seletores, modais e temas
+
+- Campos obrigatórios são validados inline: todos os inválidos da etapa tremem uma vez, recebem destaque vermelho e exibem mensagem própria. Não use alerta, toast, `FeedbackModal` ou outro pop-up para obrigatoriedade.
+- Ao corrigir um campo, remova seu erro imediatamente. Ao sair e retornar a uma etapa, limpe apenas os erros visuais e preserve os valores preenchidos.
+- Seletores não usam a aparência nativa do navegador. Reutilize seletores compartilhados com campo clicável, modal ou painel, estado selecionado e comportamento responsivo.
+- Modais reutilizam `ModalBase` ou estrutura equivalente com overlay que bloqueia a página, layout em coluna, header e footer fixos e somente a área central rolável.
+- Cores estruturais usam os tokens globais de tema. Todo componente novo deve manter contraste e funcionamento nos temas claro e escuro.
+- Inputs, listas, modais e seletores devem reutilizar os componentes compartilhados compatíveis antes da criação de uma variante local.
+
 ## 21. Princípio Final
 
 Toda alteração deve deixar o ControlDriver preparado para continuar evoluindo.

@@ -14,6 +14,7 @@ import SelecionarCategoriaModal from "../../categorias/components/SelecionarCate
 import GerenciarCategoriasModal from "../../categorias/components/GerenciarCategoriasModal";
 import SelecionarParcelasModal from "../../../shared/components/modals/SelecionarParcelasModal";
 import { CATEGORIAS_SISTEMA_FIXAS } from "../../categorias/constants/categoriasSistema";
+import { FORMA_PAGAMENTO_DEBITO_CONTA } from "../../../shared/constants/formasPagamento";
 import {
   ajustarVencimentoFimDeSemana,
   calcularCompetenciaFaturaPorCompra,
@@ -60,6 +61,7 @@ export default function SaidaModal({
     { valor: "dinheiro", titulo: "Dinheiro", descricao: "Sai da carteira" },
     { valor: "pix", titulo: "Pix", descricao: "Sai direto da conta" },
     { valor: "debito", titulo: "Débito", descricao: "Sai direto da conta" },
+    FORMA_PAGAMENTO_DEBITO_CONTA,
     {
       valor: "credito_avista",
       titulo: "Crédito à Vista",
@@ -124,6 +126,17 @@ export default function SaidaModal({
     mensagem: "",
     fecharDepois: false,
   });
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
+
+  function limparErro(campo) {
+    setErros((atuais) => {
+      if (!atuais[campo]) return atuais;
+      const proximos = { ...atuais };
+      delete proximos[campo];
+      return proximos;
+    });
+  }
 
   const isCredito =
     formaPagamento === "credito_avista" || formaPagamento === "credito_parcelado";
@@ -569,6 +582,7 @@ export default function SaidaModal({
 
   function aplicarTipoUsoDaCategoria(categoriaEncontrada) {
     const tipoUso = categoriaEncontrada?.tipo_uso || "opcional";
+    setErros({});
 
     if (tipoUso === "opcional") {
       setFinalidade("");
@@ -679,7 +693,8 @@ export default function SaidaModal({
     const nomeLimpo = buscaAdicionarCategoria.trim();
 
     if (!nomeLimpo) {
-      abrirFeedback("erro", "Nome obrigatório", "Digite o nome da categoria.");
+      setErros({ categoria: "Digite o nome da categoria." });
+      setShakeKey(Date.now());
       return;
     }
 
@@ -736,7 +751,8 @@ export default function SaidaModal({
     const nomeLimpo = nomeCategoriaGerenciador.trim();
 
     if (!nomeLimpo) {
-      abrirFeedback("erro", "Nome obrigatório", "Informe o nome da categoria.");
+      setErros({ categoria: "Informe o nome da categoria." });
+      setShakeKey(Date.now());
       return;
     }
 
@@ -794,7 +810,8 @@ export default function SaidaModal({
 
   async function excluirCategoriasSelecionadasGerenciador() {
     if (categoriasSelecionadasExcluir.length === 0) {
-      abrirFeedback("aviso", "Nenhuma categoria selecionada", "Selecione pelo menos uma categoria.");
+      setErros({ categoria: "Selecione pelo menos uma categoria." });
+      setShakeKey(Date.now());
       return;
     }
 
@@ -1153,40 +1170,14 @@ async function atualizarValorFatura(faturaId, valorSomar) {
   }
 
   function validarCampos() {
-    if (!formaPagamento) {
-      abrirFeedback("erro", "Forma de pagamento obrigatória", "Selecione a forma de pagamento.");
-      return false;
-    }
-
-    if (!categoria) {
-      abrirFeedback("erro", "Categoria obrigatória", "Selecione a categoria da despesa.");
-      return false;
-    }
-
-    if (!finalidade) {
-      abrirFeedback("erro", "Tipo de uso obrigatório", "Informe se a despesa foi de uso pessoal ou à trabalho.");
-      return false;
-    }
-
-    if (modo !== "futura" && !dataCompra) {
-      abrirFeedback("erro", "Data obrigatória", "Selecione a data da compra.");
-      return false;
-    }
-
-    if (!valorTotal) {
-      abrirFeedback("erro", "Valor obrigatório", "Informe o valor da despesa.");
-      return false;
-    }
-
-    if (!descricao.trim()) {
-      abrirFeedback("erro", "Descrição obrigatória", "Informe a descrição da despesa.");
-      return false;
-    }
-
-    if (isCredito && !cartaoId) {
-      abrirFeedback("erro", "Cartão obrigatório", "Selecione um cartão.");
-      return false;
-    }
+    const novos = {};
+    if (!formaPagamento) novos.formaPagamento = "Selecione a forma de pagamento.";
+    if (!categoria) novos.categoria = "Selecione a categoria da despesa.";
+    if (!finalidade) novos.finalidade = "Informe se o uso foi pessoal ou a trabalho.";
+    if (modo !== "futura" && !dataCompra) novos.dataCompra = "Selecione a data da compra.";
+    if (moedaParaNumero(valorTotal) <= 0) novos.valorTotal = "Informe o valor da despesa.";
+    if (!descricao.trim()) novos.descricao = "Informe a descrição da despesa.";
+    if (isCredito && !cartaoId) novos.cartaoId = "Selecione um cartão.";
 
     if (isDinheiro && !carteiraSelecionada) {
       abrirFeedback(
@@ -1197,37 +1188,24 @@ async function atualizarValorFatura(faturaId, valorSomar) {
       return false;
     }
 
-    if (!isCredito && !isContaPagar && !contaId) {
-      abrirFeedback("erro", "Conta obrigatória", "Selecione uma conta.");
-      return false;
-    }
+    if (!isCredito && !isContaPagar && !contaId) novos.contaId = "Selecione uma conta.";
 
-    if (isContaPagar && !dataVencimento) {
-      abrirFeedback("erro", "Vencimento obrigatório", isBoletoParcelado ? "Informe o primeiro vencimento." : "Informe a data de vencimento.");
-      return false;
-    }
+    if (isContaPagar && !dataVencimento) novos.dataVencimento = isBoletoParcelado ? "Informe o primeiro vencimento." : "Informe a data de vencimento.";
 
     if (modo !== "futura" && isContaPagar && dataCompra && dataVencimento && dataVencimento < dataCompra) {
-      abrirFeedback("erro", "Vencimento inválido", "O vencimento do boleto não pode ser anterior à data da compra.");
-      return false;
+      novos.dataVencimento = "O vencimento não pode ser anterior à data da compra.";
     }
 
     if (isCreditoParcelado && Number(numeroParcelas || 0) < 2) {
-      abrirFeedback("erro", "Parcelamento inválido", "Crédito parcelado precisa começar em 2x.");
-      return false;
+      novos.numeroParcelas = "Crédito parcelado precisa começar em 2x.";
     }
 
     if (isBoletoParcelado && Number(numeroParcelas || 0) < 2) {
-      abrirFeedback("erro", "Parcelamento inválido", "Boleto parcelado precisa começar em 2x.");
-      return false;
+      novos.numeroParcelas = "Boleto parcelado precisa começar em 2x.";
     }
 
-    if (moedaParaNumero(valorTotal) <= 0) {
-      abrirFeedback("erro", "Valor inválido", "Informe um valor maior que zero.");
-      return false;
-    }
-
-    return true;
+    setErros(novos); if (Object.keys(novos).length) setShakeKey(Date.now());
+    return Object.keys(novos).length === 0;
   }
 
   async function salvarSaida() {
@@ -1429,6 +1407,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
               descricao="Despesa ligada à operação, rotina na rua ou atividade como motorista."
               onClick={() => {
                 setFinalidade("trabalho");
+                setErros({});
                 setEtapa("dados");
               }}
             />
@@ -1440,6 +1419,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
               descricao="Despesa da casa, família, lazer ou vida pessoal."
               onClick={() => {
                 setFinalidade("pessoal");
+                setErros({});
                 setEtapa("dados");
               }}
             />
@@ -1450,16 +1430,16 @@ async function atualizarValorFatura(faturaId, valorSomar) {
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {modo !== "futura" && (
-                <Campo label="Data da compra">
-                  <ButtonField onClick={() => setModalDataAberto(true)}>
+                <Campo label="Data da compra" erro={erros.dataCompra} shakeKey={shakeKey}>
+                  <ButtonField erro={erros.dataCompra} shakeKey={shakeKey} onClick={() => setModalDataAberto(true)}>
                     {dataCompra ? formatarDataBR(dataCompra) : "Selecionar data da compra"}
                   </ButtonField>
                 </Campo>
               )}
 
               {!categoriaBloqueada && (
-                <Campo label="Categoria">
-                  <ButtonField onClick={() => setModalCategoriaAberto(true)}>
+                <Campo label="Categoria" erro={erros.categoria} shakeKey={shakeKey}>
+                  <ButtonField erro={erros.categoria} shakeKey={shakeKey} onClick={() => setModalCategoriaAberto(true)}>
                     {categoria || "Selecionar categoria"}
                   </ButtonField>
                 </Campo>
@@ -1473,35 +1453,37 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                 </Campo>
               )}
 
-              <Campo label="Descrição">
+              <Campo label="Descrição" erro={erros.descricao} shakeKey={shakeKey}>
                 <input
                   type="text"
                   value={descricao}
                   placeholder={categoriaBloqueada && normalizarTexto(categoria) === "manutencao" ? "Ex: Revisão dos 140.000 km" : modo === "futura" ? "Ex: conta de luz, condomínio, internet..." : isContaPagar ? "Ex: compra no boleto, pedido online..." : "Ex: almoço, lavagem, seguro, IPVA..."}
-                  onChange={(e) => setDescricao(e.target.value)}
-                  className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
+                  onChange={(e) => { limparErro("descricao"); setDescricao(e.target.value); }}
+                  className={`w-full mt-2 bg-[#0B1120] border ${erros.descricao ? "border-red-500 animate-shake" : "border-gray-700 focus:border-green-400"} rounded-xl p-3 outline-none`}
                 />
               </Campo>
 
               {modo !== "futura" && (
-                <Campo label="Forma de pagamento">
-                  <ButtonField onClick={() => setModalPagamentoAberto(true)}>
+                <Campo label="Forma de pagamento" erro={erros.formaPagamento} shakeKey={shakeKey}>
+                  <ButtonField erro={erros.formaPagamento} shakeKey={shakeKey} onClick={() => setModalPagamentoAberto(true)}>
                     {textoFormaPagamento()}
                   </ButtonField>
                 </Campo>
               )}
 
               {isContaPagar && (
-                <Campo label={isBoletoParcelado ? "Primeiro vencimento" : modo === "futura" ? "Data de vencimento" : "Vencimento do boleto"}>
-                  <ButtonField onClick={() => setModalVencimentoAberto(true)}>
+                <Campo label={isBoletoParcelado ? "Primeiro vencimento" : modo === "futura" ? "Data de vencimento" : "Vencimento do boleto"} erro={erros.dataVencimento} shakeKey={shakeKey}>
+                  <ButtonField erro={erros.dataVencimento} shakeKey={shakeKey} onClick={() => setModalVencimentoAberto(true)}>
                     {dataVencimento ? formatarDataBR(dataVencimento) : isBoletoParcelado ? "Selecionar primeiro vencimento" : "Selecionar vencimento"}
                   </ButtonField>
                 </Campo>
               )}
 
               {modo !== "futura" && !isContaPagar && (
-                <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"}>
+                <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"} erro={isCredito ? erros.cartaoId : erros.contaId} shakeKey={shakeKey}>
                   <ButtonField
+                    erro={isCredito ? erros.cartaoId : erros.contaId}
+                    shakeKey={shakeKey}
                     onClick={() => {
                       if (isDinheiro) return;
                       isCredito ? setModalCartaoAberto(true) : setModalContaAberto(true);
@@ -1512,10 +1494,12 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                 </Campo>
               )}
 
-              <Campo label="Valor">
+              <Campo label="Valor" erro={erros.valorTotal} shakeKey={shakeKey}>
                 <MoneyInput
+                  erro={erros.valorTotal}
+                  shakeKey={shakeKey}
                   value={valorTotal}
-                  onChange={atualizarValorTotal}
+                  onChange={(valor) => { limparErro("valorTotal"); atualizarValorTotal(valor); }}
                   prefix="R$"
                   placeholder=""
                 />
@@ -1527,8 +1511,8 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                 <p className="text-sm text-gray-300 font-semibold">{isBoletoParcelado ? "Parcelamento do boleto" : "Parcelamento"}</p>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                  <Campo label="Quantidade de parcelas">
-                    <ButtonField onClick={() => setModalParcelasAberto(true)}>
+                  <Campo label="Quantidade de parcelas" erro={erros.numeroParcelas} shakeKey={shakeKey}>
+                    <ButtonField erro={erros.numeroParcelas} shakeKey={shakeKey} onClick={() => setModalParcelasAberto(true)}>
                       {numeroParcelas}x
                     </ButtonField>
                   </Campo>
@@ -1593,6 +1577,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         aberto={modalDataAberto}
         valor={dataCompra}
         onChange={(novaData) => {
+          limparErro("dataCompra");
           setDataCompra(novaData);
           if (dataVencimento && novaData && dataVencimento < novaData) {
             setDataVencimento("");
@@ -1606,7 +1591,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
       <DatePickerModal
         aberto={modalVencimentoAberto}
         valor={dataVencimento}
-        onChange={setDataVencimento}
+        onChange={(valor) => { limparErro("dataVencimento"); setDataVencimento(valor); }}
         onClose={() => setModalVencimentoAberto(false)}
         titulo={isBoletoParcelado ? "Primeiro vencimento" : modo === "futura" ? "Data de vencimento" : "Vencimento do boleto"}
         descricao="Escolha a data em que esta conta precisa ser paga."
@@ -1618,6 +1603,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         formasPagamento={formasPagamentoDisponiveis}
         formaPagamento={formaPagamento}
         onSelecionar={(valor) => {
+          limparErro("formaPagamento");
           setFormaPagamento(valor);
 
           if (valor === "credito_parcelado") {
@@ -1670,7 +1656,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         aberto={modalContaAberto}
         contas={contasBancarias}
         contaId={contaId}
-        onSelecionar={setContaId}
+        onSelecionar={(valor) => { limparErro("contaId"); setContaId(valor); }}
         onClose={() => setModalContaAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -1679,7 +1665,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         aberto={modalCartaoAberto}
         cartoes={cartoes}
         cartaoId={cartaoId}
-        onSelecionar={setCartaoId}
+        onSelecionar={(valor) => { limparErro("cartaoId"); setCartaoId(valor); }}
         onClose={() => setModalCartaoAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -1688,7 +1674,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         aberto={modalCategoriaAberto}
         categorias={categoriasNomes}
         categoria={categoria}
-        onSelecionar={selecionarCategoria}
+        onSelecionar={(valor) => { limparErro("categoria"); selecionarCategoria(valor); }}
         onClose={() => setModalCategoriaAberto(false)}
         permitirCriar={true}
         tipoUsoPadrao={finalidade}
@@ -1699,7 +1685,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
       <SelecionarParcelasModal
         aberto={modalParcelasAberto}
         numeroParcelas={numeroParcelas}
-        onSelecionar={setNumeroParcelas}
+        onSelecionar={(valor) => { limparErro("numeroParcelas"); setNumeroParcelas(valor); }}
         onClose={() => setModalParcelasAberto(false)}
       />
 
@@ -2050,9 +2036,9 @@ function TipoUsoCard({ ativo, icone, titulo, descricao, onClick }) {
   );
 }
 
-function MoneyInput({ value, onChange, prefix, suffix, placeholder }) {
+function MoneyInput({ value, onChange, prefix, suffix, placeholder, erro, shakeKey }) {
   return (
-    <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+    <div key={erro ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
       {prefix && <span className="px-3 text-gray-400">{prefix}</span>}
 
       <input

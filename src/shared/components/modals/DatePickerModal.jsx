@@ -32,7 +32,10 @@ export default function DatePickerModal({
   if (!aberto) return null;
 
   function dataISO(date) {
-    return date.toISOString().split("T")[0];
+    const anoLocal = date.getFullYear();
+    const mesLocal = String(date.getMonth() + 1).padStart(2, "0");
+    const diaLocal = String(date.getDate()).padStart(2, "0");
+    return `${anoLocal}-${mesLocal}-${diaLocal}`;
   }
 
   function dataBloqueada(data) {
@@ -94,7 +97,28 @@ export default function DatePickerModal({
   }
 
   return (
-    <ModalBase aberto={aberto} titulo={titulo} descricao={descricao} onClose={onClose} largura="max-w-md">
+    <ModalBase
+      aberto={aberto}
+      titulo={titulo}
+      descricao={descricao}
+      onClose={onClose}
+      largura="max-w-md"
+      acaoCabecalho={
+        <button
+          type="button"
+          onClick={selecionarHoje}
+          disabled={dataBloqueada(dataISO(new Date()))}
+          aria-pressed={valor === dataISO(new Date())}
+          className={`h-10 rounded-xl border px-3 text-sm font-bold transition disabled:border-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed ${
+            valor === dataISO(new Date())
+              ? "border-green-400 bg-green-500/10 text-green-400"
+              : "border-gray-700 text-gray-200 hover:border-green-400 hover:text-green-400"
+          }`}
+        >
+          Hoje
+        </button>
+      }
+    >
       <div className="flex items-center justify-between gap-2">
         <button type="button" onClick={() => alterarMes(-1)} className="w-10 h-10 rounded-xl hover:bg-white/5 text-gray-300 hover:text-white text-xl">‹</button>
 
@@ -116,8 +140,6 @@ export default function DatePickerModal({
 
       {modo === "calendario" && (
         <>
-          <button type="button" onClick={selecionarHoje} disabled={dataBloqueada(dataISO(new Date()))} className="mt-3 text-sm text-green-400 hover:text-green-300 disabled:text-gray-600 disabled:cursor-not-allowed font-semibold">Hoje</button>
-
           <div className="grid grid-cols-7 gap-1.5 mt-4 min-h-[292px]">
             {diasSemana.map((dia) => (
               <div key={dia} className="text-center text-[11px] text-gray-500 font-bold h-5">{dia}</div>
@@ -203,4 +225,3 @@ export default function DatePickerModal({
     </ModalBase>
   );
 }
-

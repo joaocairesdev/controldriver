@@ -52,11 +52,14 @@ export default function MetaModal({ aberto, onClose, onSalvar, metaAtual, metas 
   const [valorRealizadoAnual, setValorRealizadoAnual] = useState("");
   const [carregandoRealizado, setCarregandoRealizado] = useState(false);
   const [realizadoAutomatico, setRealizadoAutomatico] = useState(null);
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
 
   useEffect(() => {
     if (!aberto) return;
     setEtapa(1);
     setTipo(metaAtual?.tipo || "diaria");
+    setErros({});
   }, [aberto, metaAtual]);
 
   useEffect(() => {
@@ -96,6 +99,7 @@ export default function MetaModal({ aberto, onClose, onSalvar, metaAtual, metas 
   if (!aberto) return null;
 
   function alternarDiaSemana(dia) {
+    setErros((atuais) => ({ ...atuais, diasSemana: undefined }));
     setDiasSemana((lista) =>
       lista.includes(dia)
         ? lista.filter((item) => item !== dia)
@@ -104,6 +108,7 @@ export default function MetaModal({ aberto, onClose, onSalvar, metaAtual, metas 
   }
 
   function alternarDiaMes(dia) {
+    setErros((atuais) => ({ ...atuais, diasMes: undefined }));
     setDiasMes((lista) =>
       lista.includes(dia)
         ? lista.filter((item) => item !== dia)
@@ -169,24 +174,24 @@ export default function MetaModal({ aberto, onClose, onSalvar, metaAtual, metas 
 
   function validarConfiguracao() {
     const valorNumero = moedaParaNumero(valor);
+    const novosErros = {};
 
     if (valorNumero <= 0) {
-      alert("Informe o valor da meta.");
-      return false;
+      novosErros.valor = "Informe um valor maior que zero.";
     }
 
 
     if (tipo === "semanal" && diasSemana.length === 0) {
-      alert("Selecione pelo menos um dia da semana.");
-      return false;
+      novosErros.diasSemana = "Selecione pelo menos um dia da semana.";
     }
 
     if (tipo === "mensal" && diasMes.length === 0) {
-      alert("Selecione pelo menos um dia do mês.");
-      return false;
+      novosErros.diasMes = "Selecione pelo menos um dia do mês.";
     }
 
-    return true;
+    setErros(novosErros);
+    if (Object.keys(novosErros).length) setShakeKey(Date.now());
+    return Object.keys(novosErros).length === 0;
   }
 
   function avancar() {
@@ -196,6 +201,7 @@ export default function MetaModal({ aberto, onClose, onSalvar, metaAtual, metas 
   }
 
   function voltar() {
+    setErros({});
     if (etapa > 1) {
       setEtapa((atual) => atual - 1);
       return;
@@ -280,7 +286,15 @@ export default function MetaModal({ aberto, onClose, onSalvar, metaAtual, metas 
             <div className="grid grid-cols-1 gap-4">
               <div>
                 <label className="text-sm text-gray-300">{rotuloCampoValor(tipo)}</label>
-                <CampoMoeda valor={valor} onChange={(valorDigitado) => setValor(formatarMoedaDigitada(valorDigitado))} />
+                <CampoMoeda
+                  erro={erros.valor}
+                  shakeKey={shakeKey}
+                  valor={valor}
+                  onChange={(valorDigitado) => {
+                    setErros((atuais) => ({ ...atuais, valor: undefined }));
+                    setValor(formatarMoedaDigitada(valorDigitado));
+                  }}
+                />
               </div>
 
             </div>
@@ -293,6 +307,7 @@ export default function MetaModal({ aberto, onClose, onSalvar, metaAtual, metas 
                   <p className="text-sm text-gray-400 mt-1">Escolha os dias em que pretende trabalhar. A meta semanal será distribuída somente entre eles.</p>
                 </div>
                 <DiasSemanaCards diasSelecionados={diasSemana} alternarDia={alternarDiaSemana} />
+                {erros.diasSemana && <ErroInline mensagem={erros.diasSemana} shakeKey={shakeKey} />}
               </section>
             )}
 
@@ -332,6 +347,7 @@ export default function MetaModal({ aberto, onClose, onSalvar, metaAtual, metas 
                     )
                   )}
                 </div>
+                {erros.diasMes && <ErroInline mensagem={erros.diasMes} shakeKey={shakeKey} />}
               </section>
             )}
 
@@ -504,20 +520,20 @@ function RealizadoAntesBox({
   );
 }
 
-function CampoMoeda({ valor, onChange }) {
+function CampoMoeda({ valor, onChange, erro, shakeKey }) {
   return (
-    <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
-      <span className="px-3 text-gray-400">R$</span>
-      <input
-        type="text"
-        inputMode="decimal"
-        value={valor}
-        placeholder="0,00"
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-transparent p-3 outline-none"
-      />
-    </div>
+    <>
+      <div key={erro ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
+        <span className="px-3 text-gray-400">R$</span>
+        <input type="text" inputMode="decimal" value={valor} placeholder="0,00" onChange={(e) => onChange(e.target.value)} className="w-full bg-transparent p-3 outline-none" />
+      </div>
+      {erro && <ErroInline mensagem={erro} shakeKey={shakeKey} />}
+    </>
   );
+}
+
+function ErroInline({ mensagem, shakeKey }) {
+  return <p key={shakeKey} className="animate-shake text-xs text-red-400 font-semibold mt-2">{mensagem}</p>;
 }
 
 function DiasSemanaCards({ diasSelecionados, alternarDia }) {
@@ -745,4 +761,3 @@ function normalizarDiasSemana(valor) {
 function ordemDiaSemana(dia) {
   return dia === 0 ? 7 : dia;
 }
-

@@ -30,6 +30,7 @@ import {
   recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
   removerParcelasDaSaidaERecalcularFaturas,
 } from "../../cartoes/utils/cartoesUtils";
+import { FORMA_PAGAMENTO_DEBITO_CONTA } from "../../../shared/constants/formasPagamento";
 
 const COMBUSTIVEIS = [
   { valor: "etanol", titulo: "Etanol" },
@@ -48,6 +49,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     { valor: "dinheiro", titulo: "Dinheiro", descricao: "Sai da carteira" },
     { valor: "pix", titulo: "Pix", descricao: "Sai direto da conta" },
     { valor: "debito", titulo: "Débito", descricao: "Sai direto da conta" },
+    FORMA_PAGAMENTO_DEBITO_CONTA,
     { valor: "credito_avista", titulo: "Crédito à Vista", descricao: "Entra na próxima fatura do cartão" },
     { valor: "credito_parcelado", titulo: "Crédito Parcelado", descricao: "Divide em 2x ou mais no cartão" },
     { valor: "boleto", titulo: "Boleto", descricao: "Registra uma conta a pagar" },
@@ -58,7 +60,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   const [veiculos, setVeiculos] = useState([]);
 
   const [dataCompra, setDataCompra] = useState(hoje);
-  const [formaPagamento, setFormaPagamento] = useState("pix");
+  const [formaPagamento, setFormaPagamento] = useState("");
   const [contaId, setContaId] = useState("");
   const [cartaoId, setCartaoId] = useState("");
   const [dataVencimento, setDataVencimento] = useState(hoje);
@@ -68,7 +70,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   const [ultimoCampoEditado, setUltimoCampoEditado] = useState("total");
 
   const [veiculoId, setVeiculoId] = useState("");
-  const [tipoCombustivel, setTipoCombustivel] = useState("etanol");
+  const [tipoCombustivel, setTipoCombustivel] = useState("");
   const [valorLitro, setValorLitro] = useState("");
   const [modoKm, setModoKm] = useState("trip");
   const [kmRodados, setKmRodados] = useState("");
@@ -86,6 +88,8 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
 
   const [salvando, setSalvando] = useState(false);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "", fecharDepois: false });
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
 
   const isCredito = formaPagamento === "credito_avista" || formaPagamento === "credito_parcelado";
   const isCreditoParcelado = formaPagamento === "credito_parcelado";
@@ -146,8 +150,8 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
 
     const aceitos = veiculoSelecionado.combustiveis_aceitos || [];
 
-    if (aceitos.length > 0 && !aceitos.includes(tipoCombustivel)) {
-      setTipoCombustivel(aceitos[0]);
+    if (!aceitos.includes(tipoCombustivel)) {
+      setTipoCombustivel(aceitos.length === 1 ? aceitos[0] : "");
     }
   }, [veiculoSelecionado, tipoCombustivel]);
 
@@ -196,12 +200,12 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     setCartoes(cartoesComUso);
     setVeiculos(veiculosPermitidos || veiculosData || []);
     const carteira = contasComSaldo.find((c) => c.tipo_conta === "carteira");
-    const principal = contasComSaldo.find((c) => c.principal);
+    const contasValidas = contasComSaldo.filter((c) => (c.tipo_conta || "banco") === "banco");
     const listaVeiculos = veiculosPermitidos || veiculosData || [];
-    const veiculoPrincipal = listaVeiculos.find((v) => v.principal) || listaVeiculos[0];
     if (formaPagamento === "dinheiro" && carteira) setContaId(String(carteira.id));
-    else if (principal) setContaId(String(principal.id));
-    if (veiculoPrincipal) setVeiculoId(String(veiculoPrincipal.id));
+    else setContaId(contasValidas.length === 1 ? String(contasValidas[0].id) : "");
+    setCartaoId(cartoesComUso.length === 1 ? String(cartoesComUso[0].id) : "");
+    setVeiculoId(listaVeiculos.length === 1 ? String(listaVeiculos[0].id) : "");
   }
 
   async function carregarUsoDosCartoes(listaCartoes) {
@@ -212,8 +216,8 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   }
 
   function limparFormulario(limparTudo = true) {
-    setDataCompra(hoje); setDataVencimento(hoje); setFormaPagamento("pix"); setValorTotal(""); setNumeroParcelas("1"); setValorParcela(""); setUltimoCampoEditado("total");
-    setValorLitro(""); setModoKm("trip"); setKmRodados(""); setOdometro(""); setTanqueCheio(true); setTipoCombustivel("etanol"); setCartaoId("");
+    setDataCompra(hoje); setDataVencimento(hoje); setFormaPagamento(""); setValorTotal(""); setNumeroParcelas("1"); setValorParcela(""); setUltimoCampoEditado("total");
+    setValorLitro(""); setModoKm("trip"); setKmRodados(""); setOdometro(""); setTanqueCheio(true); setTipoCombustivel(""); setCartaoId("");
     if (limparTudo) { setContaId(""); setVeiculoId(""); }
   }
 
@@ -233,6 +237,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   function atualizarKmRodados(valor) { const km = somenteNumeros(valor); setKmRodados(km); if (modoKm === "trip" && veiculoSelecionado) setOdometro(String(Number(veiculoSelecionado.odometro_atual || 0) + Number(km || 0))); }
   function atualizarOdometro(valor) { const novo = somenteNumeros(valor); setOdometro(novo); if (modoKm === "odometro" && veiculoSelecionado) setKmRodados(String(Math.max(Number(novo || 0) - Number(veiculoSelecionado.odometro_atual || 0), 0))); }
   function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) { setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois }); }
+  function limparErro(campo) { setErros((atuais) => { if (!atuais[campo]) return atuais; const novos = { ...atuais }; delete novos[campo]; return novos; }); }
   async function fecharFeedback() {
     const fechar = feedback.fecharDepois;
 
@@ -251,7 +256,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     }
   }
 
-  function definirContaBancariaPadrao() { const conta = contasBancarias.find((c) => c.principal) || contasBancarias[0]; if (conta) setContaId(String(conta.id)); }
+  function definirContaBancariaPadrao() { setContaId(contasBancarias.length === 1 ? String(contasBancarias[0].id) : ""); }
   function definirStatus() { if (isBoleto) return "aberto"; if (isCredito) return "fatura"; return "pago"; }
   function definirTipoMovimentacao() { if (isBoleto) return "conta_pagar"; return "saida"; }
   async function recalcularFaturaPorParcelas(faturaId) {
@@ -291,15 +296,22 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   }
 
   function validar() {
-    if (!dataCompra || !valorTotal || !valorLitro || !veiculoId) { abrirFeedback("erro", "Campos obrigatórios", "Preencha data, veículo, valor total e valor do litro."); return false; }
-    if (isCredito && !cartaoId) { abrirFeedback("erro", "Cartão obrigatório", "Selecione um cartão."); return false; }
+    const novos = {};
+    if (!dataCompra) novos.dataCompra = "Selecione a data da compra.";
+    if (!formaPagamento) novos.formaPagamento = "Selecione a forma de pagamento.";
+    if (!veiculoId) novos.veiculoId = "Selecione o veículo.";
+    if (!tipoCombustivel) novos.tipoCombustivel = "Selecione o combustível.";
+    if (moedaParaNumero(valorTotal) <= 0) novos.valorTotal = "Informe o valor total.";
+    if (moedaParaNumero(valorLitro) <= 0) novos.valorLitro = "Informe o valor do litro.";
+    if (isCredito && !cartaoId) novos.cartaoId = "Selecione um cartão.";
     if (isDinheiro && !carteiraSelecionada) { abrirFeedback("erro", "Carteira não encontrada", "Cadastre uma carteira antes de lançar dinheiro."); return false; }
-    if (!isCredito && !isBoleto && !contaId) { abrirFeedback("erro", "Conta obrigatória", "Selecione uma conta."); return false; }
-    if (isBoleto && !dataVencimento) { abrirFeedback("erro", "Vencimento obrigatório", "Informe a data de vencimento."); return false; }
+    if (!isCredito && !isBoleto && !contaId) novos.contaId = "Selecione uma conta.";
+    if (isBoleto && !dataVencimento) novos.dataVencimento = "Informe a data de vencimento.";
     if (isCreditoParcelado && Number(numeroParcelas || 0) < 2) { abrirFeedback("erro", "Parcelamento inválido", "Crédito parcelado precisa começar em 2x."); return false; }
-    if (!kmRodados && !odometro) { abrirFeedback("erro", "KM obrigatório", "Informe o KM rodado ou o odômetro."); return false; }
+    if (!kmRodados && !odometro) novos.km = "Informe o KM rodado ou o odômetro.";
     if (modoKm === "odometro" && veiculoSelecionado && Number(odometro || 0) < Number(veiculoSelecionado.odometro_atual || 0)) { abrirFeedback("erro", "Odômetro inválido", `O odômetro não pode ser menor que ${Number(veiculoSelecionado.odometro_atual || 0).toLocaleString("pt-BR")} km.`); return false; }
-    return true;
+    setErros(novos); if (Object.keys(novos).length) setShakeKey(Date.now());
+    return Object.keys(novos).length === 0;
   }
 
   async function salvar() {
@@ -389,17 +401,19 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
         <div className="max-h-[72vh] overflow-y-auto pr-1 scrollbar-hide">
           <section className="bg-[#0B1120] border border-gray-800 rounded-2xl p-5">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              <Campo label="Data da compra">
-                <ButtonField onClick={() => setModalDataAberto(true)}>{formatarDataBR(dataCompra)}</ButtonField>
+              <Campo label="Data da compra" erro={erros.dataCompra} shakeKey={shakeKey}>
+                <ButtonField erro={erros.dataCompra} shakeKey={shakeKey} onClick={() => setModalDataAberto(true)}>{formatarDataBR(dataCompra)}</ButtonField>
               </Campo>
 
-              <Campo label="Forma de pagamento">
-                <ButtonField onClick={() => setModalPagamentoAberto(true)}>{textoFormaPagamento()}</ButtonField>
+              <Campo label="Forma de pagamento" erro={erros.formaPagamento} shakeKey={shakeKey}>
+                <ButtonField erro={erros.formaPagamento} shakeKey={shakeKey} onClick={() => setModalPagamentoAberto(true)}>{textoFormaPagamento()}</ButtonField>
               </Campo>
 
               {!isBoleto && (
-                <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"}>
+                <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"} erro={isCredito ? erros.cartaoId : erros.contaId} shakeKey={shakeKey}>
                   <ButtonField
+                    erro={isCredito ? erros.cartaoId : erros.contaId}
+                    shakeKey={shakeKey}
                     onClick={() => {
                       if (isDinheiro) return;
                       isCredito ? setModalCartaoAberto(true) : setModalContaAberto(true);
@@ -411,25 +425,25 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
               )}
 
               {isBoleto && (
-                <Campo label="Vencimento do boleto">
-                  <ButtonField onClick={() => setModalVencimentoAberto(true)}>{formatarDataBR(dataVencimento)}</ButtonField>
+                <Campo label="Vencimento do boleto" erro={erros.dataVencimento} shakeKey={shakeKey}>
+                  <ButtonField erro={erros.dataVencimento} shakeKey={shakeKey} onClick={() => setModalVencimentoAberto(true)}>{formatarDataBR(dataVencimento)}</ButtonField>
                 </Campo>
               )}
 
-              <Campo label="Veículo">
-                <ButtonField onClick={() => setModalVeiculoAberto(true)}>{veiculoSelecionado?.nome || "Selecionar veículo"}</ButtonField>
+              <Campo label="Veículo" erro={erros.veiculoId} shakeKey={shakeKey}>
+                <ButtonField erro={erros.veiculoId} shakeKey={shakeKey} onClick={() => setModalVeiculoAberto(true)}>{veiculoSelecionado?.nome || "Selecionar veículo"}</ButtonField>
               </Campo>
 
-              <Campo label="Tipo de combustível">
-                <ButtonField onClick={() => setModalCombustivelAberto(true)}>{textoCombustivel()}</ButtonField>
+              <Campo label="Tipo de combustível" erro={erros.tipoCombustivel} shakeKey={shakeKey}>
+                <ButtonField erro={erros.tipoCombustivel} shakeKey={shakeKey} onClick={() => setModalCombustivelAberto(true)}>{textoCombustivel()}</ButtonField>
               </Campo>
 
-              <Campo label="Valor do litro">
-                <MoneyInput value={valorLitro} onChange={(v) => setValorLitro(formatarMoedaDigitada(v))} prefix="R$" placeholder="" />
+              <Campo label="Valor do litro" erro={erros.valorLitro} shakeKey={shakeKey}>
+                <MoneyInput erro={erros.valorLitro} shakeKey={shakeKey} value={valorLitro} onChange={(v) => { limparErro("valorLitro"); setValorLitro(formatarMoedaDigitada(v)); }} prefix="R$" placeholder="" />
               </Campo>
 
-              <Campo label="Valor total">
-                <MoneyInput value={valorTotal} onChange={atualizarValorTotal} prefix="R$" placeholder="" />
+              <Campo label="Valor total" erro={erros.valorTotal} shakeKey={shakeKey}>
+                <MoneyInput erro={erros.valorTotal} shakeKey={shakeKey} value={valorTotal} onChange={(v) => { limparErro("valorTotal"); atualizarValorTotal(v); }} prefix="R$" placeholder="" />
               </Campo>
 
               {isCreditoParcelado && (
@@ -460,12 +474,12 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
               </Campo>
 
               {modoKm === "trip" ? (
-                <Campo label="KM rodados / Trip B">
-                  <MoneyInput value={kmRodados} onChange={atualizarKmRodados} suffix="km" placeholder="0" />
+                <Campo label="KM rodados / Trip B" erro={erros.km} shakeKey={shakeKey}>
+                  <MoneyInput erro={erros.km} shakeKey={shakeKey} value={kmRodados} onChange={(valor) => { limparErro("km"); atualizarKmRodados(valor); }} suffix="km" placeholder="0" />
                 </Campo>
               ) : (
-                <Campo label="Odômetro atual">
-                  <MoneyInput value={odometro} onChange={atualizarOdometro} suffix="km" placeholder="0" />
+                <Campo label="Odômetro atual" erro={erros.km} shakeKey={shakeKey}>
+                  <MoneyInput erro={erros.km} shakeKey={shakeKey} value={odometro} onChange={(valor) => { limparErro("km"); atualizarOdometro(valor); }} suffix="km" placeholder="0" />
                 </Campo>
               )}
 
@@ -491,13 +505,13 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
         </div>
       </ModalBase>
 
-      <DatePickerModal aberto={modalDataAberto} valor={dataCompra} onChange={setDataCompra} onClose={() => setModalDataAberto(false)} titulo="Selecionar data" descricao="Escolha a data da compra." />
-      <DatePickerModal aberto={modalVencimentoAberto} valor={dataVencimento} onChange={setDataVencimento} onClose={() => setModalVencimentoAberto(false)} titulo="Vencimento do boleto" descricao="Escolha a data em que esta conta precisa ser paga." />
-      <SelecionarFormaPagamentoModal aberto={modalPagamentoAberto} formasPagamento={formasPagamento} formaPagamento={formaPagamento} onSelecionar={(valor) => { setFormaPagamento(valor); if (valor === "credito_parcelado") { setContaId(""); setNumeroParcelas((a) => Number(a || 0) < 2 ? "2" : a); } if (valor === "credito_avista") { setContaId(""); setNumeroParcelas("1"); setValorParcela(""); } if (valor === "boleto") { setContaId(""); setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); } if (valor === "dinheiro") { setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); if (carteiraSelecionada) setContaId(String(carteiraSelecionada.id)); } if (!["credito_avista", "credito_parcelado", "boleto"].includes(valor)) { setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); if (valor !== "dinheiro") definirContaBancariaPadrao(); } }} onClose={() => setModalPagamentoAberto(false)} />
-      <SelecionarContaModal aberto={modalContaAberto} contas={contasBancarias} contaId={contaId} onSelecionar={setContaId} onClose={() => setModalContaAberto(false)} formatarMoeda={formatarMoeda} />
-      <SelecionarCartaoModal aberto={modalCartaoAberto} cartoes={cartoes} cartaoId={cartaoId} onSelecionar={setCartaoId} onClose={() => setModalCartaoAberto(false)} formatarMoeda={formatarMoeda} />
-      <SelecionarVeiculoModal aberto={modalVeiculoAberto} veiculos={veiculos} veiculoId={veiculoId} onSelecionar={setVeiculoId} onClose={() => setModalVeiculoAberto(false)} />
-      <SelecionarCombustivelModal aberto={modalCombustivelAberto} combustiveis={combustiveisDisponiveis} tipoCombustivel={tipoCombustivel} onSelecionar={setTipoCombustivel} onClose={() => setModalCombustivelAberto(false)} />
+      <DatePickerModal aberto={modalDataAberto} valor={dataCompra} onChange={(valor) => { limparErro("dataCompra"); setDataCompra(valor); }} onClose={() => setModalDataAberto(false)} titulo="Selecionar data" descricao="Escolha a data da compra." />
+      <DatePickerModal aberto={modalVencimentoAberto} valor={dataVencimento} onChange={(valor) => { limparErro("dataVencimento"); setDataVencimento(valor); }} onClose={() => setModalVencimentoAberto(false)} titulo="Vencimento do boleto" descricao="Escolha a data em que esta conta precisa ser paga." />
+      <SelecionarFormaPagamentoModal aberto={modalPagamentoAberto} formasPagamento={formasPagamento} formaPagamento={formaPagamento} onSelecionar={(valor) => { limparErro("formaPagamento"); setFormaPagamento(valor); if (valor === "credito_parcelado") { setContaId(""); setNumeroParcelas((a) => Number(a || 0) < 2 ? "2" : a); } if (valor === "credito_avista") { setContaId(""); setNumeroParcelas("1"); setValorParcela(""); } if (valor === "boleto") { setContaId(""); setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); } if (valor === "dinheiro") { setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); if (carteiraSelecionada) setContaId(String(carteiraSelecionada.id)); } if (!["credito_avista", "credito_parcelado", "boleto"].includes(valor)) { setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); if (valor !== "dinheiro") definirContaBancariaPadrao(); } }} onClose={() => setModalPagamentoAberto(false)} />
+      <SelecionarContaModal aberto={modalContaAberto} contas={contasBancarias} contaId={contaId} onSelecionar={(valor) => { limparErro("contaId"); setContaId(valor); }} onClose={() => setModalContaAberto(false)} formatarMoeda={formatarMoeda} />
+      <SelecionarCartaoModal aberto={modalCartaoAberto} cartoes={cartoes} cartaoId={cartaoId} onSelecionar={(valor) => { limparErro("cartaoId"); setCartaoId(valor); }} onClose={() => setModalCartaoAberto(false)} formatarMoeda={formatarMoeda} />
+      <SelecionarVeiculoModal aberto={modalVeiculoAberto} veiculos={veiculos} veiculoId={veiculoId} onSelecionar={(valor) => { limparErro("veiculoId"); setVeiculoId(valor); }} onClose={() => setModalVeiculoAberto(false)} />
+      <SelecionarCombustivelModal aberto={modalCombustivelAberto} combustiveis={combustiveisDisponiveis} tipoCombustivel={tipoCombustivel} onSelecionar={(valor) => { limparErro("tipoCombustivel"); setTipoCombustivel(valor); }} onClose={() => setModalCombustivelAberto(false)} />
       <SelecionarParcelasModal aberto={modalParcelasAberto} numeroParcelas={numeroParcelas} onSelecionar={setNumeroParcelas} onClose={() => setModalParcelasAberto(false)} />
       <FeedbackAbastecimentoModal
         aberto={feedback.aberto}
@@ -510,7 +524,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   );
 }
 
-function MoneyInput({ value, onChange, prefix, suffix, placeholder }) { return <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">{prefix && <span className="px-3 text-gray-400">{prefix}</span>}<input type="text" inputMode="decimal" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="w-full bg-transparent p-3 outline-none" />{suffix && <span className="px-3 text-gray-400">{suffix}</span>}</div>; }
+function MoneyInput({ value, onChange, prefix, suffix, placeholder, erro, shakeKey }) { return <div key={erro ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>{prefix && <span className="px-3 text-gray-400">{prefix}</span>}<input type="text" inputMode="decimal" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="w-full bg-transparent p-3 outline-none" />{suffix && <span className="px-3 text-gray-400">{suffix}</span>}</div>; }
 function Toggle({ ativo, onClick, children }) { return <button type="button" onClick={onClick} className={`rounded-xl border p-3 font-bold ${ativo ? "border-green-400 bg-green-500/10 text-green-400" : "border-gray-700 text-gray-300 hover:bg-white/5"}`}>{children}</button>; }
 function ResumoItem({ titulo, valor }) { return <div className="bg-[#111827] border border-gray-800 rounded-xl p-4"><p className="text-xs text-gray-400">{titulo}</p><p className="text-xl font-bold mt-1">{valor}</p></div>; }
 

@@ -279,11 +279,22 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
   const { form, setField, isDirty } = useDirtyForm(FORM_INICIAL);
 
   useEffect(() => {
     carregarBase();
   }, []);
+
+  function limparErro(campo) {
+    setErros((atuais) => {
+      if (!atuais[campo]) return atuais;
+      const proximos = { ...atuais };
+      delete proximos[campo];
+      return proximos;
+    });
+  }
 
   async function carregarBase() {
     setCarregando(true);
@@ -377,6 +388,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   const custoEstimado = totalConsideradoBanco > 0 ? totalAcordoItens - totalConsideradoBanco : null;
 
   function atualizarDadoItem(chave, campo, valor) {
+    limparErro(`item-${chave}-${campo}`);
     setDadosItens((atual) => ({
       ...atual,
       [chave]: {
@@ -430,6 +442,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   }
 
   function selecionarOrigemTotal(origem) {
+    limparErro("dividas");
     setSelecionadas((atual) => {
       const novo = { ...atual };
 
@@ -466,6 +479,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   }
 
   function selecionarContaNegativaParcial(origem) {
+    limparErro("dividas");
     setSelecionadas((atual) => {
       const novo = { ...atual };
 
@@ -481,6 +495,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   }
 
   function alternarDivida(divida) {
+    limparErro("dividas");
     setSelecionadas((atual) => {
       const atualItem = atual[divida.chave];
 
@@ -592,84 +607,39 @@ function RenegociacaoModal({ fechar, onSalvo }) {
 
   function proximo() {
     if (etapa === 1 && itensSelecionados.length === 0) {
-      abrirFeedback("erro", "Selecione uma dívida", "Escolha pelo menos um cartão, conta ou boleto para renegociar.");
+      setErros({ dividas: "Escolha pelo menos um cartão ou uma conta para renegociar." });
+      setShakeKey(Date.now());
       return;
     }
 
     if (etapa === 2) {
-      if (!form.dataRenegociacao) {
-        abrirFeedback("erro", "Data obrigatória", "Informe a data do acordo.");
-        return;
-      }
-
-      if (!form.formaPagamento) {
-        abrirFeedback("erro", "Forma obrigatória", "Selecione a forma de pagamento do acordo.");
-        return;
-      }
-
-      if (!form.tipoAcordo) {
-        abrirFeedback("erro", "Tipo obrigatório", "Selecione como esse acordo será pago.");
-        return;
-      }
-
-      if (exigeContaPagamento && !form.contaDebitoId) {
-        abrirFeedback("erro", "Conta obrigatória", "Selecione a conta usada no pagamento do acordo.");
-        return;
-      }
-
-      if (exigeCartaoPagamento && !form.cartaoPagamentoId) {
-        abrirFeedback("erro", "Cartão obrigatório", "Selecione o cartão usado no pagamento do acordo.");
-        return;
-      }
-
-      if (totalAcordoItens <= 0) {
-        abrirFeedback("erro", "Valor obrigatório", "Informe o valor total de cada item do acordo.");
-        return;
-      }
-
-      const itemSemParcela = temParcelas && gruposSelecionados.some(
-        (grupo) => moedaParaNumero(dadosItens[grupo.chave]?.valorParcela) <= 0
-      );
-      if (itemSemParcela) {
-        abrirFeedback("erro", "Parcelas obrigatórias", "Informe o valor da parcela de cada item do acordo.");
-        return;
-      }
-
-      if (temEntrada && valorEntrada <= 0) {
-        abrirFeedback("erro", "Entrada obrigatória", "Informe o valor da entrada.");
-        return;
-      }
-
-      if (temEntrada && valorEntrada >= totalAcordoItens) {
-        abrirFeedback("erro", "Entrada inválida", "A entrada precisa ser menor que o valor total do acordo.");
-        return;
-      }
-
-      if (temParcelas && Number(form.numeroParcelas || 0) <= 0) {
-        abrirFeedback("erro", "Parcelas obrigatórias", "Informe a quantidade de parcelas.");
-        return;
-      }
-
-      if (!form.primeiroVencimento && totalAcordoItens > valorEntrada) {
-        abrirFeedback("erro", "Data obrigatória", temParcelas ? "Informe o primeiro vencimento." : "Informe a data de vencimento.");
-        return;
-      }
-
-      if (form.primeiroVencimento && form.dataRenegociacao && form.primeiroVencimento < form.dataRenegociacao) {
-        abrirFeedback("erro", "Vencimento inválido", "O primeiro vencimento não pode ser menor que a data do acordo.");
+      const novos = {};
+      if (!form.dataRenegociacao) novos.dataRenegociacao = "Informe a data do acordo.";
+      if (!form.formaPagamento) novos.formaPagamento = "Selecione a forma de pagamento do acordo.";
+      if (!form.tipoAcordo) novos.tipoAcordo = "Selecione como esse acordo será pago.";
+      if (exigeContaPagamento && !form.contaDebitoId) novos.contaDebitoId = "Selecione a conta usada no pagamento.";
+      if (exigeCartaoPagamento && !form.cartaoPagamentoId) novos.cartaoPagamentoId = "Selecione o cartão usado no pagamento.";
+      gruposSelecionados.forEach((grupo) => {
+        if (moedaParaNumero(dadosItens[grupo.chave]?.valorTotal) <= 0) novos[`item-${grupo.chave}-valorTotal`] = "Informe o valor total deste item.";
+        if (temParcelas && moedaParaNumero(dadosItens[grupo.chave]?.valorParcela) <= 0) novos[`item-${grupo.chave}-valorParcela`] = "Informe o valor da parcela deste item.";
+      });
+      if (temEntrada && valorEntrada <= 0) novos.valorEntrada = "Informe o valor da entrada.";
+      else if (temEntrada && valorEntrada >= totalAcordoItens) novos.valorEntrada = "A entrada precisa ser menor que o valor total.";
+      if (temParcelas && Number(form.numeroParcelas || 0) <= 0) novos.numeroParcelas = "Informe a quantidade de parcelas.";
+      if (!form.primeiroVencimento && totalAcordoItens > valorEntrada) novos.primeiroVencimento = temParcelas ? "Informe o primeiro vencimento." : "Informe a data de vencimento.";
+      else if (form.primeiroVencimento && form.dataRenegociacao && form.primeiroVencimento < form.dataRenegociacao) novos.primeiroVencimento = "O vencimento não pode ser anterior à data do acordo.";
+      setErros(novos);
+      if (Object.keys(novos).length) {
+        setShakeKey(Date.now());
         return;
       }
     }
 
+    setErros({});
     setEtapa((valor) => Math.min(valor + 1, 3));
   }
 
   async function salvar() {
-    if (itensSelecionados.length === 0) {
-      abrirFeedback("erro", "Selecione uma dívida", "Escolha pelo menos um item para renegociar.");
-      return;
-    }
-
     setSalvando(true);
 
     try {
@@ -717,7 +687,8 @@ function RenegociacaoModal({ fechar, onSalvo }) {
           <ProgressStepper etapa={etapa} total={3} />
 
           {etapa === 1 && (
-            <div className="space-y-4">
+            <div key={erros.dividas ? shakeKey : "ok"} className={`space-y-4 ${erros.dividas ? "animate-shake" : ""}`}>
+              {erros.dividas && <p className="rounded-xl border border-red-500 bg-red-500/10 p-3 text-sm font-semibold text-red-400">{erros.dividas}</p>}
               {carregando ? (
                 <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-5">
                   <p className="text-gray-400">Carregando dívidas disponíveis...</p>
@@ -859,26 +830,26 @@ function RenegociacaoModal({ fechar, onSalvo }) {
           {etapa === 2 && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Campo label="Data do acordo">
-                  <ButtonField onClick={() => setModalData("dataRenegociacao")}>
+                <Campo label="Data do acordo" erro={erros.dataRenegociacao} shakeKey={shakeKey}>
+                  <ButtonField erro={erros.dataRenegociacao} shakeKey={shakeKey} onClick={() => setModalData("dataRenegociacao")}>
                     {form.dataRenegociacao ? formatarDataBR(form.dataRenegociacao) : "Selecionar data"}
                   </ButtonField>
                 </Campo>
 
-                <Campo label="Tipo do acordo">
-                  <ButtonField onClick={() => setModalTipoAcordo(true)}>
+                <Campo label="Tipo do acordo" erro={erros.tipoAcordo} shakeKey={shakeKey}>
+                  <ButtonField erro={erros.tipoAcordo} shakeKey={shakeKey} onClick={() => setModalTipoAcordo(true)}>
                     {form.tipoAcordo ? textoTipoAcordo(form.tipoAcordo) : "Selecionar tipo do acordo"}
                   </ButtonField>
                 </Campo>
 
-                <Campo label="Forma de pagamento">
-                  <ButtonField onClick={() => setModalFormaPagamento(true)}>
+                <Campo label="Forma de pagamento" erro={erros.formaPagamento} shakeKey={shakeKey}>
+                  <ButtonField erro={erros.formaPagamento} shakeKey={shakeKey} onClick={() => setModalFormaPagamento(true)}>
                     {form.formaPagamento ? textoFormaPagamento(form.formaPagamento) : "Selecionar forma de pagamento"}
                   </ButtonField>
                 </Campo>
 
-                <Campo label={exigeCartaoPagamento ? "Cartão" : "Conta"}>
-                  <ButtonField onClick={() => exigeCartaoPagamento ? setModalCartao(true) : setModalConta(true)}>
+                <Campo label={exigeCartaoPagamento ? "Cartão" : "Conta"} erro={exigeCartaoPagamento ? erros.cartaoPagamentoId : erros.contaDebitoId} shakeKey={shakeKey}>
+                  <ButtonField erro={exigeCartaoPagamento ? erros.cartaoPagamentoId : erros.contaDebitoId} shakeKey={shakeKey} onClick={() => exigeCartaoPagamento ? setModalCartao(true) : setModalConta(true)}>
                     {exigeCartaoPagamento
                       ? nomeCartaoSelecionado(cartoesAtivos, form.cartaoPagamentoId) || "Selecionar cartão"
                       : nomeContaSelecionada(contasBanco, form.contaDebitoId) || "Selecionar conta"}
@@ -886,21 +857,21 @@ function RenegociacaoModal({ fechar, onSalvo }) {
                 </Campo>
 
                 {temEntrada && (
-                  <Campo label="Entrada">
-                    <InputMoeda value={form.valorEntrada} onChange={atualizarValorEntrada} />
+                  <Campo label="Entrada" erro={erros.valorEntrada} shakeKey={shakeKey}>
+                    <InputMoeda erro={erros.valorEntrada} shakeKey={shakeKey} value={form.valorEntrada} onChange={(valor) => { limparErro("valorEntrada"); atualizarValorEntrada(valor); }} />
                   </Campo>
                 )}
 
                 {temParcelas && (
-                  <Campo label="Quantidade de parcelas">
-                    <ButtonField onClick={() => setModalParcelas(true)}>
+                  <Campo label="Quantidade de parcelas" erro={erros.numeroParcelas} shakeKey={shakeKey}>
+                    <ButtonField erro={erros.numeroParcelas} shakeKey={shakeKey} onClick={() => setModalParcelas(true)}>
                       {form.numeroParcelas ? `${form.numeroParcelas}x` : "Selecionar parcelas"}
                     </ButtonField>
                   </Campo>
                 )}
 
-                <Campo label={temParcelas ? "Primeiro vencimento" : "Data de vencimento"}>
-                  <ButtonField onClick={() => setModalData("primeiroVencimento")}>
+                <Campo label={temParcelas ? "Primeiro vencimento" : "Data de vencimento"} erro={erros.primeiroVencimento} shakeKey={shakeKey}>
+                  <ButtonField erro={erros.primeiroVencimento} shakeKey={shakeKey} onClick={() => setModalData("primeiroVencimento")}>
                     {form.primeiroVencimento ? formatarDataBR(form.primeiroVencimento) : "Selecionar data"}
                   </ButtonField>
                 </Campo>
@@ -943,16 +914,16 @@ function RenegociacaoModal({ fechar, onSalvo }) {
                         </Campo>
 
                         {temParcelas && (
-                          <Campo label="Valor da parcela">
-                            <InputMoeda value={dados.valorParcela || ""} onChange={(valor) => {
+                          <Campo label="Valor da parcela" erro={erros[`item-${grupo.chave}-valorParcela`]} shakeKey={shakeKey}>
+                            <InputMoeda erro={erros[`item-${grupo.chave}-valorParcela`]} shakeKey={shakeKey} value={dados.valorParcela || ""} onChange={(valor) => {
                               atualizarDadoItem(grupo.chave, "valorParcela", valor);
                               if (numeroParcelas > 0) atualizarDadoItem(grupo.chave, "valorTotal", numeroParaMoedaInput(moedaParaNumero(valor) * numeroParcelas));
                             }} />
                           </Campo>
                         )}
 
-                        <Campo label="Valor total">
-                          <InputMoeda value={dados.valorTotal || ""} onChange={(valor) => {
+                        <Campo label="Valor total" erro={erros[`item-${grupo.chave}-valorTotal`]} shakeKey={shakeKey}>
+                          <InputMoeda erro={erros[`item-${grupo.chave}-valorTotal`]} shakeKey={shakeKey} value={dados.valorTotal || ""} onChange={(valor) => {
                             atualizarDadoItem(grupo.chave, "valorTotal", valor);
                             if (temParcelas && numeroParcelas > 0) atualizarDadoItem(grupo.chave, "valorParcela", numeroParaMoedaInput(moedaParaNumero(valor) / numeroParcelas));
                           }} />
@@ -1008,7 +979,14 @@ function RenegociacaoModal({ fechar, onSalvo }) {
           <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-3 pt-4 pb-1 bg-[#111827]">
             <button
               type="button"
-              onClick={() => (etapa === 1 ? fechar() : setEtapa((valor) => Math.max(valor - 1, 1)))}
+              onClick={() => {
+                if (etapa === 1) {
+                  fechar();
+                  return;
+                }
+                setErros({});
+                setEtapa((valor) => Math.max(valor - 1, 1));
+              }}
               disabled={salvando}
               className="border border-gray-700 hover:bg-white/5 text-white font-black rounded-xl p-3 disabled:opacity-50"
             >
@@ -1034,6 +1012,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
           minDate={modalData === "primeiroVencimento" ? form.dataRenegociacao || null : null}
           maxDate={modalData === "dataRenegociacao" ? hojeISO() : null}
           onChange={(data) => {
+            limparErro(modalData);
             setField(modalData, data);
             if (modalData === "dataRenegociacao" && form.primeiroVencimento && form.primeiroVencimento < data) {
               setField("primeiroVencimento", "");
@@ -1047,7 +1026,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
       <SelecionarTipoAcordoModal
         aberto={modalTipoAcordo}
         tipoAcordo={form.tipoAcordo}
-        onSelecionar={(valor) => selecionarTipoAcordo(valor)}
+        onSelecionar={(valor) => { limparErro("tipoAcordo"); selecionarTipoAcordo(valor); }}
         onClose={() => setModalTipoAcordo(false)}
       />
 
@@ -1056,6 +1035,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         formasPagamento={formasPagamentoAcordo}
         formaPagamento={form.formaPagamento}
         onSelecionar={(valor) => {
+          limparErro("formaPagamento");
           setField("formaPagamento", valor);
           if (valor === "credito") setField("contaDebitoId", "");
           else setField("cartaoPagamentoId", "");
@@ -1067,7 +1047,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         aberto={modalConta}
         contas={contasBanco}
         contaId={form.contaDebitoId}
-        onSelecionar={(id) => setField("contaDebitoId", id)}
+        onSelecionar={(id) => { limparErro("contaDebitoId"); setField("contaDebitoId", id); }}
         onClose={() => setModalConta(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -1076,7 +1056,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         aberto={modalCartao}
         cartoes={cartoesAtivos}
         cartaoId={form.cartaoPagamentoId}
-        onSelecionar={(id) => setField("cartaoPagamentoId", id)}
+        onSelecionar={(id) => { limparErro("cartaoPagamentoId"); setField("cartaoPagamentoId", id); }}
         onClose={() => setModalCartao(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -1084,7 +1064,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
       <SelecionarParcelasModal
         aberto={modalParcelas}
         numeroParcelas={form.numeroParcelas}
-        onSelecionar={atualizarQuantidadeParcelas}
+        onSelecionar={(valor) => { limparErro("numeroParcelas"); atualizarQuantidadeParcelas(valor); }}
         onClose={() => setModalParcelas(false)}
       />
 
@@ -1270,6 +1250,8 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
   const [modalParcelas, setModalParcelas] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
   const { form, setField, isDirty } = useDirtyForm({
     ...FORM_INICIAL,
     dataRenegociacao: renegociacao.data_renegociacao || "",
@@ -1323,6 +1305,15 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
 
   function fecharFeedback() {
     setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+  }
+
+  function limparErro(campo) {
+    setErros((atuais) => {
+      if (!atuais[campo]) return atuais;
+      const proximos = { ...atuais };
+      delete proximos[campo];
+      return proximos;
+    });
   }
 
   function selecionarTipoAcordo(tipo) {
@@ -1401,58 +1392,21 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
   }
 
   async function salvarEdicao() {
-    if (!form.dataRenegociacao) {
-      abrirFeedback("erro", "Data obrigatória", "Informe a data do acordo.");
-      return;
-    }
-
-    if (!form.tipoAcordo) {
-      abrirFeedback("erro", "Tipo obrigatório", "Selecione como esse acordo será pago.");
-      return;
-    }
-
-    if (!form.formaPagamento) {
-      abrirFeedback("erro", "Forma obrigatória", "Selecione a forma de pagamento do acordo.");
-      return;
-    }
-
-    if (exigeContaPagamento && !form.contaDebitoId) {
-      abrirFeedback("erro", "Conta obrigatória", "Selecione a conta usada no pagamento do acordo.");
-      return;
-    }
-
-    if (exigeCartaoPagamento && !form.cartaoPagamentoId) {
-      abrirFeedback("erro", "Cartão obrigatório", "Selecione o cartão usado no pagamento do acordo.");
-      return;
-    }
-
-    if (valorRenegociado <= 0) {
-      abrirFeedback("erro", "Valor obrigatório", "Informe o valor da renegociação.");
-      return;
-    }
-
-    if (temEntrada && valorEntrada <= 0) {
-      abrirFeedback("erro", "Entrada obrigatória", "Informe o valor da entrada.");
-      return;
-    }
-
-    if (temEntrada && valorEntrada >= valorRenegociado) {
-      abrirFeedback("erro", "Entrada inválida", "A entrada precisa ser menor que o valor da renegociação.");
-      return;
-    }
-
-    if (temParcelas && Number(form.numeroParcelas || 0) <= 0) {
-      abrirFeedback("erro", "Parcelas obrigatórias", "Informe a quantidade de parcelas.");
-      return;
-    }
-
-    if (!form.primeiroVencimento && valorRenegociado > valorEntrada) {
-      abrirFeedback("erro", "Data obrigatória", temParcelas ? "Informe o primeiro vencimento." : "Informe a data de vencimento.");
-      return;
-    }
-
-    if (form.primeiroVencimento && form.dataRenegociacao && form.primeiroVencimento < form.dataRenegociacao) {
-      abrirFeedback("erro", "Vencimento inválido", "O primeiro vencimento não pode ser menor que a data do acordo.");
+    const novos = {};
+    if (!form.dataRenegociacao) novos.dataRenegociacao = "Informe a data do acordo.";
+    if (!form.tipoAcordo) novos.tipoAcordo = "Selecione como esse acordo será pago.";
+    if (!form.formaPagamento) novos.formaPagamento = "Selecione a forma de pagamento do acordo.";
+    if (exigeContaPagamento && !form.contaDebitoId) novos.contaDebitoId = "Selecione a conta usada no pagamento.";
+    if (exigeCartaoPagamento && !form.cartaoPagamentoId) novos.cartaoPagamentoId = "Selecione o cartão usado no pagamento.";
+    if (valorRenegociado <= 0) novos.valorRenegociado = "Informe o valor da renegociação.";
+    if (temEntrada && valorEntrada <= 0) novos.valorEntrada = "Informe o valor da entrada.";
+    else if (temEntrada && valorEntrada >= valorRenegociado) novos.valorEntrada = "A entrada precisa ser menor que o valor total.";
+    if (temParcelas && Number(form.numeroParcelas || 0) <= 0) novos.numeroParcelas = "Informe a quantidade de parcelas.";
+    if (!form.primeiroVencimento && valorRenegociado > valorEntrada) novos.primeiroVencimento = temParcelas ? "Informe o primeiro vencimento." : "Informe a data de vencimento.";
+    else if (form.primeiroVencimento && form.dataRenegociacao && form.primeiroVencimento < form.dataRenegociacao) novos.primeiroVencimento = "O vencimento não pode ser anterior à data do acordo.";
+    setErros(novos);
+    if (Object.keys(novos).length) {
+      setShakeKey(Date.now());
       return;
     }
 
@@ -1513,26 +1467,28 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
         }
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Campo label="Data do acordo">
-            <ButtonField onClick={() => setModalData("dataRenegociacao")}>
+          <Campo label="Data do acordo" erro={erros.dataRenegociacao} shakeKey={shakeKey}>
+            <ButtonField erro={erros.dataRenegociacao} shakeKey={shakeKey} onClick={() => setModalData("dataRenegociacao")}>
               {form.dataRenegociacao ? formatarDataBR(form.dataRenegociacao) : "Selecionar data"}
             </ButtonField>
           </Campo>
 
-          <Campo label="Tipo do acordo">
-            <ButtonField onClick={() => setModalTipoAcordo(true)}>
+          <Campo label="Tipo do acordo" erro={erros.tipoAcordo} shakeKey={shakeKey}>
+            <ButtonField erro={erros.tipoAcordo} shakeKey={shakeKey} onClick={() => setModalTipoAcordo(true)}>
               {form.tipoAcordo ? textoTipoAcordo(form.tipoAcordo) : "Selecionar tipo do acordo"}
             </ButtonField>
           </Campo>
 
-          <Campo label="Forma de pagamento">
-            <ButtonField onClick={() => setModalFormaPagamento(true)}>
+          <Campo label="Forma de pagamento" erro={erros.formaPagamento} shakeKey={shakeKey}>
+            <ButtonField erro={erros.formaPagamento} shakeKey={shakeKey} onClick={() => setModalFormaPagamento(true)}>
               {form.formaPagamento ? textoFormaPagamento(form.formaPagamento) : "Selecionar forma de pagamento"}
             </ButtonField>
           </Campo>
 
-          <Campo label={exigeCartaoPagamento ? "Cartão" : "Conta"}>
+          <Campo label={exigeCartaoPagamento ? "Cartão" : "Conta"} erro={exigeCartaoPagamento ? erros.cartaoPagamentoId : erros.contaDebitoId} shakeKey={shakeKey}>
             <ButtonField
+              erro={exigeCartaoPagamento ? erros.cartaoPagamentoId : erros.contaDebitoId}
+              shakeKey={shakeKey}
               onClick={() => {
                 if (exigeCartaoPagamento) setModalCartao(true);
                 else setModalConta(true);
@@ -1545,14 +1501,14 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
           </Campo>
 
           {temEntrada && (
-            <Campo label="Entrada">
-              <InputMoeda value={form.valorEntrada} onChange={atualizarValorEntrada} />
+            <Campo label="Entrada" erro={erros.valorEntrada} shakeKey={shakeKey}>
+              <InputMoeda erro={erros.valorEntrada} shakeKey={shakeKey} value={form.valorEntrada} onChange={(valor) => { limparErro("valorEntrada"); atualizarValorEntrada(valor); }} />
             </Campo>
           )}
 
           {temParcelas && (
-            <Campo label="Quantidade de parcelas">
-              <ButtonField onClick={() => setModalParcelas(true)}>
+            <Campo label="Quantidade de parcelas" erro={erros.numeroParcelas} shakeKey={shakeKey}>
+              <ButtonField erro={erros.numeroParcelas} shakeKey={shakeKey} onClick={() => setModalParcelas(true)}>
                 {form.numeroParcelas ? `${form.numeroParcelas}x` : "Selecionar parcelas"}
               </ButtonField>
             </Campo>
@@ -1564,12 +1520,12 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
             </Campo>
           )}
 
-          <Campo label="Valor Total Renegociado">
-            <InputMoeda value={form.valorRenegociado} onChange={atualizarValorTotalRenegociado} />
+          <Campo label="Valor Total Renegociado" erro={erros.valorRenegociado} shakeKey={shakeKey}>
+            <InputMoeda erro={erros.valorRenegociado} shakeKey={shakeKey} value={form.valorRenegociado} onChange={(valor) => { limparErro("valorRenegociado"); atualizarValorTotalRenegociado(valor); }} />
           </Campo>
 
-          <Campo label={temParcelas ? "Primeiro vencimento" : "Data de vencimento"}>
-            <ButtonField onClick={() => setModalData("primeiroVencimento")}>
+          <Campo label={temParcelas ? "Primeiro vencimento" : "Data de vencimento"} erro={erros.primeiroVencimento} shakeKey={shakeKey}>
+            <ButtonField erro={erros.primeiroVencimento} shakeKey={shakeKey} onClick={() => setModalData("primeiroVencimento")}>
               {form.primeiroVencimento ? formatarDataBR(form.primeiroVencimento) : "Selecionar data"}
             </ButtonField>
           </Campo>
@@ -1583,6 +1539,7 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
           minDate={modalData === "primeiroVencimento" ? form.dataRenegociacao || null : null}
           maxDate={modalData === "dataRenegociacao" ? hojeISO() : null}
           onChange={(data) => {
+            limparErro(modalData);
             setField(modalData, data);
             if (modalData === "dataRenegociacao" && form.primeiroVencimento && form.primeiroVencimento < data) {
               setField("primeiroVencimento", "");
@@ -1596,7 +1553,7 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
       <SelecionarTipoAcordoModal
         aberto={modalTipoAcordo}
         tipoAcordo={form.tipoAcordo}
-        onSelecionar={(valor) => selecionarTipoAcordo(valor)}
+        onSelecionar={(valor) => { limparErro("tipoAcordo"); selecionarTipoAcordo(valor); }}
         onClose={() => setModalTipoAcordo(false)}
       />
 
@@ -1605,6 +1562,7 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
         formasPagamento={formasPagamentoAcordo}
         formaPagamento={form.formaPagamento}
         onSelecionar={(valor) => {
+          limparErro("formaPagamento");
           setField("formaPagamento", valor);
           if (valor === "credito") setField("contaDebitoId", "");
           else setField("cartaoPagamentoId", "");
@@ -1616,7 +1574,7 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
         aberto={modalConta}
         contas={contasBanco}
         contaId={form.contaDebitoId}
-        onSelecionar={(id) => setField("contaDebitoId", id)}
+        onSelecionar={(id) => { limparErro("contaDebitoId"); setField("contaDebitoId", id); }}
         onClose={() => setModalConta(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -1625,7 +1583,7 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
         aberto={modalCartao}
         cartoes={cartoesAtivos}
         cartaoId={form.cartaoPagamentoId}
-        onSelecionar={(id) => setField("cartaoPagamentoId", id)}
+        onSelecionar={(id) => { limparErro("cartaoPagamentoId"); setField("cartaoPagamentoId", id); }}
         onClose={() => setModalCartao(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -1633,7 +1591,7 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
       <SelecionarParcelasModal
         aberto={modalParcelas}
         numeroParcelas={form.numeroParcelas}
-        onSelecionar={atualizarQuantidadeParcelas}
+        onSelecionar={(valor) => { limparErro("numeroParcelas"); atualizarQuantidadeParcelas(valor); }}
         onClose={() => setModalParcelas(false)}
       />
 
@@ -2039,9 +1997,9 @@ function InputTexto({ value, onChange, placeholder }) {
   );
 }
 
-function InputMoeda({ value, onChange, disabled = false }) {
+function InputMoeda({ value, onChange, disabled = false, erro, shakeKey }) {
   return (
-    <div className={`flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden ${disabled ? "opacity-60" : ""}`}>
+    <div key={erro ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden ${disabled ? "opacity-60" : ""}`}>
       <span className="px-3 text-gray-400">R$</span>
       <input
         type="text"

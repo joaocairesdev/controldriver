@@ -11,6 +11,7 @@ import SelecionarCartaoModal from "../../../shared/components/modals/SelecionarC
 import SelecionarCombustivelModal from "../../abastecimentos/components/SelecionarCombustivelModal";
 import SelecionarCategoriaModal from "../../categorias/components/SelecionarCategoriaModal";
 import SelecionarParcelasModal from "../../../shared/components/modals/SelecionarParcelasModal";
+import { FORMA_PAGAMENTO_DEBITO_CONTA } from "../../../shared/constants/formasPagamento";
 import {
   calcularUsoELimiteCartao,
   gerarParcelasEFaturasPadrao,
@@ -76,11 +77,18 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   });
 
   const [salvando, setSalvando] = useState(false);
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
+
+  function limparErro(campo) {
+    setErros((atuais) => ({ ...atuais, [campo]: undefined }));
+  }
 
   const formasPagamento = [
     { valor: "dinheiro", titulo: "Dinheiro", descricao: "Pagamento em espécie / Carteira" },
     { valor: "pix", titulo: "Pix", descricao: "Sai direto da conta" },
     { valor: "debito", titulo: "Débito", descricao: "Sai direto da conta" },
+    FORMA_PAGAMENTO_DEBITO_CONTA,
     { valor: "credito_avista", titulo: "Crédito à Vista", descricao: "Entra na próxima fatura do cartão" },
     { valor: "credito_parcelado", titulo: "Crédito Parcelado", descricao: "Divide em 2x ou mais no cartão" },
     { valor: "boleto", titulo: "Boleto", descricao: "Registra uma conta a pagar" },
@@ -610,68 +618,41 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   }
 
   function validarCampos() {
-    if (!dataCompra || !categoria || !valorTotal) {
-      abrirFeedback("erro", "Campos obrigatórios", "Preencha data, categoria e valor.");
-      return false;
-    }
-
-    if (isCredito && !cartaoId) {
-      abrirFeedback("erro", "Cartão obrigatório", "Selecione um cartão.");
-      return false;
-    }
+    const novos = {};
+    if (!dataCompra) novos.dataCompra = "Selecione a data da compra.";
+    if (!categoria) novos.categoria = "Selecione a categoria.";
+    if (moedaParaNumero(valorTotal) <= 0) novos.valorTotal = "Informe o valor total.";
+    if (isCredito && !cartaoId) novos.cartaoId = "Selecione um cartão.";
 
     if (isDinheiro && !carteiraSelecionada) {
       abrirFeedback("erro", "Carteira não encontrada", "Cadastre uma conta do tipo Carteira antes de lançar pagamento em dinheiro.");
       return false;
     }
 
-    if (!isCredito && !isBoleto && !contaId) {
-      abrirFeedback("erro", "Conta obrigatória", "Selecione uma conta.");
-      return false;
-    }
-
-    if (isBoleto && !dataVencimento) {
-      abrirFeedback("erro", "Vencimento obrigatório", "Informe a data de vencimento do boleto.");
-      return false;
-    }
+    if (!isCredito && !isBoleto && !contaId) novos.contaId = "Selecione uma conta.";
+    if (isBoleto && !dataVencimento) novos.dataVencimento = "Informe a data de vencimento.";
 
     if (isCreditoParcelado && Number(numeroParcelas || 0) < 2) {
-      abrirFeedback("erro", "Parcelamento inválido", "Crédito parcelado precisa começar em 2x.");
-      return false;
+      novos.numeroParcelas = "Crédito parcelado precisa começar em 2x.";
     }
 
     if (isAbastecimento) {
-      if (!veiculoId) {
-        abrirFeedback("erro", "Veículo obrigatório", "Selecione o veículo.");
-        return false;
-      }
-
-      if (!valorLitro) {
-        abrirFeedback("erro", "Valor do litro", "Informe o valor do litro.");
-        return false;
-      }
-
-      if (!kmRodados && !odometro) {
-        abrirFeedback("erro", "KM obrigatório", "Informe o KM rodado ou o odômetro.");
-        return false;
-      }
+      if (!veiculoId) novos.veiculoId = "Selecione o veículo.";
+      if (moedaParaNumero(valorLitro) <= 0) novos.valorLitro = "Informe o valor do litro.";
+      if (!kmRodados && !odometro) novos.km = "Informe o KM rodado ou o odômetro.";
 
       if (modoKm === "odometro" && veiculoSelecionado) {
         const odometroAtual = Number(veiculoSelecionado.odometro_atual || 0);
         const novoOdometro = Number(odometro || 0);
 
         if (novoOdometro < odometroAtual) {
-          abrirFeedback(
-            "erro",
-            "Odômetro inválido",
-            `O odômetro não pode ser menor que ${odometroAtual.toLocaleString("pt-BR")} km.`
-          );
-          return false;
+          novos.km = `O odômetro não pode ser menor que ${odometroAtual.toLocaleString("pt-BR")} km.`;
         }
       }
     }
-
-    return true;
+    setErros(novos);
+    if (Object.keys(novos).length) setShakeKey(Date.now());
+    return Object.keys(novos).length === 0;
   }
 
   async function salvarSaida() {
@@ -853,15 +834,15 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         <h2 className="text-xl font-bold">Dados principais</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
-          <Campo label="Data da compra">
-            <ButtonField onClick={() => setModalDataAberto(true)}>
+          <Campo label="Data da compra" erro={erros.dataCompra} shakeKey={shakeKey}>
+            <ButtonField erro={erros.dataCompra} shakeKey={shakeKey} onClick={() => setModalDataAberto(true)}>
               {formatarDataBR(dataCompra)}
             </ButtonField>
           </Campo>
 
           {!isAbastecimento && (
-            <Campo label="Categoria">
-              <ButtonField onClick={() => setModalCategoriaAberto(true)}>
+            <Campo label="Categoria" erro={erros.categoria} shakeKey={shakeKey}>
+              <ButtonField erro={erros.categoria} shakeKey={shakeKey} onClick={() => setModalCategoriaAberto(true)}>
                 {categoria}
               </ButtonField>
             </Campo>
@@ -890,8 +871,10 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
           </Campo>
 
           {!isBoleto && (
-            <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"}>
+            <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"} erro={isCredito ? erros.cartaoId : erros.contaId} shakeKey={shakeKey}>
               <ButtonField
+                erro={isCredito ? erros.cartaoId : erros.contaId}
+                shakeKey={shakeKey}
                 onClick={() => {
                   if (isDinheiro) return;
                   isCredito
@@ -905,17 +888,19 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
           )}
 
           {isBoleto && (
-            <Campo label="Vencimento do boleto">
-              <ButtonField onClick={() => setModalVencimentoAberto(true)}>
+            <Campo label="Vencimento do boleto" erro={erros.dataVencimento} shakeKey={shakeKey}>
+              <ButtonField erro={erros.dataVencimento} shakeKey={shakeKey} onClick={() => setModalVencimentoAberto(true)}>
                 {formatarDataBR(dataVencimento)}
               </ButtonField>
             </Campo>
           )}
 
-          <Campo label="Valor total">
+          <Campo label="Valor total" erro={erros.valorTotal} shakeKey={shakeKey}>
             <MoneyInput
+              erro={erros.valorTotal}
+              shakeKey={shakeKey}
               value={valorTotal}
-              onChange={atualizarValorTotal}
+              onChange={(valor) => { limparErro("valorTotal"); atualizarValorTotal(valor); }}
               prefix="R$"
               placeholder="0,00"
             />
@@ -927,8 +912,8 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
             <p className="text-sm text-gray-300 font-semibold">Parcelamento no crédito</p>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-              <Campo label="Quantidade de parcelas">
-                <ButtonField onClick={() => setModalParcelasAberto(true)}>
+              <Campo label="Quantidade de parcelas" erro={erros.numeroParcelas} shakeKey={shakeKey}>
+                <ButtonField erro={erros.numeroParcelas} shakeKey={shakeKey} onClick={() => setModalParcelasAberto(true)}>
                   {numeroParcelas}x
                 </ButtonField>
               </Campo>
@@ -972,16 +957,18 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         <h2 className="text-xl font-bold">Dados do abastecimento</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
-          <Campo label="Veículo">
-            <ButtonField onClick={() => setModalVeiculoAberto(true)}>
+          <Campo label="Veículo" erro={erros.veiculoId} shakeKey={shakeKey}>
+            <ButtonField erro={erros.veiculoId} shakeKey={shakeKey} onClick={() => setModalVeiculoAberto(true)}>
               {veiculoSelecionado ? veiculoSelecionado.nome : "Selecionar veículo"}
             </ButtonField>
           </Campo>
 
-          <Campo label="Valor do litro">
+          <Campo label="Valor do litro" erro={erros.valorLitro} shakeKey={shakeKey}>
             <MoneyInput
+              erro={erros.valorLitro}
+              shakeKey={shakeKey}
               value={valorLitro}
-              onChange={atualizarValorLitro}
+              onChange={(valor) => { limparErro("valorLitro"); atualizarValorLitro(valor); }}
               prefix="R$"
               placeholder="0,00"
             />
@@ -1022,19 +1009,23 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
           </Campo>
 
           {modoKm === "trip" ? (
-            <Campo label="KM rodados / Trip B">
+            <Campo label="KM rodados / Trip B" erro={erros.km} shakeKey={shakeKey}>
               <MoneyInput
+                erro={erros.km}
+                shakeKey={shakeKey}
                 value={kmRodados}
-                onChange={atualizarKmRodados}
+                onChange={(valor) => { limparErro("km"); atualizarKmRodados(valor); }}
                 suffix="km"
                 placeholder="0"
               />
             </Campo>
           ) : (
-            <Campo label="Odômetro atual">
+            <Campo label="Odômetro atual" erro={erros.km} shakeKey={shakeKey}>
               <MoneyInput
+                erro={erros.km}
+                shakeKey={shakeKey}
                 value={odometro}
-                onChange={atualizarOdometro}
+                onChange={(valor) => { limparErro("km"); atualizarOdometro(valor); }}
                 suffix="km"
                 placeholder="0"
               />
@@ -1222,7 +1213,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
       <DatePickerModal
         aberto={modalDataAberto}
         valor={dataCompra}
-        onChange={setDataCompra}
+        onChange={(valor) => { limparErro("dataCompra"); setDataCompra(valor); }}
         onClose={() => setModalDataAberto(false)}
         titulo="Selecionar data"
         descricao="Escolha a data da compra."
@@ -1231,7 +1222,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
       <DatePickerModal
         aberto={modalVencimentoAberto}
         valor={dataVencimento}
-        onChange={setDataVencimento}
+        onChange={(valor) => { limparErro("dataVencimento"); setDataVencimento(valor); }}
         onClose={() => setModalVencimentoAberto(false)}
         titulo="Vencimento do boleto"
         descricao="Escolha a data em que esta conta precisa ser paga."
@@ -1288,7 +1279,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         aberto={modalContaAberto}
         contas={contasBancarias}
         contaId={contaId}
-        onSelecionar={setContaId}
+        onSelecionar={(valor) => { limparErro("contaId"); setContaId(valor); }}
         onClose={() => setModalContaAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -1297,7 +1288,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         aberto={modalCartaoAberto}
         cartoes={cartoes}
         cartaoId={cartaoId}
-        onSelecionar={setCartaoId}
+        onSelecionar={(valor) => { limparErro("cartaoId"); setCartaoId(valor); }}
         onClose={() => setModalCartaoAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -1306,7 +1297,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         aberto={modalVeiculoAberto}
         veiculos={veiculos}
         veiculoId={veiculoId}
-        onSelecionar={setVeiculoId}
+        onSelecionar={(valor) => { limparErro("veiculoId"); setVeiculoId(valor); }}
         onClose={() => setModalVeiculoAberto(false)}
       />
 
@@ -1322,14 +1313,14 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         aberto={modalCategoriaAberto}
         categorias={categoriasNomes}
         categoria={categoria}
-        onSelecionar={selecionarCategoria}
+        onSelecionar={(valor) => { limparErro("categoria"); selecionarCategoria(valor); }}
         onClose={() => setModalCategoriaAberto(false)}
       />
 
       <SelecionarParcelasModal
         aberto={modalParcelasAberto}
         numeroParcelas={numeroParcelas}
-        onSelecionar={setNumeroParcelas}
+        onSelecionar={(valor) => { limparErro("numeroParcelas"); setNumeroParcelas(valor); }}
         onClose={() => setModalParcelasAberto(false)}
       />
 
@@ -1374,9 +1365,9 @@ function FinalidadeSelector({ finalidade, setFinalidade }) {
   );
 }
 
-function MoneyInput({ value, onChange, prefix, suffix, placeholder }) {
+function MoneyInput({ value, onChange, prefix, suffix, placeholder, erro, shakeKey }) {
   return (
-    <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+    <div key={erro ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
       {prefix && <span className="px-3 text-gray-400">{prefix}</span>}
 
       <input

@@ -32,6 +32,8 @@ export default function TransferenciaModal({ aberto, onClose, edicao = null, onS
   const [modalDestinoAberto, setModalDestinoAberto] = useState(false);
 
   const [salvando, setSalvando] = useState(false);
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
 
   const [feedback, setFeedback] = useState({
     aberto: false,
@@ -213,6 +215,16 @@ export default function TransferenciaModal({ aberto, onClose, edicao = null, onS
     setContaDestinoId("");
     setValor("");
     setDescricao("");
+    setErros({});
+  }
+
+  function limparErro(campo) {
+    setErros((atuais) => {
+      if (!atuais[campo]) return atuais;
+      const proximos = { ...atuais };
+      delete proximos[campo];
+      return proximos;
+    });
   }
 
   function cancelar() {
@@ -222,29 +234,19 @@ export default function TransferenciaModal({ aberto, onClose, edicao = null, onS
 
   function validar() {
     const valorNumero = moedaParaNumero(valor);
-
-    if (!data) {
-      abrirFeedback("erro", "Data obrigatória", "Selecione a data da transferência.");
-      return false;
-    }
-
-    if (!contaOrigemId) {
-      abrirFeedback("erro", "Origem obrigatória", "Selecione a conta de origem.");
-      return false;
-    }
-
-    if (!contaDestinoId) {
-      abrirFeedback("erro", "Destino obrigatório", "Selecione a conta de destino.");
+    const novos = {};
+    if (!data) novos.data = "Selecione a data da transferência.";
+    if (!contaOrigemId) novos.contaOrigemId = "Selecione a conta de origem.";
+    if (!contaDestinoId) novos.contaDestinoId = "Selecione a conta de destino.";
+    if (valorNumero <= 0) novos.valor = "Informe um valor maior que zero.";
+    setErros(novos);
+    if (Object.keys(novos).length) {
+      setShakeKey(Date.now());
       return false;
     }
 
     if (String(contaOrigemId) === String(contaDestinoId)) {
       abrirFeedback("erro", "Contas iguais", "A conta de origem e destino não podem ser a mesma.");
-      return false;
-    }
-
-    if (valorNumero <= 0) {
-      abrirFeedback("erro", "Valor obrigatório", "Informe um valor maior que zero.");
       return false;
     }
 
@@ -301,14 +303,14 @@ export default function TransferenciaModal({ aberto, onClose, edicao = null, onS
       
         confirmarAoFecharSeAlterado>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Campo label="Data">
-            <ButtonField onClick={() => setModalDataAberto(true)}>
+          <Campo label="Data" erro={erros.data} shakeKey={shakeKey}>
+            <ButtonField erro={erros.data} shakeKey={shakeKey} onClick={() => setModalDataAberto(true)}>
               {formatarDataBR(data)}
             </ButtonField>
           </Campo>
 
-          <Campo label="Valor">
-            <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+          <Campo label="Valor" erro={erros.valor} shakeKey={shakeKey}>
+            <div key={erros.valor ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#0B1120] border ${erros.valor ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
               <span className="px-3 text-gray-400">R$</span>
 
               <input
@@ -316,14 +318,14 @@ export default function TransferenciaModal({ aberto, onClose, edicao = null, onS
                 inputMode="numeric"
                 value={valor}
                 placeholder=""
-                onChange={(e) => setValor(formatarMoedaDigitada(e.target.value))}
+                onChange={(e) => { limparErro("valor"); setValor(formatarMoedaDigitada(e.target.value)); }}
                 className="w-full bg-transparent p-3 outline-none"
               />
             </div>
           </Campo>
 
-          <Campo label="Conta de origem">
-            <ButtonField onClick={() => setModalOrigemAberto(true)}>
+          <Campo label="Conta de origem" erro={erros.contaOrigemId} shakeKey={shakeKey}>
+            <ButtonField erro={erros.contaOrigemId} shakeKey={shakeKey} onClick={() => setModalOrigemAberto(true)}>
               <span className="truncate">
                 {contaOrigem?.nome || "Selecionar conta de origem"}
               </span>
@@ -345,8 +347,8 @@ export default function TransferenciaModal({ aberto, onClose, edicao = null, onS
             </ButtonField>
           </Campo>
 
-          <Campo label="Conta de destino">
-            <ButtonField onClick={() => setModalDestinoAberto(true)}>
+          <Campo label="Conta de destino" erro={erros.contaDestinoId} shakeKey={shakeKey}>
+            <ButtonField erro={erros.contaDestinoId} shakeKey={shakeKey} onClick={() => setModalDestinoAberto(true)}>
               <span className="truncate">
                 {contaDestino?.nome || "Selecionar conta de destino"}
               </span>
@@ -417,7 +419,7 @@ export default function TransferenciaModal({ aberto, onClose, edicao = null, onS
       <DatePickerModal
         aberto={modalDataAberto}
         valor={data}
-        onChange={setData}
+        onChange={(valor) => { limparErro("data"); setData(valor); }}
         onClose={() => setModalDataAberto(false)}
         titulo="Data da transferência"
         descricao="Escolha a data da movimentação."
@@ -427,7 +429,7 @@ export default function TransferenciaModal({ aberto, onClose, edicao = null, onS
         aberto={modalOrigemAberto}
         contas={contasOrigemDisponiveis}
         contaId={contaOrigemId}
-        onSelecionar={setContaOrigemId}
+        onSelecionar={(valor) => { limparErro("contaOrigemId"); setContaOrigemId(valor); }}
         onClose={() => setModalOrigemAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -436,7 +438,7 @@ export default function TransferenciaModal({ aberto, onClose, edicao = null, onS
         aberto={modalDestinoAberto}
         contas={contasDestinoDisponiveis}
         contaId={contaDestinoId}
-        onSelecionar={setContaDestinoId}
+        onSelecionar={(valor) => { limparErro("contaDestinoId"); setContaDestinoId(valor); }}
         onClose={() => setModalDestinoAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -452,21 +454,22 @@ export default function TransferenciaModal({ aberto, onClose, edicao = null, onS
   );
 }
 
-function Campo({ label, children }) {
+function Campo({ label, children, erro, shakeKey }) {
   return (
-    <div className="mt-4">
-      <label className="text-sm text-gray-300">{label}</label>
+    <div key={erro ? shakeKey : "ok"} className={`mt-4 ${erro ? "animate-shake" : ""}`}>
+      <label className={erro ? "text-sm text-red-400" : "text-sm text-gray-300"}>{label}</label>
       {children}
+      {erro && <p className="mt-1 text-xs text-red-400">{erro}</p>}
     </div>
   );
 }
 
-function ButtonField({ children, onClick }) {
+function ButtonField({ children, onClick, erro }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold flex items-center justify-between gap-2"
+      className={`w-full mt-2 bg-[#0B1120] border ${erro ? "border-red-500" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold flex items-center justify-between gap-2`}
     >
       {children}
     </button>

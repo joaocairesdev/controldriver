@@ -89,8 +89,7 @@ export default function ManutencaoModal({ aberto, onClose, edicao = null, onSalv
     const { data: veiculosData } = await supabase.from("veiculos").select("*").eq("ativo", true).order("id");
     setVeiculos(veiculosData || []);
 
-    const veiculoPrincipal = (veiculosData || []).find((veiculo) => veiculo.principal) || (veiculosData || [])[0];
-    if (veiculoPrincipal) setVeiculoId(String(veiculoPrincipal.id));
+    if (!edicao?.id) setVeiculoId((veiculosData || []).length === 1 ? String(veiculosData[0].id) : "");
 
     await Promise.all([carregarServicosBase(), carregarOficinasBase()]);
   }
@@ -555,6 +554,7 @@ export default function ManutencaoModal({ aberto, onClose, edicao = null, onSalv
 
   function proximaEtapa() {
     if (!validarEtapaAtual()) return;
+    setErrosCampos({});
     setEtapa((atual) => Math.min(atual + 1, 3));
   }
 
@@ -792,7 +792,7 @@ export default function ManutencaoModal({ aberto, onClose, edicao = null, onSalv
         )}
 
         <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
-          <button type="button" onClick={etapa === 1 ? onClose : () => setEtapa((atual) => Math.max(atual - 1, 1))} className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3">
+          <button type="button" onClick={etapa === 1 ? onClose : () => { setErrosCampos({}); setEtapa((atual) => Math.max(atual - 1, 1)); }} className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3">
             {etapa === 1 ? "Cancelar" : "Voltar"}
           </button>
 
@@ -1207,4 +1207,3 @@ function TextInput({ value, onChange, prefix, suffix, placeholder, erro, shakeKe
     </>
   );
 }
-

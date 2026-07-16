@@ -30,6 +30,8 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
   const [modalDataAberto, setModalDataAberto] = useState(false);
   const [modalContaAberto, setModalContaAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
 
   const [feedback, setFeedback] = useState({
     aberto: false,
@@ -182,8 +184,9 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
     setContas(contasComSaldo);
 
     const contasSemTag = contasComSaldo.filter((conta) => (conta.tipo_conta || "banco") !== "tag");
-    const contaPrincipal = contasSemTag.find((conta) => conta.principal) || contasSemTag[0];
-    if (contaPrincipal && !contaId) setContaId(String(contaPrincipal.id));
+    if (!edicao?.id) {
+      setContaId(contasSemTag.length === 1 ? String(contasSemTag[0].id) : "");
+    }
   }
 
   function limparFormulario() {
@@ -191,6 +194,7 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
     setValor("");
     setDescricao("");
     setFinalidade("trabalho");
+    setContaId("");
   }
 
   function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) {
@@ -221,27 +225,13 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
   }
 
   function validar() {
-    if (!data) {
-      abrirFeedback("erro", "Data obrigatória", "Selecione a data.");
-      return false;
-    }
-
-    if (!contaId) {
-      abrirFeedback("erro", "Conta obrigatória", "Selecione a conta de destino.");
-      return false;
-    }
-
-    if (moedaParaNumero(valor) <= 0) {
-      abrirFeedback("erro", "Valor obrigatório", "Informe um valor maior que zero.");
-      return false;
-    }
-
-    if (!descricao.trim()) {
-      abrirFeedback("erro", "Descrição obrigatória", "Informe a descrição da entrada.");
-      return false;
-    }
-
-    return true;
+    const novos = {};
+    if (!data) novos.data = "Selecione a data.";
+    if (!contaId) novos.contaId = "Selecione a conta de destino.";
+    if (moedaParaNumero(valor) <= 0) novos.valor = "Informe um valor maior que zero.";
+    if (!descricao.trim()) novos.descricao = "Informe a descrição da entrada.";
+    setErros(novos); if (Object.keys(novos).length) setShakeKey(Date.now());
+    return Object.keys(novos).length === 0;
   }
 
   async function salvarEntrada() {
@@ -297,21 +287,21 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
       
         confirmarAoFecharSeAlterado>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Campo label="Data">
-            <ButtonField onClick={() => setModalDataAberto(true)}>
+          <Campo label="Data" erro={erros.data} shakeKey={shakeKey}>
+            <ButtonField erro={erros.data} shakeKey={shakeKey} onClick={() => setModalDataAberto(true)}>
               {formatarDataBR(data)}
             </ButtonField>
           </Campo>
 
-          <Campo label="Conta destino">
-            <ButtonField onClick={() => setModalContaAberto(true)}>
+          <Campo label="Conta destino" erro={erros.contaId} shakeKey={shakeKey}>
+            <ButtonField erro={erros.contaId} shakeKey={shakeKey} onClick={() => setModalContaAberto(true)}>
               {contaSelecionada?.nome || "Selecionar conta"}
             </ButtonField>
           </Campo>
         </div>
 
-        <Campo label="Valor">
-          <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+        <Campo label="Valor" erro={erros.valor} shakeKey={shakeKey}>
+          <div className={`flex items-center mt-2 bg-[#0B1120] border ${erros.valor ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
             <span className="px-3 text-gray-400">R$</span>
 
             <input
@@ -319,18 +309,18 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
               inputMode="numeric"
               value={valor}
               placeholder=""
-              onChange={(e) => setValor(formatarMoedaDigitada(e.target.value))}
+              onChange={(e) => { setErros((atuais) => ({ ...atuais, valor: undefined })); setValor(formatarMoedaDigitada(e.target.value)); }}
               className="w-full bg-transparent p-3 outline-none"
             />
           </div>
         </Campo>
 
-        <Campo label="Descrição">
+        <Campo label="Descrição" erro={erros.descricao} shakeKey={shakeKey}>
           <input
             type="text"
             value={descricao}
             placeholder="Ex: Pix da mãe, depósito, reembolso..."
-            onChange={(e) => setDescricao(e.target.value)}
+            onChange={(e) => { setErros((atuais) => ({ ...atuais, descricao: undefined })); setDescricao(e.target.value); }}
             className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
           />
         </Campo>
@@ -410,7 +400,7 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
       <DatePickerModal
         aberto={modalDataAberto}
         valor={data}
-        onChange={setData}
+        onChange={(valorSelecionado) => { setErros((atuais) => ({ ...atuais, data: undefined })); setData(valorSelecionado); }}
         onClose={() => setModalDataAberto(false)}
         titulo="Data da entrada"
         descricao="Escolha a data do recebimento."
@@ -420,7 +410,7 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
         aberto={modalContaAberto}
         contas={contasDestinoDisponiveis}
         contaId={contaId}
-        onSelecionar={setContaId}
+        onSelecionar={(id) => { setErros((atuais) => ({ ...atuais, contaId: undefined })); setContaId(id); }}
         onClose={() => setModalContaAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -436,21 +426,22 @@ export default function EntradaAvulsaModal({ aberto, onClose, edicao = null, onS
   );
 }
 
-function Campo({ label, children }) {
+function Campo({ label, children, erro, shakeKey }) {
   return (
     <div className="mt-4">
       <label className="text-sm text-gray-300">{label}</label>
       {children}
+      {erro && <p key={shakeKey} className="animate-shake text-xs text-red-400 font-semibold mt-2">{erro}</p>}
     </div>
   );
 }
 
-function ButtonField({ children, onClick }) {
+function ButtonField({ children, onClick, erro }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+      className={`w-full mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} hover:border-green-400 rounded-xl p-3 text-left font-semibold`}
     >
       {children}
     </button>

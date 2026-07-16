@@ -27,6 +27,8 @@ export default function GerenciarCategoriasModal({ aberto, onClose, onAtualizar 
   const [salvando, setSalvando] = useState(false);
   const [excluindoId, setExcluindoId] = useState(null);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+  const [erroNome, setErroNome] = useState("");
+  const [shakeKey, setShakeKey] = useState(0);
 
   useEffect(() => {
     if (!aberto) return;
@@ -116,6 +118,7 @@ export default function GerenciarCategoriasModal({ aberto, onClose, onAtualizar 
     setNome("");
     setTipoUso("opcional");
     setSalvando(false);
+    setErroNome("");
   }
 
   function abrirCadastro(nomeInicial = "") {
@@ -143,6 +146,7 @@ export default function GerenciarCategoriasModal({ aberto, onClose, onAtualizar 
       return;
     }
 
+    setErroNome("");
     setNome(valor);
   }
 
@@ -150,7 +154,8 @@ export default function GerenciarCategoriasModal({ aberto, onClose, onAtualizar 
     const nomeLimpo = nome.trim();
 
     if (!nomeLimpo) {
-      abrirFeedback("erro", "Nome obrigatório", "Informe o nome da categoria.");
+      setErroNome("Informe o nome da categoria.");
+      setShakeKey(Date.now());
       return;
     }
 
@@ -391,18 +396,19 @@ export default function GerenciarCategoriasModal({ aberto, onClose, onAtualizar 
 
         {modo === "cadastro" && (
           <div className="space-y-5">
-            <div>
-              <label className="text-sm text-gray-300">Nome da categoria</label>
+            <div key={erroNome ? shakeKey : "ok"} className={erroNome ? "animate-shake" : ""}>
+              <label className={erroNome ? "text-sm text-red-400" : "text-sm text-gray-300"}>Nome da categoria</label>
               <input
                 type="text"
                 value={nome}
                 onChange={(e) => alterarNome(e.target.value)}
                 placeholder="Ex: Seguro, Mercado, Pneus..."
-                className={`w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none ${
+                className={`w-full mt-2 bg-[#0B1120] border ${erroNome ? "border-red-500" : "border-gray-700 focus:border-green-400"} rounded-xl p-3 outline-none ${
                   editando?.sistema ? "text-gray-400 cursor-not-allowed" : ""
                 }`}
                 readOnly={Boolean(editando?.sistema)}
               />
+              {erroNome && <p className="mt-1 text-xs text-red-400">{erroNome}</p>}
               {editando?.sistema && (
                 <p className="text-xs text-gray-500 mt-2">
                   Esta categoria é usada automaticamente pelo ControlDriver. O nome não pode ser alterado.
@@ -468,4 +474,3 @@ export default function GerenciarCategoriasModal({ aberto, onClose, onAtualizar 
     </>
   );
 }
-

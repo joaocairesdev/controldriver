@@ -14,6 +14,15 @@ import { supabase } from "../../../services/supabase";
 import { isCategoriaSistemaFixa, tipoUsoCategoriaFixa, normalizarCategoria } from "../constants/categoriasSistema";
 import ModalBase from "../../../shared/components/modals/ModalBase";
 import FeedbackModal from "../../../shared/components/modals/FeedbackModal";
+import SelecionarOpcaoModal from "../../../shared/components/modals/SelecionarOpcaoModal";
+import {
+  CHAVES_PREFERENCIAS,
+  listarFusosHorarios,
+  obterFusoHorario,
+  obterIdioma,
+  obterTema,
+  rotuloFusoHorario,
+} from "../../../shared/utils/preferencias";
 
 const TIPOS_USO = [
   {
@@ -52,12 +61,29 @@ export default function Configuracoes() {
   const [nome, setNome] = useState("");
   const [tipoUso, setTipoUso] = useState("trabalho");
   const [salvando, setSalvando] = useState(false);
-  const [fusoHorario, setFusoHorario] = useState(() => localStorage.getItem("controldriver_fuso_horario") || Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Sao_Paulo");
-  const [temaApp, setTemaApp] = useState(() => localStorage.getItem("controldriver_tema") || "escuro");
+  const [fusoHorario, setFusoHorario] = useState(obterFusoHorario);
+  const [temaApp, setTemaApp] = useState(obterTema);
+  const [idiomaApp, setIdiomaApp] = useState(obterIdioma);
+  const fusosHorarios = useMemo(listarFusosHorarios, []);
+  const [modalFusoAberto, setModalFusoAberto] = useState(false);
+  const [modalIdiomaAberto, setModalIdiomaAberto] = useState(false);
+  const opcoesFuso = useMemo(() => fusosHorarios.map((fuso) => ({
+    valor: fuso,
+    titulo: rotuloFusoHorario(fuso),
+    descricao: fuso,
+    grupo: fuso.split("/")[0] || "Global",
+  })), [fusosHorarios]);
+  const opcoesIdioma = [
+    { valor: "pt-BR", titulo: "Português (Brasil)", descricao: "Idioma atual da interface" },
+    { valor: "en", titulo: "English", descricao: "Preferência salva; tradução completa em breve" },
+    { valor: "es", titulo: "Español", descricao: "Preferência salva; tradução completa em breve" },
+  ];
 
   const [modoGerenciamento, setModoGerenciamento] = useState("normal");
   const [selecionadas, setSelecionadas] = useState([]);
   const [buscaAdicionar, setBuscaAdicionar] = useState("");
+  const [errosCategoria, setErrosCategoria] = useState({});
+  const [shakeCategoriaKey, setShakeCategoriaKey] = useState(0);
 
   const [feedback, setFeedback] = useState({
     aberto: false,
@@ -71,13 +97,19 @@ export default function Configuracoes() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("controldriver_fuso_horario", fusoHorario);
+    localStorage.setItem(CHAVES_PREFERENCIAS.fusoHorario, fusoHorario);
   }, [fusoHorario]);
 
   useEffect(() => {
-    localStorage.setItem("controldriver_tema", temaApp);
+    localStorage.setItem(CHAVES_PREFERENCIAS.tema, temaApp);
     document.documentElement.dataset.theme = temaApp;
   }, [temaApp]);
+
+  useEffect(() => {
+    localStorage.setItem(CHAVES_PREFERENCIAS.idioma, idiomaApp);
+    document.documentElement.lang = "pt-BR";
+    document.documentElement.dataset.idiomaPreferido = idiomaApp;
+  }, [idiomaApp]);
 
   const categoriasOrdenadas = useMemo(
     () =>
@@ -189,6 +221,7 @@ export default function Configuracoes() {
     setEditando(null);
     setNome("");
     setTipoUso("trabalho");
+    setErrosCategoria({});
   }
 
   function abrirGerenciamento() {
@@ -209,7 +242,8 @@ export default function Configuracoes() {
     const nomeLimpo = nome.trim();
 
     if (!nomeLimpo) {
-      abrirFeedback("erro", "Nome obrigatório", "Informe o nome da categoria.");
+      setErrosCategoria({ nome: "Informe o nome da categoria." });
+      setShakeCategoriaKey(Date.now());
       return;
     }
 
@@ -292,6 +326,7 @@ export default function Configuracoes() {
   }
 
   function alternarSelecionada(id) {
+    setErrosCategoria((atuais) => ({ ...atuais, selecao: undefined }));
     setSelecionadas((lista) =>
       lista.includes(id) ? lista.filter((item) => item !== id) : [...lista, id]
     );
@@ -299,7 +334,8 @@ export default function Configuracoes() {
 
   async function desativarSelecionadas() {
     if (selecionadas.length === 0) {
-      abrirFeedback("aviso", "Nenhuma categoria selecionada", "Selecione pelo menos uma categoria.");
+      setErrosCategoria((atuais) => ({ ...atuais, selecao: "Selecione pelo menos uma categoria." }));
+      setShakeCategoriaKey(Date.now());
       return;
     }
 
@@ -382,7 +418,8 @@ export default function Configuracoes() {
     const nomeLimpo = buscaAdicionar.trim();
 
     if (!nomeLimpo) {
-      abrirFeedback("erro", "Nome obrigatório", "Digite o nome da categoria.");
+      setErrosCategoria((atuais) => ({ ...atuais, busca: "Digite o nome da categoria." }));
+      setShakeCategoriaKey(Date.now());
       return;
     }
 
@@ -460,21 +497,14 @@ export default function Configuracoes() {
             <p className="text-gray-400 mt-1">Ajustes gerais de data, horário e visual do ControlDriver.</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4">
               <p className="text-sm font-bold text-white">Fuso horário</p>
               <p className="text-xs text-gray-500 mt-1">Usado como base para datas e horários do aplicativo.</p>
-              <select
-                value={fusoHorario}
-                onChange={(e) => setFusoHorario(e.target.value)}
-                className="w-full mt-3 bg-[#111827] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
-              >
-                <option value="America/Sao_Paulo">America/Sao_Paulo</option>
-                <option value="America/Manaus">America/Manaus</option>
-                <option value="America/Cuiaba">America/Cuiaba</option>
-                <option value="America/Rio_Branco">America/Rio_Branco</option>
-                <option value="UTC">UTC</option>
-              </select>
+              <button type="button" onClick={() => setModalFusoAberto(true)} className="w-full mt-3 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold">
+                {rotuloFusoHorario(fusoHorario)}
+                <span className="block text-xs text-gray-500 mt-1">{fusoHorario}</span>
+              </button>
             </div>
 
             <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4">
@@ -492,7 +522,14 @@ export default function Configuracoes() {
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-yellow-400 mt-3">O seletor já fica salvo. A aplicação visual completa do tema claro entra na próxima etapa de layout.</p>
+            </div>
+
+            <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4">
+              <p className="text-sm font-bold text-white">Idioma</p>
+              <p className="text-xs text-gray-500 mt-1">A interface permanece integralmente em português nesta etapa.</p>
+              <button type="button" onClick={() => setModalIdiomaAberto(true)} className="w-full mt-3 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold">
+                {opcoesIdioma.find((idioma) => idioma.valor === idiomaApp)?.titulo || "Português (Brasil)"}
+              </button>
             </div>
           </div>
         </div>
@@ -564,7 +601,10 @@ export default function Configuracoes() {
         selecionadas={selecionadas}
         alternarSelecionada={alternarSelecionada}
         buscaAdicionar={buscaAdicionar}
-        setBuscaAdicionar={setBuscaAdicionar}
+        setBuscaAdicionar={(valor) => { setErrosCategoria((atuais) => ({ ...atuais, busca: undefined })); setBuscaAdicionar(valor); }}
+        erroBusca={errosCategoria.busca}
+        erroSelecao={errosCategoria.selecao}
+        shakeKey={shakeCategoriaKey}
         onClose={fecharGerenciamento}
         onAdicionarBusca={adicionarPorBusca}
         onEditar={abrirEditar}
@@ -584,15 +624,16 @@ export default function Configuracoes() {
         z="z-[80]"
       >
         <div className="space-y-5">
-          <div>
-            <label className="text-sm text-gray-300">Nome da categoria</label>
+          <div key={errosCategoria.nome ? shakeCategoriaKey : "ok"} className={errosCategoria.nome ? "animate-shake" : ""}>
+            <label className={errosCategoria.nome ? "text-sm text-red-400" : "text-sm text-gray-300"}>Nome da categoria</label>
             <input
               type="text"
               value={nome}
-              onChange={(e) => setNome(e.target.value)}
+              onChange={(e) => { setErrosCategoria((atuais) => ({ ...atuais, nome: undefined })); setNome(e.target.value); }}
               placeholder="Ex: Seguro, IPVA, Mercado, Pneus..."
-              className="w-full mt-2 bg-[#0B1120] border border-gray-700 focus:border-green-400 rounded-xl p-3 outline-none"
+              className={`w-full mt-2 bg-[#0B1120] border ${errosCategoria.nome ? "border-red-500" : "border-gray-700 focus:border-green-400"} rounded-xl p-3 outline-none`}
             />
+            {errosCategoria.nome && <p className="mt-1 text-xs text-red-400">{errosCategoria.nome}</p>}
           </div>
 
           <div>
@@ -644,6 +685,29 @@ export default function Configuracoes() {
         </div>
       </ModalBase>
 
+      <SelecionarOpcaoModal
+        aberto={modalFusoAberto}
+        titulo="Fuso horário"
+        descricao="Busque por cidade, região ou identificador IANA."
+        opcoes={opcoesFuso}
+        valor={fusoHorario}
+        onSelecionar={setFusoHorario}
+        onClose={() => setModalFusoAberto(false)}
+        pesquisavel
+        placeholderBusca="Ex: São Paulo, Nova York, Europe..."
+      />
+
+      <SelecionarOpcaoModal
+        aberto={modalIdiomaAberto}
+        titulo="Idioma"
+        descricao="Escolha o idioma preferido do aplicativo."
+        opcoes={opcoesIdioma}
+        valor={idiomaApp}
+        onSelecionar={setIdiomaApp}
+        onClose={() => setModalIdiomaAberto(false)}
+        aviso="A interface permanece integralmente em português enquanto as traduções são preparadas."
+      />
+
       <FeedbackModal
         aberto={feedback.aberto}
         tipo={feedback.tipo}
@@ -675,6 +739,9 @@ function ModalGerenciarCategorias({
   alternarSelecionada,
   buscaAdicionar,
   setBuscaAdicionar,
+  erroBusca,
+  erroSelecao,
+  shakeKey,
   onClose,
   onAdicionarBusca,
   onEditar,
@@ -763,7 +830,7 @@ function ModalGerenciarCategorias({
       </div>
 
       {adicionando && (
-        <div className="mb-4 rounded-2xl border border-gray-800 bg-[#0B1120] p-3">
+        <div key={erroBusca ? shakeKey : "ok"} className={`mb-4 rounded-2xl border ${erroBusca ? "border-red-500 animate-shake" : "border-gray-800"} bg-[#0B1120] p-3`}>
           <label className="text-xs text-gray-400 font-semibold">
             Buscar ou adicionar categoria
           </label>
@@ -798,6 +865,7 @@ function ModalGerenciarCategorias({
               </button>
             )}
           </div>
+          {erroBusca && <p className="mt-1 text-xs text-red-400">{erroBusca}</p>}
         </div>
       )}
 
@@ -876,7 +944,9 @@ function ModalGerenciarCategorias({
       </div>
 
       {excluindo && (
-        <div className="grid grid-cols-2 gap-3 mt-5">
+        <div key={erroSelecao ? shakeKey : "ok"} className={erroSelecao ? "mt-5 animate-shake" : "mt-5"}>
+          {erroSelecao && <p className="mb-2 text-xs text-red-400">{erroSelecao}</p>}
+        <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
             onClick={() => setModo("normal")}
@@ -892,6 +962,7 @@ function ModalGerenciarCategorias({
           >
             Excluir selecionadas
           </button>
+        </div>
         </div>
       )}
     </ModalBase>

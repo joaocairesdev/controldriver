@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../../services/supabase";
 import TagModal from "../../tag/components/TagModal";
 import VeiculoModal from "../components/VeiculoModal";
+import ModalBase from "../../../shared/components/modals/ModalBase";
 
 import SelecionarFormaPagamentoModal from "../../../shared/components/modals/SelecionarFormaPagamentoModal";
 import SelecionarContaModal from "../../../shared/components/modals/SelecionarContaModal";
@@ -506,111 +507,6 @@ export default function Veiculos() {
   }
 
   async function salvarVeiculo() {
-    if (!marca.trim()) {
-      abrirAviso("Marca obrigatória", "Digite a marca do veículo.", "erro");
-      return;
-    }
-
-    if (!modelo.trim()) {
-      abrirAviso("Modelo obrigatório", "Digite o modelo do veículo.", "erro");
-      return;
-    }
-
-    if (!ano || ano.length < 4) {
-      abrirAviso("Ano inválido", "Digite o ano do veículo com 4 dígitos.", "erro");
-      return;
-    }
-
-    if (!odometroInicial) {
-      abrirAviso("KM inicial obrigatório", "Digite o KM inicial do veículo.", "erro");
-      return;
-    }
-
-    if (possuiTag) {
-      if (!nomeTag.trim()) {
-        abrirAviso("Nome da TAG", "Digite o nome da TAG do veículo.", "erro");
-        return;
-      }
-
-      if (tipoTag === "pre_paga" && recargaAutomaticaTag) {
-        if (moedaParaNumero(valorRecargaTag) <= 0) {
-          abrirAviso("Valor da recarga", "Informe o valor padrão da recarga automática.", "erro");
-          return;
-        }
-
-        if (formaRecargaTag === "credito_avista" && !cartaoRecargaTagId) {
-          abrirAviso("Cartão da recarga", "Escolha o cartão vinculado à recarga automática.", "erro");
-          return;
-        }
-
-        if (["debito", "pix"].includes(formaRecargaTag) && !contaRecargaTagId) {
-          abrirAviso("Conta da recarga", "Escolha a conta vinculada à recarga automática.", "erro");
-          return;
-        }
-      }
-
-      if (tipoTag === "pos_paga") {
-        if (formaRecargaTag === "credito_avista" && !cartaoRecargaTagId) {
-          abrirAviso("Cartão da TAG", "Escolha o cartão onde a TAG pós-paga será cobrada.", "erro");
-          return;
-        }
-
-        if (["debito", "pix"].includes(formaRecargaTag) && !contaRecargaTagId) {
-          abrirAviso("Conta da TAG", "Escolha a conta onde a TAG pós-paga será cobrada.", "erro");
-          return;
-        }
-      }
-    }
-
-    if (tipoProtecaoVeiculo !== "nenhuma") {
-      if (!nomeProtecaoVeiculo.trim()) {
-        abrirAviso("Proteção do veículo", "Digite o nome da proteção.", "erro");
-        return;
-      }
-
-      if (!inicioVigenciaProtecao || !fimVigenciaProtecao) {
-        abrirAviso("Vigência da proteção", "Informe o início e o fim da vigência.", "erro");
-        return;
-      }
-
-      if (new Date(`${fimVigenciaProtecao}T00:00:00`) < new Date(`${inicioVigenciaProtecao}T00:00:00`)) {
-        abrirAviso("Vigência inválida", "O fim da vigência não pode ser anterior ao início.", "erro");
-        return;
-      }
-
-      if (moedaParaNumero(valorProtecao) <= 0) {
-        abrirAviso("Valor da proteção", "Informe o valor da proteção.", "erro");
-        return;
-      }
-
-      if (["credito_parcelado", "boleto_parcelado"].includes(formaPagamentoProtecao)) {
-        if (Number(numeroParcelasProtecao || 0) < 2) {
-          abrirAviso("Parcelamento inválido", "Informe pelo menos 2 parcelas.", "erro");
-          return;
-        }
-
-        if (Number(parcelasPagasProtecao || 0) > Number(numeroParcelasProtecao || 0)) {
-          abrirAviso("Parcelas pagas", "As parcelas pagas não podem ser maiores que o total de parcelas.", "erro");
-          return;
-        }
-      }
-
-      if (!primeiroVencimentoProtecao && Number(parcelasPagasProtecao || 0) < Number(numeroParcelasProtecao || 1)) {
-        abrirAviso("Próximo vencimento", "Informe o vencimento da próxima parcela em aberto.", "erro");
-        return;
-      }
-
-      if (["credito_avista", "credito_parcelado"].includes(formaPagamentoProtecao) && !cartaoProtecaoId) {
-        abrirAviso("Cartão obrigatório", "Escolha o cartão usado na proteção.", "erro");
-        return;
-      }
-
-      if (["pix", "debito", "dinheiro"].includes(formaPagamentoProtecao) && !contaProtecaoId) {
-        abrirAviso("Conta obrigatória", "Escolha a conta usada na proteção.", "erro");
-        return;
-      }
-    }
-
     if (veiculoEditando) {
       const kmOriginal = Number(
         veiculoEditando.odometro_inicial || veiculoEditando.odometro_atual || 0
@@ -1226,28 +1122,6 @@ export default function Veiculos() {
   async function salvarConfigurarTag(dadosTag) {
     if (!tagConfigEditando) return;
 
-    if (!dadosTag.nome.trim()) {
-      abrirAviso("Nome obrigatório", "Digite o nome da TAG.", "erro");
-      return;
-    }
-
-    if (dadosTag.tipo_tag === "pre_paga" && dadosTag.recarga_automatica) {
-      if (moedaParaNumero(dadosTag.valor_recarga_automatica) <= 0) {
-        abrirAviso("Valor da recarga", "Informe o valor da recarga automática.", "erro");
-        return;
-      }
-
-      if (dadosTag.tag_forma_recarga === "credito_avista" && !dadosTag.tag_cartao_recarga_id) {
-        abrirAviso("Cartão obrigatório", "Escolha o cartão usado na recarga automática.", "erro");
-        return;
-      }
-
-      if (["debito", "pix"].includes(dadosTag.tag_forma_recarga) && !dadosTag.tag_conta_recarga_id) {
-        abrirAviso("Conta obrigatória", "Escolha a conta usada na recarga automática.", "erro");
-        return;
-      }
-    }
-
     const payload = {
       nome: dadosTag.nome.trim(),
       tipo_tag: dadosTag.tipo_tag,
@@ -1639,6 +1513,48 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
   const tag = veiculo.tag;
   const [modalTagAberto, setModalTagAberto] = useState(false);
   const [modalRecargaAberto, setModalRecargaAberto] = useState(false);
+  const [abaAtiva, setAbaAtiva] = useState("resumo");
+  const [dadosDashboard, setDadosDashboard] = useState({ entradas: [], abastecimentos: [], recargas: [], manutencoes: [], manutencoesLegadas: [] });
+  const [carregandoDashboard, setCarregandoDashboard] = useState(true);
+
+  useEffect(() => {
+    let ativo = true;
+    async function carregarDashboardVeiculo() {
+      setCarregandoDashboard(true);
+      const [entradas, abastecimentos, recargas, manutencoes, manutencoesLegadas] = await Promise.all([
+        supabase.from("entradas").select("id, data, km_rodados, entrada_plataformas(faturamento, valor_reembolso)").eq("veiculo_id", veiculo.id),
+        supabase.from("saidas_abastecimentos").select("*, saidas(id, data_compra, valor_total, categoria, descricao)").eq("veiculo_id", veiculo.id),
+        supabase.from("saidas_recargas_eletricas").select("*, saidas(id, data_compra, valor_total, categoria, descricao)").eq("veiculo_id", veiculo.id),
+        supabase.from("saidas_manutencoes").select("*, saidas(id, data_compra, valor_total, categoria, descricao)").eq("veiculo_id", veiculo.id),
+        supabase.from("manutencoes").select("*").eq("veiculo_id", veiculo.id),
+      ]);
+      if (!ativo) return;
+      setDadosDashboard({
+        entradas: entradas.data || [],
+        abastecimentos: abastecimentos.data || [],
+        recargas: recargas.data || [],
+        manutencoes: manutencoes.data || [],
+        manutencoesLegadas: manutencoesLegadas.data || [],
+      });
+      setCarregandoDashboard(false);
+    }
+    carregarDashboardVeiculo();
+    return () => { ativo = false; };
+  }, [veiculo.id]);
+
+  const receita = dadosDashboard.entradas.reduce((total, entrada) => total + (entrada.entrada_plataformas || []).reduce((soma, item) => soma + Number(item.faturamento || 0) + Number(item.valor_reembolso || 0), 0), 0);
+  const gastosAbastecimento = dadosDashboard.abastecimentos.reduce((total, item) => total + Number(item.saidas?.valor_total || 0), 0);
+  const gastosRecarga = dadosDashboard.recargas.reduce((total, item) => total + Number(item.saidas?.valor_total || 0), 0);
+  const gastosManutencao = dadosDashboard.manutencoes.reduce((total, item) => total + Number(item.saidas?.valor_total || 0), 0);
+  const gastos = gastosAbastecimento + gastosRecarga + gastosManutencao;
+  const consumos = dadosDashboard.abastecimentos.map((item) => Number(item.consumo_km_l || 0)).filter((valor) => valor > 0);
+  const mediaConsumo = consumos.length ? consumos.reduce((soma, valor) => soma + valor, 0) / consumos.length : 0;
+  const historico = [
+    ...dadosDashboard.abastecimentos.map((item) => ({ id: `a-${item.id}`, data: item.saidas?.data_compra, tipo: "Abastecimento", descricao: item.saidas?.descricao, valor: item.saidas?.valor_total })),
+    ...dadosDashboard.recargas.map((item) => ({ id: `r-${item.id}`, data: item.saidas?.data_compra, tipo: "Recarga elétrica", descricao: item.local_recarga, valor: item.saidas?.valor_total })),
+    ...dadosDashboard.manutencoes.map((item) => ({ id: `m-${item.id}`, data: item.saidas?.data_compra, tipo: "Manutenção", descricao: item.servico, valor: item.saidas?.valor_total })),
+    ...dadosDashboard.manutencoesLegadas.map((item) => ({ id: `ml-${item.id}`, data: item.data, tipo: "Manutenção", descricao: item.titulo, valor: null })),
+  ].filter((item) => item.data).sort((a, b) => String(b.data).localeCompare(String(a.data)));
 
   return (
     <div>
@@ -1669,20 +1585,49 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
         )}
       </div>
 
-      <div className="mt-8 bg-[#111827] border border-gray-800 rounded-2xl p-8">
-        <h2 className="text-xl font-bold text-green-400">Histórico do veículo</h2>
-        <p className="text-gray-400 mt-2">
-          Esta tela já está roteada. Aqui vamos mostrar abastecimentos, recargas, manutenções, custo por km, consumo, alertas de revisão e separação entre uso pessoal e uso a trabalho.
-        </p>
+      <div className="mt-8 flex gap-2 overflow-x-auto scrollbar-hide" role="tablist">
+        {["resumo", "financeiro", "consumo", "manutencao", "historico"].map((aba) => (
+          <button key={aba} type="button" role="tab" aria-selected={abaAtiva === aba} onClick={() => setAbaAtiva(aba)} className={`whitespace-nowrap rounded-xl border px-4 py-3 font-bold capitalize ${abaAtiva === aba ? "border-green-400 bg-green-500/10 text-green-400" : "border-gray-700 text-gray-300"}`}>
+            {aba === "manutencao" ? "Manutenção" : aba === "historico" ? "Histórico" : aba}
+          </button>
+        ))}
+      </div>
 
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="mt-4 bg-[#111827] border border-gray-800 rounded-2xl p-5 sm:p-8">
+        {carregandoDashboard ? <p className="text-gray-400">Carregando dados do veículo...</p> : null}
+
+        {!carregandoDashboard && abaAtiva === "resumo" && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <ResumoCard titulo="Categoria" valor={nomeCategoria(veiculo.categoria_veiculo)} />
+          <ResumoCard titulo="Posse" valor={veiculo.tipo_posse === "alugado" ? "Alugado" : veiculo.tipo_posse === "proprio" ? "Próprio" : "Não informado"} />
+          <ResumoCard titulo="Aquisição" valor={veiculo.situacao_aquisicao === "financiado" ? "Financiado" : veiculo.situacao_aquisicao === "quitado" ? "Quitado" : "Não informado"} />
           <ResumoCard titulo="KM inicial" valor={`${kmInicial.toLocaleString("pt-BR")} km`} />
           <ResumoCard titulo="KM atual" valor={`${kmAtual.toLocaleString("pt-BR")} km`} />
           <ResumoCard titulo="Total rodado" valor={`${totalRodado.toLocaleString("pt-BR")} km`} />
           <ResumoCard titulo="Uso trabalho" valor={`${kmTrabalho.toLocaleString("pt-BR")} km`} />
           <ResumoCard titulo="Uso pessoal" valor={`${kmPessoal.toLocaleString("pt-BR")} km`} />
-        </div>
+          <ResumoCard titulo="TAG / saldo" valor={tag ? `${tag.nome} · ${formatarMoeda(tag.saldo_atual)}` : "Sem TAG"} />
+          <ResumoCard titulo="Seguro / proteção" valor={veiculo.protecao?.nome_protecao || "Não informado"} />
+        </div>}
+
+        {!carregandoDashboard && abaAtiva === "financeiro" && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <ResumoCard titulo="Receita vinculada" valor={formatarMoeda(receita)} />
+          <ResumoCard titulo="Gastos vinculados" valor={formatarMoeda(gastos)} />
+          <ResumoCard titulo="Resultado operacional" valor={formatarMoeda(receita - gastos)} />
+          <ResumoCard titulo="Abastecimentos" valor={formatarMoeda(gastosAbastecimento)} />
+          <ResumoCard titulo="Recargas elétricas" valor={formatarMoeda(gastosRecarga)} />
+          <ResumoCard titulo="Manutenções" valor={formatarMoeda(gastosManutencao)} />
+          <ResumoCard titulo="Custo por KM" valor={totalRodado > 0 ? formatarMoeda(gastos / totalRodado) : "Base insuficiente"} />
+        </div>}
+
+        {!carregandoDashboard && abaAtiva === "consumo" && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <ResumoCard titulo="Média" valor={mediaConsumo > 0 ? `${mediaConsumo.toFixed(2)} km/L` : "Sem base confiável"} />
+          <ResumoCard titulo="Melhor" valor={consumos.length ? `${Math.max(...consumos).toFixed(2)} km/L` : "-"} />
+          <ResumoCard titulo="Pior" valor={consumos.length ? `${Math.min(...consumos).toFixed(2)} km/L` : "-"} />
+          <ResumoCard titulo="Recarga elétrica" valor={veiculo.media_eletrica_km_kwh > 0 ? `${Number(veiculo.media_eletrica_km_kwh).toFixed(2)} km/kWh` : "Sem base confiável"} />
+        </div>}
+
+        {!carregandoDashboard && abaAtiva === "manutencao" && <ListaDashboardVeiculo itens={historico.filter((item) => item.tipo === "Manutenção")} formatarMoeda={formatarMoeda} vazio="Nenhuma manutenção vinculada." />}
+        {!carregandoDashboard && abaAtiva === "historico" && <ListaDashboardVeiculo itens={historico} formatarMoeda={formatarMoeda} vazio="Nenhum evento vinculado ao veículo." />}
       </div>
 
       {veiculo.protecao && (
@@ -2077,6 +2022,8 @@ function ConfigurarTagModal({
   const [modalFormaAberto, setModalFormaAberto] = useState(false);
   const [modalContaAberto, setModalContaAberto] = useState(false);
   const [modalCartaoAberto, setModalCartaoAberto] = useState(false);
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
 
   const formasRecarga = [
     { valor: "credito_avista", titulo: "Crédito à vista", descricao: "Recarga lançada no cartão de crédito" },
@@ -2102,6 +2049,7 @@ function ConfigurarTagModal({
     setModalFormaAberto(false);
     setModalContaAberto(false);
     setModalCartaoAberto(false);
+    setErros({});
   }, [aberto, tag, numeroParaMoedaInput]);
 
   function textoForma(valor) {
@@ -2125,41 +2073,67 @@ function ConfigurarTagModal({
     });
   }
 
+  function moedaParaNumeroLocal(valor) {
+    return Number(String(valor || "0").replace(/\./g, "").replace(",", ".")) || 0;
+  }
+
+  function limparErro(campo) {
+    setErros((atuais) => {
+      if (!atuais[campo]) return atuais;
+      const proximos = { ...atuais };
+      delete proximos[campo];
+      return proximos;
+    });
+  }
+
+  function salvar() {
+    const novos = {};
+    if (!nome.trim()) novos.nome = "Digite o nome da TAG.";
+    if (tipoTag === "pre_paga" && recargaAutomatica) {
+      if (moedaParaNumeroLocal(valorRecarga) <= 0) novos.valorRecarga = "Informe o valor da recarga automática.";
+      if (formaRecarga === "credito_avista" && !cartaoRecargaId) novos.cartaoRecargaId = "Escolha o cartão usado na recarga.";
+      if (["debito", "pix"].includes(formaRecarga) && !contaRecargaId) novos.contaRecargaId = "Escolha a conta usada na recarga.";
+    }
+    setErros(novos);
+    if (Object.keys(novos).length) {
+      setShakeKey(Date.now());
+      return;
+    }
+    onSalvar({
+      nome,
+      tipo_tag: tipoTag,
+      recarga_automatica: recargaAutomatica,
+      valor_recarga_automatica: valorRecarga,
+      percentual_alerta_recarga: percentualGatilho,
+      tag_forma_recarga: formaRecarga,
+      tag_conta_recarga_id: contaRecargaId,
+      tag_cartao_recarga_id: cartaoRecargaId,
+    });
+  }
+
   if (!aberto || !tag) return null;
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[70] p-4">
-        <div
-          className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[#111827] border border-gray-800 rounded-2xl p-6"
-          style={{ scrollbarWidth: "none" }}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold">Configurar TAG</h2>
-              <p className="text-gray-400 mt-2">
-                Altere apenas a TAG vinculada ao veículo.
-              </p>
-            </div>
+      <ModalBase
+        aberto={aberto}
+        titulo="Configurar TAG"
+        descricao="Altere apenas a TAG vinculada ao veículo."
+        onClose={onClose}
+        largura="max-w-lg"
+        z="z-[70]"
+      >
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shrink-0"
-            >
-              <FiX className="w-5 h-5 mx-auto" />
-            </button>
-          </div>
-
-          <div className="mt-6">
-            <label className="text-sm text-gray-300">Nome da TAG</label>
+          <div key={erros.nome ? shakeKey : "ok"} className={`mt-6 ${erros.nome ? "animate-shake" : ""}`}>
+            <label className={erros.nome ? "text-sm text-red-400" : "text-sm text-gray-300"}>Nome da TAG</label>
             <input
               type="text"
               value={nome}
               placeholder="Ex: Veloe"
-              onChange={(e) => setNome(e.target.value)}
-              className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 outline-none focus:border-green-400"
+              onChange={(e) => { limparErro("nome"); setNome(e.target.value); }}
+              className={`w-full mt-2 bg-[#0B1120] border ${erros.nome ? "border-red-500" : "border-gray-700 focus:border-green-400"} rounded-xl p-3 outline-none`}
             />
+            {erros.nome && <p className="mt-1 text-xs text-red-400">{erros.nome}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3 mt-5">
@@ -2219,19 +2193,20 @@ function ConfigurarTagModal({
               {recargaAutomatica && (
                 <div className="mt-5 space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm text-gray-300">Valor da recarga</label>
-                      <div className="flex items-center mt-2 bg-[#111827] border border-gray-700 rounded-xl overflow-hidden">
+                    <div key={erros.valorRecarga ? shakeKey : "ok"} className={erros.valorRecarga ? "animate-shake" : ""}>
+                      <label className={erros.valorRecarga ? "text-sm text-red-400" : "text-sm text-gray-300"}>Valor da recarga</label>
+                      <div className={`flex items-center mt-2 bg-[#111827] border ${erros.valorRecarga ? "border-red-500" : "border-gray-700"} rounded-xl overflow-hidden`}>
                         <span className="px-3 text-gray-400">R$</span>
                         <input
                           type="text"
                           inputMode="decimal"
                           value={valorRecarga}
                           placeholder="30,00"
-                          onChange={(e) => setValorRecarga(formatarMoedaDigitada(e.target.value))}
+                          onChange={(e) => { limparErro("valorRecarga"); setValorRecarga(formatarMoedaDigitada(e.target.value)); }}
                           className="w-full bg-transparent p-3 outline-none"
                         />
                       </div>
+                      {erros.valorRecarga && <p className="mt-1 text-xs text-red-400">{erros.valorRecarga}</p>}
                     </div>
 
                     <div>
@@ -2259,26 +2234,28 @@ function ConfigurarTagModal({
                   </div>
 
                   {formaRecarga === "credito_avista" ? (
-                    <div>
-                      <label className="text-sm text-gray-300">Cartão vinculado</label>
+                    <div key={erros.cartaoRecargaId ? shakeKey : "ok"} className={erros.cartaoRecargaId ? "animate-shake" : ""}>
+                      <label className={erros.cartaoRecargaId ? "text-sm text-red-400" : "text-sm text-gray-300"}>Cartão vinculado</label>
                       <button
                         type="button"
                         onClick={() => setModalCartaoAberto(true)}
-                        className="w-full mt-2 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                        className={`w-full mt-2 bg-[#111827] border ${erros.cartaoRecargaId ? "border-red-500" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
                       >
                         {textoCartao(cartaoRecargaId)}
                       </button>
+                      {erros.cartaoRecargaId && <p className="mt-1 text-xs text-red-400">{erros.cartaoRecargaId}</p>}
                     </div>
                   ) : (
-                    <div>
-                      <label className="text-sm text-gray-300">Conta vinculada</label>
+                    <div key={erros.contaRecargaId ? shakeKey : "ok"} className={erros.contaRecargaId ? "animate-shake" : ""}>
+                      <label className={erros.contaRecargaId ? "text-sm text-red-400" : "text-sm text-gray-300"}>Conta vinculada</label>
                       <button
                         type="button"
                         onClick={() => setModalContaAberto(true)}
-                        className="w-full mt-2 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                        className={`w-full mt-2 bg-[#111827] border ${erros.contaRecargaId ? "border-red-500" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
                       >
                         {textoConta(contaRecargaId)}
                       </button>
+                      {erros.contaRecargaId && <p className="mt-1 text-xs text-red-400">{erros.contaRecargaId}</p>}
                     </div>
                   )}
                 </div>
@@ -2286,7 +2263,7 @@ function ConfigurarTagModal({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4 mt-6">
+          <div className="sticky bottom-0 grid grid-cols-2 gap-4 mt-6 bg-[#111827]">
             <button
               type="button"
               onClick={onClose}
@@ -2297,25 +2274,13 @@ function ConfigurarTagModal({
 
             <button
               type="button"
-              onClick={() =>
-                onSalvar({
-                  nome,
-                  tipo_tag: tipoTag,
-                  recarga_automatica: recargaAutomatica,
-                  valor_recarga_automatica: valorRecarga,
-                  percentual_alerta_recarga: percentualGatilho,
-                  tag_forma_recarga: formaRecarga,
-                  tag_conta_recarga_id: contaRecargaId,
-                  tag_cartao_recarga_id: cartaoRecargaId,
-                })
-              }
+              onClick={salvar}
               className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
             >
               Salvar TAG
             </button>
           </div>
-        </div>
-      </div>
+      </ModalBase>
 
       <SelecionarFormaPagamentoModal
         aberto={modalFormaAberto}
@@ -2333,7 +2298,7 @@ function ConfigurarTagModal({
         aberto={modalContaAberto}
         contas={contasBanco}
         contaId={contaRecargaId}
-        onSelecionar={setContaRecargaId}
+        onSelecionar={(valor) => { limparErro("contaRecargaId"); setContaRecargaId(valor); }}
         onClose={() => setModalContaAberto(false)}
         formatarMoeda={formatarMoedaLocal}
       />
@@ -2342,11 +2307,29 @@ function ConfigurarTagModal({
         aberto={modalCartaoAberto}
         cartoes={cartoes}
         cartaoId={cartaoRecargaId}
-        onSelecionar={setCartaoRecargaId}
+        onSelecionar={(valor) => { limparErro("cartaoRecargaId"); setCartaoRecargaId(valor); }}
         onClose={() => setModalCartaoAberto(false)}
         formatarMoeda={formatarMoedaLocal}
       />
     </>
+  );
+}
+
+function ListaDashboardVeiculo({ itens, formatarMoeda, vazio }) {
+  if (!itens.length) return <p className="text-sm text-gray-400">{vazio}</p>;
+  return (
+    <div className="space-y-3">
+      {itens.map((item) => (
+        <div key={item.id} className="rounded-xl border border-gray-800 bg-[#0B1120] p-4 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-xs text-gray-500">{formatarDataBRLocal(item.data)}</p>
+            <p className="font-bold text-white mt-1">{item.tipo}</p>
+            <p className="text-sm text-gray-400 truncate">{item.descricao || "Sem descrição"}</p>
+          </div>
+          <p className="font-black text-white shrink-0">{item.valor == null ? "-" : formatarMoeda(item.valor)}</p>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -2425,4 +2408,3 @@ function ModalConfirmacao({ titulo, texto, subtitulo, cancelar, confirmar, texto
     </div>
   );
 }
-

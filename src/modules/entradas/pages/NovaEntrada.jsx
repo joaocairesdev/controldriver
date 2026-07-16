@@ -29,6 +29,8 @@ export default function NovaEntrada({ setPagina }) {
   const [modalDadosPlataformaAberto, setModalDadosPlataformaAberto] = useState(false);
 
   const [plataformaEditando, setPlataformaEditando] = useState(null);
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
 
   const [tempoPicker, setTempoPicker] = useState({
     hora: "08",
@@ -134,6 +136,7 @@ export default function NovaEntrada({ setPagina }) {
   }
 
   function salvarDadosPlataforma(dados) {
+    setErros((atuais) => ({ ...atuais, plataformas: undefined }));
     setSelecionadas((listaAtual) => {
       const jaExiste = listaAtual.some((item) => item.id === dados.id);
 
@@ -161,12 +164,13 @@ export default function NovaEntrada({ setPagina }) {
   }
 
   async function salvarEntrada() {
-    if (!data || km === "" || selecionadas.length === 0) {
-      abrirFeedback(
-        "erro",
-        "Campos obrigatórios",
-        "Preencha data, KM e selecione pelo menos uma plataforma. Use 0 km quando for apenas ajuste de valor."
-      );
+    const novos = {};
+    if (!data) novos.data = "Selecione a data.";
+    if (km === "") novos.km = "Informe o KM; use 0 apenas para ajuste de valor.";
+    if (selecionadas.length === 0) novos.plataformas = "Selecione pelo menos uma plataforma.";
+    setErros(novos);
+    if (Object.keys(novos).length) {
+      setShakeKey(Date.now());
       return;
     }
 
@@ -256,15 +260,16 @@ export default function NovaEntrada({ setPagina }) {
 
       <div className="mt-8 bg-[#111827] border border-gray-800 rounded-2xl p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="text-sm text-gray-300">Data</label>
+          <div key={erros.data ? shakeKey : "ok"} className={erros.data ? "animate-shake" : ""}>
+            <label className={erros.data ? "text-sm text-red-400" : "text-sm text-gray-300"}>Data</label>
             <button
               type="button"
               onClick={() => setModalDataAberto(true)}
-              className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+              className={`w-full mt-2 bg-[#0B1120] border ${erros.data ? "border-red-500" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
             >
               {formatarDataBR(data)}
             </button>
+            {erros.data && <p className="mt-1 text-xs text-red-400">{erros.data}</p>}
           </div>
 
           <div>
@@ -278,21 +283,23 @@ export default function NovaEntrada({ setPagina }) {
             </button>
           </div>
 
-          <div>
-            <label className="text-sm text-gray-300">KM Rodados</label>
+          <div key={erros.km ? shakeKey : "ok"} className={erros.km ? "animate-shake" : ""}>
+            <label className={erros.km ? "text-sm text-red-400" : "text-sm text-gray-300"}>KM Rodados</label>
             <input
               type="text"
               inputMode="numeric"
               value={km}
               placeholder="0"
-              onChange={(e) => setKm(e.target.value.replace(/\D/g, ""))}
-              className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3"
+              onChange={(e) => { setErros((atuais) => ({ ...atuais, km: undefined })); setKm(e.target.value.replace(/\D/g, "")); }}
+              className={`w-full mt-2 bg-[#0B1120] border ${erros.km ? "border-red-500" : "border-gray-700"} rounded-xl p-3`}
             />
+            {erros.km && <p className="mt-1 text-xs text-red-400">{erros.km}</p>}
           </div>
         </div>
       </div>
 
       <div className="mt-6 bg-[#111827] border border-gray-800 rounded-2xl p-6">
+        {erros.plataformas && <p key={shakeKey} className="mb-3 rounded-xl border border-red-500 bg-red-500/10 p-3 text-sm text-red-400 animate-shake">{erros.plataformas}</p>}
         <div className="flex items-start justify-between gap-4 mb-4">
           <h2 className="text-xl font-bold">
             Qual(is) plataforma(s) você trabalhou?
@@ -443,6 +450,7 @@ export default function NovaEntrada({ setPagina }) {
         aberto={modalDataAberto}
         valor={data}
         onChange={async (novaData) => {
+          setErros((atuais) => ({ ...atuais, data: undefined }));
           setData(novaData);
           setSelecionadas([]);
           await carregarLancamentosDoDia(novaData);
@@ -494,4 +502,3 @@ export default function NovaEntrada({ setPagina }) {
     </div>
   );
 }
-

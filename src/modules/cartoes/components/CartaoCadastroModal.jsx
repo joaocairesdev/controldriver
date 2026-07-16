@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FiCreditCard, FiPlus, FiUser, FiX } from "react-icons/fi";
+import { FiCreditCard, FiPlus, FiUser } from "react-icons/fi";
 import { supabase } from "../../../services/supabase";
 import DatePickerModal from "../../../shared/components/modals/DatePickerModal";
 import ModalBase from "../../../shared/components/modals/ModalBase";
@@ -33,6 +33,7 @@ export default function CartaoCadastroModal({
 
   const [tipoCartao, setTipoCartao] = useState(TIPOS_CARTAO.PROPRIO);
   const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
   const [nome, setNome] = useState("");
   const [responsavelNome, setResponsavelNome] = useState("");
   const [finalCartao, setFinalCartao] = useState("");
@@ -309,12 +310,14 @@ export default function CartaoCadastroModal({
   }
 
   function atualizarFaturaInicial(id, campo, valor) {
+    limparErroCampo(`fatura-${id}-${campo}`);
     setFaturasIniciais((lista) =>
       lista.map((fatura) => (fatura.id === id ? { ...fatura, [campo]: valor } : fatura))
     );
   }
 
   function atualizarParcelamentoImportado(id, campo, valor) {
+    limparErroCampo(`parcelamento-${id}-${campo}`);
     setParcelamentosImportados((lista) =>
       lista.map((parcelamento) =>
         parcelamento.id === id ? { ...parcelamento, [campo]: valor } : parcelamento
@@ -404,40 +407,31 @@ export default function CartaoCadastroModal({
   }
 
   function validarFaturasIniciais() {
-    const existeInvalida = faturasIniciais.some(
-      (fatura) => moedaParaNumero(fatura.valor) <= 0 || !fatura.vencimento
-    );
-
-    if (existeInvalida) {
-      abrirAviso("Fatura inicial", "Informe o valor e o vencimento de todas as faturas em aberto.", "erro");
-      return false;
-    }
-
-    return true;
+    const novosErros = {};
+    faturasIniciais.forEach((fatura) => {
+      if (moedaParaNumero(fatura.valor) <= 0) novosErros[`fatura-${fatura.id}-valor`] = "Informe o valor da fatura.";
+      if (!fatura.vencimento) novosErros[`fatura-${fatura.id}-vencimento`] = "Informe o vencimento da fatura.";
+    });
+    setErros(novosErros);
+    if (Object.keys(novosErros).length) setShakeKey(Date.now());
+    return Object.keys(novosErros).length === 0;
   }
 
   function validarParcelamentosImportados() {
-    const existeInvalido = parcelamentosImportados.some((parcelamento) => {
-      const descricaoOk = String(parcelamento.descricao || "").trim().length > 0;
-      const valorOk = moedaParaNumero(parcelamento.valorParcela) > 0;
-      const parcelasOk = Number(parcelamento.parcelasRestantes || 0) >= 1;
-      const vencimentoOk = Boolean(parcelamento.primeiroVencimento);
-      return !descricaoOk || !valorOk || !parcelasOk || !vencimentoOk;
+    const novosErros = {};
+    parcelamentosImportados.forEach((parcelamento) => {
+      if (!String(parcelamento.descricao || "").trim()) novosErros[`parcelamento-${parcelamento.id}-descricao`] = "Informe a descrição.";
+      if (moedaParaNumero(parcelamento.valorParcela) <= 0) novosErros[`parcelamento-${parcelamento.id}-valorParcela`] = "Informe o valor da parcela.";
+      if (Number(parcelamento.parcelasRestantes || 0) < 1) novosErros[`parcelamento-${parcelamento.id}-parcelasRestantes`] = "Informe as parcelas restantes.";
+      if (!parcelamento.primeiroVencimento) novosErros[`parcelamento-${parcelamento.id}-primeiroVencimento`] = "Informe o próximo vencimento.";
     });
-
-    if (existeInvalido) {
-      abrirAviso(
-        "Parcelamentos",
-        "Preencha descrição, valor da parcela, parcelas restantes e próximo vencimento de todos os parcelamentos.",
-        "erro"
-      );
-      return false;
-    }
-
-    return true;
+    setErros(novosErros);
+    if (Object.keys(novosErros).length) setShakeKey(Date.now());
+    return Object.keys(novosErros).length === 0;
   }
 
   function avancarCadastroCartao() {
+    setErros({});
     if (etapaCadastro === 1) {
       setEtapaCadastro(2);
       return;
@@ -463,6 +457,7 @@ export default function CartaoCadastroModal({
   }
 
   function voltarCadastroCartao() {
+    setErros({});
     if (cartaoEditando && etapaCadastro <= 2) {
       fecharModal();
       return;
@@ -862,30 +857,13 @@ export default function CartaoCadastroModal({
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-50 overscroll-none overflow-hidden">
-        <div
-          className="w-full max-w-2xl max-h-[100dvh] sm:max-h-[88vh] overflow-y-auto bg-[#111827] border border-gray-800 rounded-t-3xl sm:rounded-2xl p-5 sm:p-6 pb-28 sm:pb-6 scrollbar-hide"
-          style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold">
-                {cartaoEditando ? "Editar Cartão" : "Novo Cartão"}
-              </h2>
-              <p className="text-gray-400 mt-2">
-                Cadastre seus cartões ou de terceiros para manter as faturas organizadas.
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={fecharModal}
-              className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shrink-0 flex items-center justify-center"
-              aria-label="Fechar"
-            >
-              <FiX className="w-5 h-5" />
-            </button>
-          </div>
+      <ModalBase
+        aberto={aberto}
+        titulo={cartaoEditando ? "Editar Cartão" : "Novo Cartão"}
+        descricao="Cadastre seus cartões ou de terceiros para manter as faturas organizadas."
+        onClose={fecharModal}
+        largura="max-w-2xl"
+      >
 
           {etapaCadastro > 1 && (
             <div className="grid gap-2 mt-6" style={{ gridTemplateColumns: `repeat(${etapasVisuais.length}, minmax(0, 1fr))` }}>
@@ -1126,8 +1104,8 @@ export default function CartaoCadastroModal({
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                            <CampoCartao label="Valor da fatura">
-                              <div className="flex items-center mt-2 bg-[#111827] border border-gray-700 rounded-xl overflow-hidden">
+                            <CampoCartao label="Valor da fatura" erro={erros[`fatura-${fatura.id}-valor`]}>
+                              <div key={erros[`fatura-${fatura.id}-valor`] ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#111827] border ${erros[`fatura-${fatura.id}-valor`] ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
                                 <span className="px-3 text-gray-400">R$</span>
                                 <input
                                   type="text"
@@ -1142,14 +1120,15 @@ export default function CartaoCadastroModal({
                               </div>
                             </CampoCartao>
 
-                            <CampoCartao label="Vencimento da fatura">
+                            <CampoCartao label="Vencimento da fatura" erro={erros[`fatura-${fatura.id}-vencimento`]}>
                               <button
+                                key={erros[`fatura-${fatura.id}-vencimento`] ? shakeKey : "ok"}
                                 type="button"
                                 onClick={() => {
                                   setIndiceFaturaVencimento(index);
                                   setModalVencimentoFaturaAberto(true);
                                 }}
-                                className="w-full mt-2 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                                className={`w-full mt-2 bg-[#111827] border ${erros[`fatura-${fatura.id}-vencimento`] ? "border-red-500 animate-shake" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
                               >
                                 {formatarDataBR(fatura.vencimento)}
                               </button>
@@ -1186,20 +1165,20 @@ export default function CartaoCadastroModal({
                           </div>
 
                           <div className="mt-4">
-                            <CampoCartao label="Descrição da compra">
+                            <CampoCartao label="Descrição da compra" erro={erros[`parcelamento-${parcelamento.id}-descricao`]}>
                               <input
                                 type="text"
                                 value={parcelamento.descricao}
                                 placeholder="Ex: Manutenção, seguro, peças..."
                                 onChange={(event) => atualizarParcelamentoImportado(parcelamento.id, "descricao", event.target.value)}
-                                className="w-full mt-2 bg-[#111827] border border-gray-700 rounded-xl p-3 outline-none focus:border-green-400"
+                                className={`w-full mt-2 bg-[#111827] border ${erros[`parcelamento-${parcelamento.id}-descricao`] ? "border-red-500 animate-shake" : "border-gray-700 focus:border-green-400"} rounded-xl p-3 outline-none`}
                               />
                             </CampoCartao>
                           </div>
 
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
-                            <CampoCartao label="Valor da parcela">
-                              <div className="flex items-center mt-2 bg-[#111827] border border-gray-700 rounded-xl overflow-hidden">
+                            <CampoCartao label="Valor da parcela" erro={erros[`parcelamento-${parcelamento.id}-valorParcela`]}>
+                              <div key={erros[`parcelamento-${parcelamento.id}-valorParcela`] ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#111827] border ${erros[`parcelamento-${parcelamento.id}-valorParcela`] ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
                                 <span className="px-3 text-gray-400">R$</span>
                                 <input
                                   type="text"
@@ -1218,7 +1197,7 @@ export default function CartaoCadastroModal({
                               </div>
                             </CampoCartao>
 
-                            <CampoCartao label="Parcelas restantes">
+                            <CampoCartao label="Parcelas restantes" erro={erros[`parcelamento-${parcelamento.id}-parcelasRestantes`]}>
                               <input
                                 type="text"
                                 inputMode="numeric"
@@ -1231,18 +1210,19 @@ export default function CartaoCadastroModal({
                                     somenteNumeros(event.target.value).slice(0, 3)
                                   )
                                 }
-                                className="w-full mt-2 bg-[#111827] border border-gray-700 rounded-xl p-3 outline-none focus:border-green-400"
+                                className={`w-full mt-2 bg-[#111827] border ${erros[`parcelamento-${parcelamento.id}-parcelasRestantes`] ? "border-red-500 animate-shake" : "border-gray-700 focus:border-green-400"} rounded-xl p-3 outline-none`}
                               />
                             </CampoCartao>
 
-                            <CampoCartao label="Próximo vencimento">
+                            <CampoCartao label="Próximo vencimento" erro={erros[`parcelamento-${parcelamento.id}-primeiroVencimento`]}>
                               <button
+                                key={erros[`parcelamento-${parcelamento.id}-primeiroVencimento`] ? shakeKey : "ok"}
                                 type="button"
                                 onClick={() => {
                                   setIndiceParcelamentoVencimento(index);
                                   setModalVencimentoParcelamentoAberto(true);
                                 }}
-                                className="w-full mt-2 bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                                className={`w-full mt-2 bg-[#111827] border ${erros[`parcelamento-${parcelamento.id}-primeiroVencimento`] ? "border-red-500 animate-shake" : "border-gray-700 hover:border-green-400"} rounded-xl p-3 text-left font-semibold`}
                               >
                                 {formatarDataBR(parcelamento.primeiroVencimento)}
                               </button>
@@ -1315,8 +1295,7 @@ export default function CartaoCadastroModal({
               {etapaCadastro === 4 ? "Salvar" : "Próximo"}
             </button>
           </div>
-        </div>
-      </div>
+      </ModalBase>
 
       <DatePickerModal
         aberto={modalVencimentoFaturaAberto}
@@ -1381,4 +1360,3 @@ function ResumoLinha({ titulo, valor }) {
     </div>
   );
 }
-

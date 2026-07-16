@@ -13,6 +13,7 @@ import SelecionarCartaoModal from "../../../shared/components/modals/SelecionarC
 import SelecionarParcelasModal from "../../../shared/components/modals/SelecionarParcelasModal";
 import FeedbackModal from "../../../shared/components/modals/FeedbackModal";
 import ConfirmacaoModal from "../../../shared/components/modals/ConfirmacaoModal";
+import { FORMA_PAGAMENTO_DEBITO_CONTA } from "../../../shared/constants/formasPagamento";
 import {
   ajustarVencimentoFimDeSemana,
   calcularUsoELimiteCartao,
@@ -44,17 +45,18 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     { valor: "dinheiro", titulo: "Dinheiro", descricao: "Sai da carteira" },
     { valor: "pix", titulo: "Pix", descricao: "Sai direto de uma conta" },
     { valor: "debito", titulo: "Débito", descricao: "Sai direto de uma conta" },
+    FORMA_PAGAMENTO_DEBITO_CONTA,
     { valor: "credito_avista", titulo: "Crédito à Vista", descricao: "Entra na fatura do cartão" },
     { valor: "credito_parcelado", titulo: "Crédito Parcelado", descricao: "Divide em 2x ou mais no cartão" },
   ];
 
   const usoPadrao = {
-    categoria: "Pedágio (Trabalho)",
+    categoria: "",
     valor: "",
     descricao: "",
   };
 
-  const criarGrupo = (data = hoje) => ({
+  const criarGrupo = (data) => ({
     id: crypto.randomUUID(),
     data,
     usos: [{ ...usoPadrao, id: crypto.randomUUID() }],
@@ -65,7 +67,10 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   const [contas, setContas] = useState([]);
   const [cartoes, setCartoes] = useState([]);
   const [contaTagId, setContaTagId] = useState("");
-  const [grupos, setGrupos] = useState([criarGrupo()]);
+  const [grupos, setGrupos] = useState([]);
+  const [etapaUso, setEtapaUso] = useState("usos");
+  const [errosUso, setErrosUso] = useState({});
+  const [shakeUsoKey, setShakeUsoKey] = useState(0);
   const gruposScrollRef = useRef(null);
   const usoRefs = useRef({});
   const swipeGrupoRef = useRef({ startX: 0, startY: 0, ativo: false, arrastando: false });
@@ -89,13 +94,15 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
   const [dataRecarga, setDataRecarga] = useState(hoje);
   const [tagRecargaId, setTagRecargaId] = useState("");
-  const [formaRecarga, setFormaRecarga] = useState("pix");
+  const [formaRecarga, setFormaRecarga] = useState("");
   const [contaOrigemRecargaId, setContaOrigemRecargaId] = useState("");
   const [cartaoRecargaId, setCartaoRecargaId] = useState("");
   const [valorRecarga, setValorRecarga] = useState("");
   const [numeroParcelasRecarga, setNumeroParcelasRecarga] = useState("1");
   const [valorParcelaRecarga, setValorParcelaRecarga] = useState("");
   const [ultimoCampoRecarga, setUltimoCampoRecarga] = useState("total");
+  const [errosRecarga, setErrosRecarga] = useState({});
+  const [shakeRecargaKey, setShakeRecargaKey] = useState(0);
 
   const [modalDataRecargaAberto, setModalDataRecargaAberto] = useState(false);
   const [modalTagRecargaAberto, setModalTagRecargaAberto] = useState(false);
@@ -115,6 +122,15 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   const [dadosCarregados, setDadosCarregados] = useState(false);
   const [animacaoGrupo, setAnimacaoGrupo] = useState("parado");
   const [arrastoGrupoX, setArrastoGrupoX] = useState(0);
+
+  function limparErroRecarga(campo) {
+    setErrosRecarga((atuais) => {
+      if (!atuais[campo]) return atuais;
+      const proximos = { ...atuais };
+      delete proximos[campo];
+      return proximos;
+    });
+  }
 
   const [confirmacaoAcao, setConfirmacaoAcao] = useState({
     aberto: false,
@@ -386,17 +402,11 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
         setTagRecargaId(String(tagInicial.id));
       }
     } else {
-      setContaTagId((atual) => atual || (tags[0] ? String(tags[0].id) : ""));
-      setTagRecargaId((atual) =>
-        atual || (tagsPrePagasEncontradas[0] ? String(tagsPrePagasEncontradas[0].id) : "")
-      );
+      setContaTagId((atual) => atual || (tags.length === 1 ? String(tags[0].id) : ""));
+      setTagRecargaId((atual) => atual || (tagsPrePagasEncontradas.length === 1 ? String(tagsPrePagasEncontradas[0].id) : ""));
     }
 
-    if (contasOrigem.length) {
-      const principal = contasOrigem.find((conta) => conta.principal);
-      const contaPadrao = principal || contasOrigem[0];
-      if (contaPadrao) setContaOrigemRecargaId((atual) => atual || String(contaPadrao.id));
-    }
+    setContaOrigemRecargaId((atual) => atual || (contasOrigem.length === 1 ? String(contasOrigem[0].id) : ""));
   }
 
   async function carregarDados() {
@@ -537,7 +547,9 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   }
 
   function resetarFormulario() {
-    setGrupos([criarGrupo()]);
+    setGrupos([]);
+    setEtapaUso("usos");
+    setErrosUso({});
   }
 
   function temDadosPreenchidos() {
@@ -553,6 +565,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
 
   function cancelarUso() {
     resetarFormulario();
+    setErrosRecarga({});
     setEtapa("menu");
   }
 
@@ -565,6 +578,8 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   }
 
   function atualizarUso(grupoIndex, usoIndex, campo, valor) {
+    const usoId = grupos[grupoIndex]?.usos?.[usoIndex]?.id;
+    if (usoId) setErrosUso((atuais) => ({ ...atuais, [`${usoId}-${campo}`]: undefined }));
     setGrupos((lista) =>
       lista.map((grupo, gIndex) => {
         if (gIndex !== grupoIndex) return grupo;
@@ -887,10 +902,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
   }
 
   function definirContaBancariaRecargaPadrao() {
-    const contaPrincipal = contasOrigemRecarga.find((conta) => conta.principal);
-    const contaPadrao = contaPrincipal || contasOrigemRecarga[0];
-
-    if (contaPadrao) setContaOrigemRecargaId(String(contaPadrao.id));
+    setContaOrigemRecargaId(contasOrigemRecarga.length === 1 ? String(contasOrigemRecarga[0].id) : "");
   }
 
   function resetarRecarga() {
@@ -1035,39 +1047,36 @@ async function atualizarValorFatura(faturaId, valorSomar) {
   }
 
   function validarUso() {
+    const novosErros = {};
     if (!contaTagId) {
-      abrirFeedback("erro", "TAG obrigatória", "Selecione uma TAG.");
-      return false;
+      novosErros.contaTagId = "Selecione uma TAG.";
     }
 
     for (const grupo of grupos) {
       if (!grupo.data) {
-        abrirFeedback("erro", "Data obrigatória", "Selecione a data.");
-        return false;
+        novosErros[`grupo-${grupo.id}-data`] = "Selecione a data.";
       }
 
       for (const uso of grupo.usos) {
-        if (!uso.categoria || moedaParaNumero(uso.valor) <= 0) {
-          abrirFeedback(
-            "erro",
-            "Dados incompletos",
-            "Preencha categoria e valor em todos os usos."
-          );
-          return false;
-        }
+        if (!uso.categoria) novosErros[`${uso.id}-categoria`] = "Selecione a categoria.";
+        if (moedaParaNumero(uso.valor) <= 0) novosErros[`${uso.id}-valor`] = "Informe um valor maior que zero.";
 
         if (uso.categoria.includes("Estacionamento") && !uso.descricao.trim()) {
-          abrirFeedback(
-            "erro",
-            "Descrição obrigatória",
-            "Informe a descrição do estacionamento."
-          );
-          return false;
+          novosErros[`${uso.id}-descricao`] = "Informe a descrição do estacionamento.";
         }
       }
     }
 
-    return true;
+    if (!grupos.length) novosErros.grupos = "Adicione pelo menos um uso.";
+    setErrosUso(novosErros);
+    if (Object.keys(novosErros).length) setShakeUsoKey(Date.now());
+    return Object.keys(novosErros).length === 0;
+  }
+
+  function continuarUso() {
+    if (!validarUso()) return;
+    setErrosUso({});
+    setEtapaUso("resumo");
   }
 
   async function salvarUso(opcoes = {}) {
@@ -1164,24 +1173,22 @@ async function atualizarValorFatura(faturaId, valorSomar) {
 
   function limparRecarga() {
     setDataRecarga(hoje);
-    setFormaRecarga("pix");
+    setFormaRecarga("");
     setValorRecarga("");
     setNumeroParcelasRecarga("1");
     setValorParcelaRecarga("");
     setUltimoCampoRecarga("total");
 
-    if (tagsPrePagas.length) setTagRecargaId(String(tagsPrePagas[0].id));
+    setTagRecargaId(tagsPrePagas.length === 1 ? String(tagsPrePagas[0].id) : "");
 
-    if (contasOrigemRecarga.length) {
-      const principal = contasOrigemRecarga.find((conta) => conta.principal);
-      setContaOrigemRecargaId(String((principal || contasOrigemRecarga[0]).id));
-    }
+    setContaOrigemRecargaId(contasOrigemRecarga.length === 1 ? String(contasOrigemRecarga[0].id) : "");
 
     setCartaoRecargaId("");
   }
 
   function cancelarRecarga() {
     resetarRecarga();
+    setErrosRecarga({});
     setEtapa("menu");
   }
 
@@ -1191,43 +1198,28 @@ async function atualizarValorFatura(faturaId, valorSomar) {
 
   function validarRecarga() {
     const valorNumero = moedaParaNumero(valorRecarga);
-
-    if (!dataRecarga) {
-      abrirFeedback("erro", "Data obrigatória", "Selecione a data da recarga.");
-      return false;
-    }
-
-    if (!tagRecargaId) {
-      abrirFeedback("erro", "TAG obrigatória", "Selecione a TAG recarregada.");
-      return false;
-    }
-
-    if (!valorRecarga || valorNumero <= 0) {
-      abrirFeedback("erro", "Valor obrigatório", "Informe o valor da recarga.");
-      return false;
-    }
-
-    if (isRecargaCredito && !cartaoRecargaId) {
-      abrirFeedback("erro", "Cartão obrigatório", "Selecione o cartão usado na recarga.");
-      return false;
-    }
+    const novos = {};
+    if (!dataRecarga) novos.dataRecarga = "Selecione a data da recarga.";
+    if (!tagRecargaId) novos.tagRecargaId = "Selecione a TAG recarregada.";
+    if (!formaRecarga) novos.formaRecarga = "Selecione a forma da recarga.";
+    if (valorNumero <= 0) novos.valorRecarga = "Informe o valor da recarga.";
+    if (isRecargaCredito && !cartaoRecargaId) novos.cartaoRecargaId = "Selecione o cartão usado na recarga.";
 
     if (isRecargaDinheiro && !carteiraRecarga) {
       abrirFeedback("erro", "Carteira não encontrada", "Cadastre uma conta do tipo Carteira antes de registrar recarga em dinheiro.");
       return false;
     }
 
-    if (!isRecargaCredito && !contaOrigemRecargaId) {
-      abrirFeedback("erro", "Conta obrigatória", "Selecione a conta de origem da recarga.");
-      return false;
-    }
+    if (!isRecargaCredito && !contaOrigemRecargaId) novos.contaOrigemRecargaId = "Selecione a conta de origem da recarga.";
 
     if (isRecargaParcelada && Number(numeroParcelasRecarga || 0) < 2) {
       abrirFeedback("erro", "Parcelamento inválido", "Crédito parcelado precisa começar em 2x.");
       return false;
     }
 
-    return true;
+    setErrosRecarga(novos);
+    if (Object.keys(novos).length) setShakeRecargaKey(Date.now());
+    return Object.keys(novos).length === 0;
   }
 
   async function salvarRecarga() {
@@ -1503,7 +1495,10 @@ async function atualizarValorFatura(faturaId, valorSomar) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <button
                 type="button"
-                onClick={() => setEtapa("uso")}
+                onClick={() => {
+                  setErrosRecarga({});
+                  setEtapa("uso");
+                }}
                 className="rounded-2xl border border-blue-500 bg-blue-500/10 hover:bg-blue-500/20 p-6 text-left transition"
               >
                 <FiTag className="w-8 h-8 text-blue-400" />
@@ -1520,7 +1515,10 @@ async function atualizarValorFatura(faturaId, valorSomar) {
               {existeTagPrePaga && (
                 <button
                   type="button"
-                  onClick={() => setEtapa("recarga")}
+                  onClick={() => {
+                    setErrosRecarga({});
+                    setEtapa("recarga");
+                  }}
                   className="rounded-2xl border border-green-500 bg-green-500/10 hover:bg-green-500/20 p-6 text-left transition"
                 >
                   <FiCreditCard className="w-8 h-8 text-green-400" />
@@ -1570,8 +1568,14 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                       {contaTagSelecionada?.nome || "Selecionar TAG"}
                     </ButtonField>
                   </Campo>
+                  {errosUso.contaTagId && <p key={shakeUsoKey} className="animate-shake text-xs text-red-400 mt-2">{errosUso.contaTagId}</p>}
                 </div>
               )}
+
+              <div className="grid grid-cols-2 gap-2 mt-4" aria-label="Etapas do uso da TAG">
+                <div className="h-2 rounded-full bg-green-500" />
+                <div className={`h-2 rounded-full ${etapaUso === "resumo" ? "bg-green-500" : "bg-gray-800"}`} />
+              </div>
             </div>
 
             <style>{`
@@ -1599,6 +1603,29 @@ async function atualizarValorFatura(faturaId, valorSomar) {
 
             <div className="relative flex-1 min-h-0 overflow-hidden px-5 pt-5 pb-4 flex flex-col sm:flex-none sm:h-[430px] md:h-[450px] lg:h-[470px]">
               {(() => {
+                if (etapaUso === "resumo") {
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <ResumoRodapeTag titulo="Saldo atual" valor={formatarMoeda(saldoAtualTagSelecionada())} destaque="text-white" />
+                      <ResumoRodapeTag titulo="Saldo previsto" valor={formatarMoeda(saldoPrevistoTagSelecionada())} destaque={saldoPrevistoTagSelecionada() < 0 ? "text-red-400" : "text-green-400"} />
+                      <ResumoRodapeTag titulo="Total de usos" valor={totalUsos()} destaque="text-green-400" />
+                      <ResumoRodapeTag titulo="Uso total" valor={formatarMoeda(totalValor())} destaque="text-green-400" />
+                    </div>
+                  );
+                }
+
+                if (!grupos.length) {
+                  return (
+                    <div className="h-full flex flex-col items-center justify-center text-center border border-dashed border-gray-700 rounded-2xl p-6">
+                      <p className="text-gray-400">Nenhum uso adicionado.</p>
+                      <button type="button" onClick={() => setModalNovaDataAberto(true)} className="mt-4 bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl px-5 py-3">
+                        + Adicionar uso
+                      </button>
+                      {errosUso.grupos && <p key={shakeUsoKey} className="animate-shake text-xs text-red-400 mt-3">{errosUso.grupos}</p>}
+                    </div>
+                  );
+                }
+
                 const grupoIndex = limitarIndiceGrupo(grupoAtivoIndex);
                 const grupo = grupos[grupoIndex] || grupos[0];
                 if (!grupo) return null;
@@ -1679,12 +1706,13 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                                       })
                                     }
                                   >
-                                    {uso.categoria}
+                                    {uso.categoria || "Selecionar categoria"}
                                   </ButtonField>
+                                  {errosUso[`${uso.id}-categoria`] && <p key={shakeUsoKey} className="animate-shake text-xs text-red-400 mt-2">{errosUso[`${uso.id}-categoria`]}</p>}
                                 </Campo>
 
                                 <Campo label="Valor">
-                                  <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+                                  <div className={`flex items-center mt-2 bg-[#0B1120] border ${errosUso[`${uso.id}-valor`] ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
                                     <span className="px-3 text-gray-400">R$</span>
 
                                     <input
@@ -1703,6 +1731,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                                       className="w-full bg-transparent p-3 outline-none"
                                     />
                                   </div>
+                                  {errosUso[`${uso.id}-valor`] && <p key={shakeUsoKey} className="animate-shake text-xs text-red-400 mt-2">{errosUso[`${uso.id}-valor`]}</p>}
                                 </Campo>
 
                                 {usoIndex === grupo.usos.length - 1 ? (
@@ -1711,7 +1740,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                                     onClick={() => adicionarUso(grupoIndex)}
                                     className="h-[50px] rounded-xl border border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold"
                                   >
-                                    + Adicionar
+                                    + Uso do mesmo dia
                                   </button>
                                 ) : (
                                   <div className="hidden md:block" />
@@ -1743,6 +1772,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                                     Obrigatório para identificar onde você
                                     estacionou.
                                   </p>
+                                  {errosUso[`${uso.id}-descricao`] && <p key={shakeUsoKey} className="animate-shake text-xs text-red-400 mt-2">{errosUso[`${uso.id}-descricao`]}</p>}
                                 </div>
                               )}
                             </div>
@@ -1756,29 +1786,29 @@ async function atualizarValorFatura(faturaId, valorSomar) {
             </div>
 
             <div className="shrink-0 border-t border-gray-800 bg-[#111827]">
-              <div className="px-5 py-3 border-b border-gray-800 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              {etapaUso === "resumo" && <div className="px-5 py-3 border-b border-gray-800 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                 <ResumoRodapeTag titulo="Saldo atual" valor={formatarMoeda(saldoAtualTagSelecionada())} destaque="text-white" />
                 <ResumoRodapeTag titulo="Saldo previsto" valor={formatarMoeda(saldoPrevistoTagSelecionada())} destaque={saldoPrevistoTagSelecionada() < 0 ? "text-red-400" : "text-green-400"} />
                 <ResumoRodapeTag titulo="Total de usos" valor={totalUsos()} destaque="text-green-400" />
                 <ResumoRodapeTag titulo="Uso total" valor={formatarMoeda(totalValor())} destaque="text-green-400" />
-              </div>
+              </div>}
 
               <div className="grid grid-cols-2 gap-4 p-5">
                 <button
                   type="button"
-                  onClick={cancelarUso}
+                  onClick={etapaUso === "resumo" ? () => { setErrosUso({}); setEtapaUso("usos"); } : cancelarUso}
                   className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3"
                 >
-                  Cancelar
+                  {etapaUso === "resumo" ? "Voltar" : "Cancelar"}
                 </button>
 
                 <button
                   type="button"
-                  onClick={salvarUso}
+                  onClick={etapaUso === "resumo" ? salvarUso : continuarUso}
                   disabled={salvando}
                   className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
                 >
-                  {salvando ? "Salvando..." : "Salvar"}
+                  {salvando ? "Salvando..." : etapaUso === "resumo" ? "Salvar" : "Continuar"}
                 </button>
               </div>
             </div>
@@ -1805,28 +1835,30 @@ async function atualizarValorFatura(faturaId, valorSomar) {
           ) : (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Campo label="Data">
-                  <ButtonField onClick={() => setModalDataRecargaAberto(true)}>
+                <Campo label="Data" erro={errosRecarga.dataRecarga} shakeKey={shakeRecargaKey}>
+                  <ButtonField erro={errosRecarga.dataRecarga} shakeKey={shakeRecargaKey} onClick={() => setModalDataRecargaAberto(true)}>
                     {formatarDataBR(dataRecarga)}
                   </ButtonField>
                 </Campo>
 
                 {tagsPrePagas.length > 1 && (
-                  <Campo label="TAG destino">
-                    <ButtonField onClick={() => setModalTagRecargaAberto(true)}>
+                  <Campo label="TAG destino" erro={errosRecarga.tagRecargaId} shakeKey={shakeRecargaKey}>
+                    <ButtonField erro={errosRecarga.tagRecargaId} shakeKey={shakeRecargaKey} onClick={() => setModalTagRecargaAberto(true)}>
                       {tagRecargaSelecionada?.nome || "Selecionar TAG"}
                     </ButtonField>
                   </Campo>
                 )}
 
-                <Campo label="Forma da recarga">
-                  <ButtonField onClick={() => setModalFormaRecargaAberto(true)}>
+                <Campo label="Forma da recarga" erro={errosRecarga.formaRecarga} shakeKey={shakeRecargaKey}>
+                  <ButtonField erro={errosRecarga.formaRecarga} shakeKey={shakeRecargaKey} onClick={() => setModalFormaRecargaAberto(true)}>
                     {textoFormaRecarga()}
                   </ButtonField>
                 </Campo>
 
-                <Campo label={isRecargaCredito ? "Cartão" : isRecargaDinheiro ? "Carteira" : "Conta origem"}>
+                <Campo label={isRecargaCredito ? "Cartão" : isRecargaDinheiro ? "Carteira" : "Conta origem"} erro={isRecargaCredito ? errosRecarga.cartaoRecargaId : errosRecarga.contaOrigemRecargaId} shakeKey={shakeRecargaKey}>
                   <ButtonField
+                    erro={isRecargaCredito ? errosRecarga.cartaoRecargaId : errosRecarga.contaOrigemRecargaId}
+                    shakeKey={shakeRecargaKey}
                     onClick={() => {
                       if (isRecargaDinheiro) return;
                       isRecargaCredito
@@ -1844,8 +1876,8 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                   </ButtonField>
                 </Campo>
 
-                <Campo label="Valor da recarga">
-                  <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+                <Campo label="Valor da recarga" erro={errosRecarga.valorRecarga} shakeKey={shakeRecargaKey}>
+                  <div key={errosRecarga.valorRecarga ? shakeRecargaKey : "ok"} className={`flex items-center mt-2 bg-[#0B1120] border ${errosRecarga.valorRecarga ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
                     <span className="px-3 text-gray-400">R$</span>
 
                     <input
@@ -1854,6 +1886,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                       value={valorRecarga}
                       placeholder=""
                       onChange={(e) => {
+                        limparErroRecarga("valorRecarga");
                         setUltimoCampoRecarga("total");
                         setValorRecarga(formatarMoedaDigitada(e.target.value));
                       }}
@@ -2036,7 +2069,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
       <DatePickerModal
         aberto={modalDataRecargaAberto}
         valor={dataRecarga}
-        onChange={setDataRecarga}
+        onChange={(valor) => { limparErroRecarga("dataRecarga"); setDataRecarga(valor); }}
         onClose={() => setModalDataRecargaAberto(false)}
         titulo="Data da recarga"
         descricao="Escolha a data em que a TAG foi recarregada."
@@ -2046,7 +2079,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         aberto={modalTagRecargaAberto}
         contas={tagsPrePagas}
         contaId={tagRecargaId}
-        onSelecionar={setTagRecargaId}
+        onSelecionar={(valor) => { limparErroRecarga("tagRecargaId"); setTagRecargaId(valor); }}
         onClose={() => setModalTagRecargaAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -2056,6 +2089,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         formasPagamento={formasRecarga}
         formaPagamento={formaRecarga}
         onSelecionar={(valor) => {
+          limparErroRecarga("formaRecarga");
           setFormaRecarga(valor);
 
           if (valor === "credito_parcelado") {
@@ -2097,7 +2131,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         aberto={modalContaOrigemRecargaAberto}
         contas={contasOrigemRecarga}
         contaId={contaOrigemRecargaId}
-        onSelecionar={setContaOrigemRecargaId}
+        onSelecionar={(valor) => { limparErroRecarga("contaOrigemRecargaId"); setContaOrigemRecargaId(valor); }}
         onClose={() => setModalContaOrigemRecargaAberto(false)}
         formatarMoeda={formatarMoeda}
       />
@@ -2106,7 +2140,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
         aberto={modalCartaoRecargaAberto}
         cartoes={cartoes}
         cartaoId={cartaoRecargaId}
-        onSelecionar={setCartaoRecargaId}
+        onSelecionar={(valor) => { limparErroRecarga("cartaoRecargaId"); setCartaoRecargaId(valor); }}
         onClose={() => setModalCartaoRecargaAberto(false)}
         formatarMoeda={formatarMoeda}
       />

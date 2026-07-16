@@ -786,10 +786,11 @@ function RegularizarContaModal({
   const [modalContaAberto, setModalContaAberto] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
 
   useEffect(() => {
-    const principal = contas.find((conta) => conta.principal) || contas[0];
-    if (principal) setContaOrigemId(String(principal.id));
+    setContaOrigemId(contas.length === 1 ? String(contas[0].id) : "");
   }, [contas]);
 
   const contaOrigem = contas.find((conta) => String(conta.id) === String(contaOrigemId));
@@ -798,21 +799,25 @@ function RegularizarContaModal({
     setFeedback({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
   }
 
+  function limparErro(campo) {
+    setErros((atuais) => {
+      if (!atuais[campo]) return atuais;
+      const proximos = { ...atuais };
+      delete proximos[campo];
+      return proximos;
+    });
+  }
+
   async function salvar() {
     const valorNumero = moedaParaNumero(valor);
 
-    if (!data) {
-      setFeedback({ aberto: true, tipo: "erro", titulo: "Data obrigatória", mensagem: "Informe a data da regularização." });
-      return;
-    }
-
-    if (!contaOrigemId) {
-      setFeedback({ aberto: true, tipo: "erro", titulo: "Conta obrigatória", mensagem: "Selecione a conta de origem." });
-      return;
-    }
-
-    if (valorNumero <= 0) {
-      setFeedback({ aberto: true, tipo: "erro", titulo: "Valor inválido", mensagem: "Informe um valor maior que zero." });
+    const novos = {};
+    if (!data) novos.data = "Informe a data da regularização.";
+    if (!contaOrigemId) novos.contaOrigemId = "Selecione a conta de origem.";
+    if (valorNumero <= 0) novos.valor = "Informe um valor maior que zero.";
+    setErros(novos);
+    if (Object.keys(novos).length) {
+      setShakeKey(Date.now());
       return;
     }
 
@@ -861,23 +866,23 @@ function RegularizarContaModal({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Campo label="Data">
-              <ButtonField onClick={() => setModalDataAberto(true)}>{formatarDataBR(data)}</ButtonField>
+            <Campo label="Data" erro={erros.data} shakeKey={shakeKey}>
+              <ButtonField erro={erros.data} shakeKey={shakeKey} onClick={() => setModalDataAberto(true)}>{formatarDataBR(data)}</ButtonField>
             </Campo>
 
-            <Campo label="Conta origem">
-              <ButtonField onClick={() => setModalContaAberto(true)}>{contaOrigem?.nome || "Selecionar conta"}</ButtonField>
+            <Campo label="Conta origem" erro={erros.contaOrigemId} shakeKey={shakeKey}>
+              <ButtonField erro={erros.contaOrigemId} shakeKey={shakeKey} onClick={() => setModalContaAberto(true)}>{contaOrigem?.nome || "Selecionar conta"}</ButtonField>
             </Campo>
           </div>
 
-          <Campo label="Valor para transferir">
-            <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
+          <Campo label="Valor para transferir" erro={erros.valor} shakeKey={shakeKey}>
+            <div key={erros.valor ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#0B1120] border ${erros.valor ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>
               <span className="px-3 text-gray-400">R$</span>
               <input
                 type="text"
                 inputMode="numeric"
                 value={valor}
-                onChange={(event) => setValor(formatarMoedaDigitada(event.target.value))}
+                onChange={(event) => { limparErro("valor"); setValor(formatarMoedaDigitada(event.target.value)); }}
                 className="w-full bg-transparent p-3 outline-none"
               />
             </div>
@@ -908,7 +913,7 @@ function RegularizarContaModal({
       <DatePickerModal
         aberto={modalDataAberto}
         valor={data}
-        onChange={setData}
+        onChange={(valor) => { limparErro("data"); setData(valor); }}
         onClose={() => setModalDataAberto(false)}
         titulo="Data da regularização"
         descricao="Escolha a data da transferência."
@@ -918,7 +923,7 @@ function RegularizarContaModal({
         aberto={modalContaAberto}
         contas={contas}
         contaId={contaOrigemId}
-        onSelecionar={setContaOrigemId}
+        onSelecionar={(valor) => { limparErro("contaOrigemId"); setContaOrigemId(valor); }}
         onClose={() => setModalContaAberto(false)}
         formatarMoeda={formatarMoeda}
       />

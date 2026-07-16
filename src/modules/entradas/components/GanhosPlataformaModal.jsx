@@ -30,12 +30,14 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
   const [modalGerenciarAberto, setModalGerenciarAberto] = useState(false);
   const [modalDadosPlataformaAberto, setModalDadosPlataformaAberto] = useState(false);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "", fecharDepois: false });
+  const [erros, setErros] = useState({});
+  const [shakeKey, setShakeKey] = useState(0);
 
   const [plataformaEditando, setPlataformaEditando] = useState(null);
 
   const [tempoPicker, setTempoPicker] = useState({
-    hora: "08",
-    minuto: "00",
+    hora: "",
+    minuto: "",
   });
 
   useEffect(() => {
@@ -216,7 +218,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
     setJornadaUsada(null);
     setData(dataISO || hoje);
     setKm("");
-    setTempoPicker({ hora: "08", minuto: "00" });
+    setTempoPicker({ hora: "", minuto: "" });
   }
 
   function calcularSegundosJornada(jornada) {
@@ -266,6 +268,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
   }
 
   function salvarDadosPlataforma(dados) {
+    setErros((atuais) => ({ ...atuais, plataformas: undefined }));
     setSelecionadas((listaAtual) => {
       const jaExiste = listaAtual.some((item) => idsIguais(item.id, dados.id));
 
@@ -293,7 +296,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
   function limparFormulario() {
     setData(hoje);
     setKm("");
-    setTempoPicker({ hora: "08", minuto: "00" });
+    setTempoPicker({ hora: "", minuto: "" });
     setSelecionadas([]);
     setJornadaUsada(null);
     setLancamentosDoDia({});
@@ -305,14 +308,11 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
   }
 
   async function salvarEntrada() {
-    if (!data || km === "" || selecionadas.length === 0) {
-      abrirFeedback(
-        "erro",
-        "Campos obrigatórios",
-        "Preencha data, KM e selecione pelo menos uma plataforma. Use 0 km quando for apenas ajuste de valor."
-      );
-      return;
-    }
+    const novosErros = {};
+    if (!data) novosErros.data = "Selecione a data.";
+    if (km === "") novosErros.km = "Informe o KM; use 0 apenas para ajuste de valor.";
+    if (!selecionadas.length) novosErros.plataformas = "Selecione pelo menos uma plataforma.";
+    setErros(novosErros); if (Object.keys(novosErros).length) { setShakeKey(Date.now()); return; }
 
     if (!contaPrincipal?.id) {
       abrirFeedback("erro", "Conta principal não encontrada", "Defina uma conta principal em Contas antes de salvar.");
@@ -336,7 +336,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
         .from("entradas")
         .update({
           data,
-          horas_trabalhadas: `${tempoPicker.hora}:${tempoPicker.minuto}:00`,
+          horas_trabalhadas: tempoPicker.hora ? `${tempoPicker.hora}:${tempoPicker.minuto}:00` : null,
           km_rodados: Number(km),
           custo_estimado_combustivel: custoEstimadoCombustivel,
         })
@@ -364,7 +364,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
         .from("entradas")
         .insert({
           data,
-          horas_trabalhadas: `${tempoPicker.hora}:${tempoPicker.minuto}:00`,
+          horas_trabalhadas: tempoPicker.hora ? `${tempoPicker.hora}:${tempoPicker.minuto}:00` : null,
           km_rodados: Number(km),
           conta_id: contaPrincipal?.id,
           veiculo_id: veiculoPrincipal?.id,
@@ -458,25 +458,26 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
         confirmarAoFecharSeAlterado>
         <div className="bg-[#111827] border border-gray-800 rounded-2xl p-5">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
+            <div className={erros.data ? "animate-shake" : ""}>
               <label className="text-sm text-gray-300">Data</label>
               <button
                 type="button"
                 onClick={() => setModalDataAberto(true)}
-                className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
+                className={`w-full mt-2 bg-[#0B1120] border ${erros.data ? "border-red-500" : "border-gray-700"} hover:border-green-400 rounded-xl p-3 text-left font-semibold`}
               >
                 {formatarDataBR(data)}
               </button>
+              {erros.data && <p key={shakeKey} className="text-xs text-red-400 mt-2">{erros.data}</p>}
             </div>
 
-            <div>
+            <div className={erros.km ? "animate-shake" : ""}>
               <label className="text-sm text-gray-300">Horas Trabalhadas</label>
               <button
                 type="button"
                 onClick={() => setModalTempoAberto(true)}
                 className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
               >
-                {tempoPicker.hora}:{tempoPicker.minuto}
+                {tempoPicker.hora ? `${tempoPicker.hora}:${tempoPicker.minuto}` : "Selecionar horas"}
               </button>
             </div>
 
@@ -487,9 +488,10 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
                 inputMode="numeric"
                 value={km}
                 placeholder="0"
-                onChange={(e) => setKm(e.target.value.replace(/\D/g, ""))}
-                className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3 outline-none focus:border-green-400"
+                onChange={(e) => { setErros((atuais) => ({ ...atuais, km: undefined })); setKm(e.target.value.replace(/\D/g, "")); }}
+                className={`w-full mt-2 bg-[#0B1120] border ${erros.km ? "border-red-500" : "border-gray-700"} rounded-xl p-3 outline-none focus:border-green-400`}
               />
+              {erros.km && <p key={shakeKey} className="text-xs text-red-400 mt-2">{erros.km}</p>}
             </div>
           </div>
 
@@ -517,6 +519,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
               <FiSettings className="w-5 h-5" />
             </button>
           </div>
+          {erros.plataformas && <p key={shakeKey} className="animate-shake text-xs text-red-400 mb-3">{erros.plataformas}</p>}
 
           {plataformas.length === 0 ? (
             <div className="bg-[#0B1120] border border-gray-800 rounded-2xl p-6 text-center">
@@ -649,7 +652,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
 
       <TimePickerModal
         aberto={modalTempoAberto}
-        valor={`${tempoPicker.hora}:${tempoPicker.minuto}`}
+        valor={tempoPicker.hora ? `${tempoPicker.hora}:${tempoPicker.minuto}` : ""}
         onChange={(valor) => {
           const [hora, minuto] = valor.split(":");
           setTempoPicker({ hora, minuto });
@@ -690,5 +693,3 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
     </>
   );
 }
-
-

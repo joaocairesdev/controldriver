@@ -1,9 +1,16 @@
-export function hojeBrasil() {
-  const agora = new Date();
+import { obterFusoHorario } from "./preferencias";
 
-  const ano = agora.getFullYear();
-  const mes = String(agora.getMonth() + 1).padStart(2, "0");
-  const dia = String(agora.getDate()).padStart(2, "0");
+export function hojeBrasil() {
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: obterFusoHorario(),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const valor = (tipo) => partes.find((parte) => parte.type === tipo)?.value || "";
+  const ano = valor("year");
+  const mes = valor("month");
+  const dia = valor("day");
 
   return `${ano}-${mes}-${dia}`;
 }
@@ -18,8 +25,15 @@ export function formatarDataBR(dataISO) {
 
 export function normalizarData(data) {
   if (!data) return "";
+  return String(data).split("T")[0];
+}
 
-  return new Date(`${data}T12:00:00`)
-    .toISOString()
-    .split("T")[0];
+export function formatarTimestamp(data, opcoes = {}) {
+  if (!data) return "";
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: obterFusoHorario(),
+    dateStyle: "short",
+    timeStyle: "short",
+    ...opcoes,
+  }).format(new Date(data));
 }
