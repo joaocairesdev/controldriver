@@ -1,9 +1,4 @@
-export function formatarMoeda(valor) {
-  return Number(valor || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
+export { formatarMoeda } from "../../../shared/utils/moeda";
 
 export function formatarMoedaDigitada(valor) {
   const somenteDigitos = String(valor ?? "").replace(/\D/g, "");
@@ -89,4 +84,3 @@ export function textoFormaPagamento(valor) {
 export function normalizarDescricao(texto) {
   return String(texto || "").trim();
 }
-

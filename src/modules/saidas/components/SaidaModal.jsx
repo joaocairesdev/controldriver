@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../services/supabase";
-import { FiEdit2, FiPlus, FiSettings, FiTrash2, FiX } from "react-icons/fi";
+import { ButtonField, Campo } from "../../../shared/components/ui/FormControls";
+import { FiEdit2, FiPlus, FiTrash2, FiX } from "react-icons/fi";
 
 import ModalBase from "../../../shared/components/modals/ModalBase";
 import DatePickerModal from "../../../shared/components/modals/DatePickerModal";
@@ -2049,27 +2050,6 @@ function TipoUsoCard({ ativo, icone, titulo, descricao, onClick }) {
   );
 }
 
-function Campo({ label, children }) {
-  return (
-    <div>
-      <label className="text-sm text-gray-300">{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function ButtonField({ children, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
-    >
-      {children}
-    </button>
-  );
-}
-
 function MoneyInput({ value, onChange, prefix, suffix, placeholder }) {
   return (
     <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">
@@ -2088,4 +2068,3 @@ function MoneyInput({ value, onChange, prefix, suffix, placeholder }) {
     </div>
   );
 }
-

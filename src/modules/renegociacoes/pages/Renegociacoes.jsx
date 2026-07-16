@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { ButtonField, Campo } from "../../../shared/components/ui/FormControls";
 import {
   FiAlertTriangle,
-  FiCheckCircle,
   FiChevronDown,
   FiChevronRight,
   FiCreditCard,
-  FiFileText,
   FiInfo,
   FiEdit2,
   FiPlus,
@@ -41,8 +40,6 @@ import {
   moedaParaNumero,
   numeroParaMoedaInput,
   textoFormaPagamento,
-  textoOrigemItem,
-  textoTipoRenegociacao,
 } from "../utils/renegociacoesUtils";
 
 const FORM_INICIAL = {
@@ -2022,27 +2019,6 @@ function ProgressStepper({ etapa, total }) {
   );
 }
 
-function Campo({ label, children }) {
-  return (
-    <div>
-      <label className="text-sm text-gray-300">{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function ButtonField({ children, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold"
-    >
-      {children}
-    </button>
-  );
-}
-
 function CampoSomenteLeitura({ children }) {
   return (
     <div className="w-full mt-2 bg-[#0B1120] border border-gray-800 rounded-xl p-3 font-black text-gray-200">
@@ -2094,4 +2070,3 @@ function OpcaoPequena({ ativo, onClick, children }) {
     </button>
   );
 }
-

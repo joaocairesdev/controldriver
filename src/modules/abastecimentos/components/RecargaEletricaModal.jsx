@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../services/supabase";
+import { Campo } from "../../../shared/components/ui/FormControls";
 
 import ModalBase from "../../../shared/components/modals/ModalBase";
 import DatePickerModal from "../../../shared/components/modals/DatePickerModal";
@@ -1024,15 +1025,6 @@ export default function RecargaEletricaModal({
   );
 }
 
-function Campo({ label, children }) {
-  return (
-    <div>
-      <label className="text-sm text-gray-300">{label}</label>
-      {children}
-    </div>
-  );
-}
-
 function ButtonField({ children, onClick }) {
   return (
     <button
@@ -1088,4 +1080,3 @@ function ResumoItem({ titulo, valor }) {
     </div>
   );
 }
-

@@ -3,12 +3,7 @@ export const TIPOS_CARTAO = {
   TERCEIRO: "terceiro",
 };
 
-export function formatarMoeda(valor) {
-  return Number(valor || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
+export { formatarMoeda } from "../../../shared/utils/moeda";
 
 export function formatarDataBR(dataISOTexto) {
   if (!dataISOTexto) return "-";
@@ -542,4 +537,3 @@ export function detalheCartao(cartao) {
   if (isCartaoTerceiro(cartao)) return "Cartão de terceiro";
   return cartao.final_cartao ? `Final ${cartao.final_cartao}` : "Cartão de crédito";
 }
-

@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FiArrowDown, FiArrowRight, FiArrowUp, FiFilter, FiSearch, FiSettings } from "react-icons/fi";
 import { supabase } from "../../../services/supabase";
-import SelecionarCategoriaModal from "../../categorias/components/SelecionarCategoriaModal";
-import SelecionarFormaPagamentoModal from "../../../shared/components/modals/SelecionarFormaPagamentoModal";
 import DetalhesLancamentoModal from "../components/DetalhesLancamentoModal";
 import ConfirmacaoModal from "../../../shared/components/modals/ConfirmacaoModal";
 import FeedbackModal from "../../../shared/components/modals/FeedbackModal";
@@ -2142,4 +2140,3 @@ function Campo({ label, children }) {
     </div>
   );
 }
-

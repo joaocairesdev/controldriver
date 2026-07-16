@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../../services/supabase";
+import { ButtonField, Campo } from "../../../shared/components/ui/FormControls";
 
 import {
   formatarMoeda,
@@ -30,6 +31,16 @@ import {
   removerParcelasDaSaidaERecalcularFaturas,
 } from "../../cartoes/utils/cartoesUtils";
 
+const COMBUSTIVEIS = [
+  { valor: "etanol", titulo: "Etanol" },
+  { valor: "etanol_aditivado", titulo: "Etanol aditivado" },
+  { valor: "gasolina_comum", titulo: "Gasolina comum" },
+  { valor: "gasolina_aditivada", titulo: "Gasolina aditivada" },
+  { valor: "gasolina_podium", titulo: "Gasolina Podium" },
+  { valor: "gnv", titulo: "GNV" },
+  { valor: "diesel", titulo: "Diesel" },
+];
+
 export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos = null, edicao = null, onSalvo = null }) {
   const hoje = hojeBrasil();
 
@@ -40,16 +51,6 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     { valor: "credito_avista", titulo: "Crédito à Vista", descricao: "Entra na próxima fatura do cartão" },
     { valor: "credito_parcelado", titulo: "Crédito Parcelado", descricao: "Divide em 2x ou mais no cartão" },
     { valor: "boleto", titulo: "Boleto", descricao: "Registra uma conta a pagar" },
-  ];
-
-  const combustiveis = [
-    { valor: "etanol", titulo: "Etanol" },
-    { valor: "etanol_aditivado", titulo: "Etanol aditivado" },
-    { valor: "gasolina_comum", titulo: "Gasolina comum" },
-    { valor: "gasolina_aditivada", titulo: "Gasolina aditivada" },
-    { valor: "gasolina_podium", titulo: "Gasolina Podium" },
-    { valor: "gnv", titulo: "GNV" },
-    { valor: "diesel", titulo: "Diesel" },
   ];
 
   const [contas, setContas] = useState([]);
@@ -101,11 +102,11 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     const aceitos = veiculoSelecionado?.combustiveis_aceitos;
 
     if (Array.isArray(aceitos) && aceitos.length > 0) {
-      return combustiveis.filter((combustivel) => aceitos.includes(combustivel.valor));
+      return COMBUSTIVEIS.filter((combustivel) => aceitos.includes(combustivel.valor));
     }
 
-    return combustiveis;
-  }, [combustiveis, veiculoSelecionado]);
+    return COMBUSTIVEIS;
+  }, [veiculoSelecionado]);
 
   useEffect(() => {
     if (!aberto) return;
@@ -509,8 +510,6 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   );
 }
 
-function Campo({ label, children }) { return <div><label className="text-sm text-gray-300">{label}</label>{children}</div>; }
-function ButtonField({ children, onClick }) { return <button type="button" onClick={onClick} className="w-full mt-2 bg-[#0B1120] border border-gray-700 hover:border-green-400 rounded-xl p-3 text-left font-semibold">{children}</button>; }
 function MoneyInput({ value, onChange, prefix, suffix, placeholder }) { return <div className="flex items-center mt-2 bg-[#0B1120] border border-gray-700 rounded-xl overflow-hidden">{prefix && <span className="px-3 text-gray-400">{prefix}</span>}<input type="text" inputMode="decimal" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="w-full bg-transparent p-3 outline-none" />{suffix && <span className="px-3 text-gray-400">{suffix}</span>}</div>; }
 function Toggle({ ativo, onClick, children }) { return <button type="button" onClick={onClick} className={`rounded-xl border p-3 font-bold ${ativo ? "border-green-400 bg-green-500/10 text-green-400" : "border-gray-700 text-gray-300 hover:bg-white/5"}`}>{children}</button>; }
 function ResumoItem({ titulo, valor }) { return <div className="bg-[#111827] border border-gray-800 rounded-xl p-4"><p className="text-xs text-gray-400">{titulo}</p><p className="text-xl font-bold mt-1">{valor}</p></div>; }
@@ -555,4 +554,3 @@ function FeedbackAbastecimentoModal({ aberto, tipo = "sucesso", titulo, mensagem
     </div>
   );
 }
-

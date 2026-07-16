@@ -34,9 +34,8 @@ export default function App() {
 
   const toqueInicialX = useRef(null);
   const toqueInicialY = useRef(null);
-  const paginaInicial = localStorage.getItem("paginaAtual") || "dashboard";
-  const historicoPaginasRef = useRef([paginaInicial]);
-  const paginaAtualRef = useRef(paginaInicial);
+  const historicoPaginasRef = useRef([pagina]);
+  const paginaAtualRef = useRef(pagina);
   const menuAbertoRef = useRef(false);
 
   useEffect(() => {
@@ -180,12 +179,6 @@ export default function App() {
   function abrirCronometroJornada() {
     window.dispatchEvent(new CustomEvent("abrir-cronometro-jornada"));
   }
-
-  const cronometroVisivel =
-    cronometroEstado.status === "em_andamento" ||
-    cronometroEstado.status === "pausada" ||
-    cronometroEstado.status === "aguardando_km" ||
-    cronometroEstado.contagemRegressiva !== null;
 
   return (
     <div className="h-dvh bg-[#0B1120] text-white flex overflow-hidden">
