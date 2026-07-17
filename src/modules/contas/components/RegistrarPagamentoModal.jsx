@@ -12,6 +12,7 @@ import {
   gerarParcelasEFaturasPadrao,
   nomeCartaoComFinal,
 } from "../../cartoes/utils/cartoesUtils";
+import { adicionarFrequencia } from "../../veiculos/utils/veiculosFinanceiro";
 
 const HOJE = new Date().toISOString().split("T")[0];
 
@@ -161,11 +162,17 @@ export default function RegistrarPagamentoModal({
         valor_parcela: valorParcela,
         data_efetivacao: isCredito ? null : dataPagamento,
         data_vencimento: null,
-        categoria: `Pagamento - ${contaPagar.categoria || "Conta"}`,
+        categoria: contaPagar.categoria || "Conta",
+        categoria_id: contaPagar.categoria_id || null,
         finalidade: contaPagar.finalidade || null,
         descricao: descricaoPagamento,
         status: isCredito ? "fatura" : "pago",
         conta_pagar_origem_id: contaPagar.id,
+        veiculo_id: contaPagar.veiculo_id || null,
+        financiamento_id: contaPagar.financiamento_id || null,
+        aluguel_id: contaPagar.aluguel_id || null,
+        caucao_id: contaPagar.caucao_id || null,
+        referencia_contrato: contaPagar.referencia_contrato || null,
       };
 
       const { data: saidaCriada, error: erroSaida } = await supabase
@@ -196,6 +203,22 @@ export default function RegistrarPagamentoModal({
         .eq("id", contaPagar.id);
 
       if (erroConta) throw erroConta;
+
+      if (novoStatus === "pago" && contaPagar.aluguel_id && contaPagar.data_vencimento) {
+        const { data: contrato, error: erroContrato } = await supabase
+          .from("veiculos_alugueis")
+          .select("id, frequencia, proximo_vencimento")
+          .eq("id", contaPagar.aluguel_id)
+          .maybeSingle();
+        if (erroContrato) throw erroContrato;
+        if (contrato && contrato.proximo_vencimento <= contaPagar.data_vencimento) {
+          const { error: erroAvanco } = await supabase.from("veiculos_alugueis").update({
+            proximo_vencimento: adicionarFrequencia(contaPagar.data_vencimento, contrato.frequencia),
+            updated_at: new Date().toISOString(),
+          }).eq("id", contrato.id);
+          if (erroAvanco) throw erroAvanco;
+        }
+      }
 
       await onSalvo?.();
     } catch (error) {

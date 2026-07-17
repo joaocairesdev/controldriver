@@ -223,6 +223,24 @@ export function ModalPeriodo(props) {
     fechar,
   } = props;
 
+  const agora = new Date();
+  const hojeLocal = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+  const acoesPeriodoAtual = {
+    dia: { label: "Hoje", executar: selecionarHoje, ativo: dataSelecionada === hojeLocal },
+    semana: {
+      label: "Esta semana",
+      executar: selecionarSemanaAtual,
+      ativo: Number(semanaSelecionada) === numeroSemanaISO(agora) && Number(anoSelecionado) === agora.getFullYear(),
+    },
+    mes: {
+      label: "Este mês",
+      executar: selecionarMesAtual,
+      ativo: Number(mesSelecionado) === agora.getMonth() + 1 && Number(anoSelecionado) === agora.getFullYear(),
+    },
+    ano: { label: "Este ano", executar: selecionarAnoAtual, ativo: Number(anoSelecionado) === agora.getFullYear() },
+  };
+  const acaoPeriodoAtual = acoesPeriodoAtual[periodo];
+
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
       <div className="w-full max-w-2xl max-h-[88vh] overflow-y-auto bg-[#111827] border border-gray-800 rounded-2xl p-5 scrollbar-hide">
@@ -231,9 +249,19 @@ export function ModalPeriodo(props) {
             <h2 className="text-2xl font-bold">Selecionar Período</h2>
             <p className="text-gray-400 mt-2">Escolha o período que deseja visualizar.</p>
           </div>
-          <button type="button" onClick={fechar} className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold">
-            ×
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={acaoPeriodoAtual.executar}
+              aria-pressed={acaoPeriodoAtual.ativo}
+              className={`h-10 rounded-xl border px-3 text-sm font-bold transition ${acaoPeriodoAtual.ativo ? "border-green-400 bg-green-500/10 text-green-400" : "border-gray-700 text-gray-200 hover:border-green-400 hover:text-green-400"}`}
+            >
+              {acaoPeriodoAtual.label}
+            </button>
+            <button type="button" onClick={fechar} aria-label="Fechar" className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold">
+              ×
+            </button>
+          </div>
         </div>
 
         {periodo === "dia" && (
@@ -254,8 +282,6 @@ export function ModalPeriodo(props) {
               </button>
               <button type="button" onClick={() => alterarMes(1)} className="w-10 h-10 rounded-xl hover:bg-white/5 text-gray-300 hover:text-white text-xl">›</button>
             </div>
-
-            <button type="button" onClick={selecionarHoje} className="mt-3 text-sm text-green-400 hover:text-green-300 font-semibold">Hoje</button>
 
             <div className="grid grid-cols-7 gap-1.5 mt-4 min-h-[292px]">
               {diasSemana.map((dia) => <div key={dia} className="text-center text-[11px] text-gray-500 font-bold h-5">{dia}</div>)}
@@ -289,7 +315,7 @@ export function ModalPeriodo(props) {
         {periodo === "semana" && (
           <div className="mt-6">
             <div className="flex items-center justify-between">
-              <button type="button" onClick={selecionarSemanaAtual} className="text-sm text-green-400 hover:text-green-300 font-semibold">Esta semana</button>
+              <span />
               <button type="button" onClick={() => setModalAnoAberto(true)} className="hover:text-green-400 transition cursor-pointer">
                 <span className="text-gray-400 text-sm mr-2">Ano</span><span className="text-lg font-bold">{anoSelecionado}</span>
               </button>
@@ -328,7 +354,7 @@ export function ModalPeriodo(props) {
         {periodo === "mes" && (
           <div className="mt-6">
             <div className="flex items-center justify-between">
-              <button type="button" onClick={selecionarMesAtual} className="text-sm text-green-400 hover:text-green-300 font-semibold">Este mês</button>
+              <span />
               <button type="button" onClick={() => setModalAnoAberto(true)} className="hover:text-green-400 transition cursor-pointer">
                 <span className="text-gray-400 text-sm mr-2">Ano</span><span className="text-lg font-bold">{anoSelecionado}</span>
               </button>
@@ -365,7 +391,7 @@ export function ModalPeriodo(props) {
           <div className="mt-6">
             <div className="flex justify-between items-center">
               <p className="text-sm text-gray-400">Somente anos com lançamentos aparecem aqui.</p>
-              <button type="button" onClick={selecionarAnoAtual} className="text-sm text-green-400 hover:text-green-300 font-semibold">Este ano</button>
+              <span />
             </div>
 
             <div className="grid grid-cols-3 gap-3 mt-4">
@@ -401,6 +427,13 @@ export function ModalPeriodo(props) {
       </div>
     </div>
   );
+}
+
+function numeroSemanaISO(data) {
+  const referencia = new Date(Date.UTC(data.getFullYear(), data.getMonth(), data.getDate()));
+  referencia.setUTCDate(referencia.getUTCDate() + 4 - (referencia.getUTCDay() || 7));
+  const inicioAno = new Date(Date.UTC(referencia.getUTCFullYear(), 0, 1));
+  return Math.ceil((((referencia - inicioAno) / 86400000) + 1) / 7);
 }
 
 export function ModalAno({ anos, anoSelecionado, setAnoSelecionado, fechar }) {
@@ -511,4 +544,3 @@ export function ModalMesAno({ etapa, setEtapa, anos, meses, anoSelecionado, setA
     </div>
   );
 }
-

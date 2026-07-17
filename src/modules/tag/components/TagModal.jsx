@@ -1538,8 +1538,8 @@ async function atualizarValorFatura(faturaId, valorSomar) {
       )}
 
       {etapa === "uso" && (
-        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-[100] overscroll-none overflow-hidden">
-          <div className="w-full max-w-3xl h-[calc(100dvh-72px)] max-h-[calc(100dvh-72px)] sm:h-auto sm:max-h-[90vh] bg-[#111827] border border-gray-800 rounded-t-3xl sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl">
+        <div className="fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center z-[100] overscroll-none overflow-hidden sm:p-4">
+          <div className="w-full max-w-3xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[calc(100dvh-2rem)] bg-[#111827] border border-gray-800 rounded-t-3xl sm:rounded-2xl flex flex-col overflow-hidden shadow-2xl">
             <div className="shrink-0 p-5 border-b border-gray-800">
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -1601,7 +1601,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
               .tag-uso-alerta { animation: tagUsoChamarAtencao .34s ease-in-out 0s 2; }
             `}</style>
 
-            <div className="relative flex-1 min-h-0 overflow-hidden px-5 pt-5 pb-4 flex flex-col sm:flex-none sm:h-[430px] md:h-[450px] lg:h-[470px]">
+            <div className="relative flex-1 min-h-0 overflow-hidden px-5 py-4 flex flex-col">
               {(() => {
                 if (etapaUso === "resumo") {
                   return (
@@ -1656,6 +1656,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                       }}
                       podeExcluirAba={() => grupos.length > 1}
                       titleAdicionar="Adicionar nova data"
+                      tituloAdicionar="+ Nova data"
                       painelClassName="flex-1 min-h-0 overflow-hidden flex flex-col"
                     >
                       <div
@@ -1695,7 +1696,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                                 </button>
                               </div>
 
-                              <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_150px] gap-3 items-end">
+                              <div className="grid grid-cols-1 md:grid-cols-[1fr_160px_150px] gap-3 items-start">
                                 <Campo label="Categoria">
                                   <ButtonField
                                     onClick={() =>
@@ -1738,9 +1739,9 @@ async function atualizarValorFatura(faturaId, valorSomar) {
                                   <button
                                     type="button"
                                     onClick={() => adicionarUso(grupoIndex)}
-                                    className="h-[50px] rounded-xl border border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold"
+                                    className="h-[50px] mt-7 rounded-xl border border-green-500/50 text-green-400 hover:bg-green-500/10 font-bold"
                                   >
-                                    + Uso do mesmo dia
+                                    + Novo uso
                                   </button>
                                 ) : (
                                   <div className="hidden md:block" />
@@ -1785,14 +1786,7 @@ async function atualizarValorFatura(faturaId, valorSomar) {
               })()}
             </div>
 
-            <div className="shrink-0 border-t border-gray-800 bg-[#111827]">
-              {etapaUso === "resumo" && <div className="px-5 py-3 border-b border-gray-800 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                <ResumoRodapeTag titulo="Saldo atual" valor={formatarMoeda(saldoAtualTagSelecionada())} destaque="text-white" />
-                <ResumoRodapeTag titulo="Saldo previsto" valor={formatarMoeda(saldoPrevistoTagSelecionada())} destaque={saldoPrevistoTagSelecionada() < 0 ? "text-red-400" : "text-green-400"} />
-                <ResumoRodapeTag titulo="Total de usos" valor={totalUsos()} destaque="text-green-400" />
-                <ResumoRodapeTag titulo="Uso total" valor={formatarMoeda(totalValor())} destaque="text-green-400" />
-              </div>}
-
+            <div className="shrink-0 border-t border-gray-800 bg-[#111827] pb-[max(env(safe-area-inset-bottom),0px)]">
               <div className="grid grid-cols-2 gap-4 p-5">
                 <button
                   type="button"

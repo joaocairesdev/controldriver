@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FiChevronDown, FiChevronRight, FiClock, FiDollarSign } from "react-icons/fi";
 import { supabase } from "../../../services/supabase";
+import { distribuirSaldoMensalRestante } from "../utils/metasCalculos";
 import MetaModal from "../components/MetaModal";
 
 const TIPOS_META = ["diaria", "semanal", "mensal", "anual"];
@@ -267,6 +268,8 @@ export default function Metas() {
     const diasRestantesHoje = diasTrabalho.filter((data) => data >= hojeTexto);
     const restanteHoje = Math.max(valor - realizadoAntesHoje - extraManual, 0);
     const valorNecessarioHoje = diasRestantesHoje.length ? restanteHoje / diasRestantesHoje.length : 0;
+    const distribuicaoRestante = distribuirSaldoMensalRestante(restanteHoje, diasRestantesHoje.length);
+    const metasRestantes = new Map(diasRestantesHoje.map((data, index) => [data, distribuicaoRestante[index]]));
 
     const dias = diasTrabalho.map((data, index) => {
       const realizadoDia = Number(porData[data] || 0);
@@ -274,9 +277,11 @@ export default function Metas() {
       const hoje = data === hojeTexto;
       const realizadoAntesDaData = somarValoresPorData(porData, (itemData) => itemData < data) + extraManual;
       const diasRestantesDaData = diasTrabalho.slice(index).length;
-      const metaDia = diasRestantesDaData > 0
-        ? Math.max(valor - realizadoAntesDaData, 0) / diasRestantesDaData
-        : 0;
+      const metaDia = data >= hojeTexto
+        ? Number(metasRestantes.get(data) || 0)
+        : diasRestantesDaData > 0
+          ? Math.max(valor - realizadoAntesDaData, 0) / diasRestantesDaData
+          : 0;
 
       return {
         data,
@@ -994,4 +999,3 @@ function intervaloAno(dataISOTexto) {
 function maiorData(a, b) {
   return String(a) > String(b) ? a : b;
 }
-

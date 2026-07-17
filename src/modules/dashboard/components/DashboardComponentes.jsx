@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FiArrowLeft, FiInfo, FiSettings } from "react-icons/fi";
-import { useProgressoAnimado, useRevelarAoEntrar, useArrastarScrollHorizontal } from "../hooks/dashboardHooks";
+import { useProgressoAnimado, useRevelarAoEntrar, useArrastarScrollHorizontal, useCabecalhoInteligente } from "../hooks/dashboardHooks";
 import { iconePlataforma } from "../utils/dashboardPlataformas";
 
 export { default as DashboardHome } from "./DashboardHome";
@@ -9,6 +9,7 @@ export { iconePlataforma, normalizarNomePlataforma } from "../utils/dashboardPla
 export function DashboardPainelHeader({ painel, voltar, children }) {
   const cabecalhoRef = useRef(null);
   const [alturaCabecalho, setAlturaCabecalho] = useState(0);
+  const cabecalhoVisivel = useCabecalhoInteligente();
 
   useEffect(() => {
     const elemento = cabecalhoRef.current;
@@ -40,7 +41,7 @@ export function DashboardPainelHeader({ painel, voltar, children }) {
     >
       <div
         ref={cabecalhoRef}
-        className="fixed top-16 left-0 right-0 z-30 border-b border-gray-800/90 bg-[#0B1120]/95 shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-xl md:landscape:left-72 lg:left-72"
+        className={`fixed top-16 left-0 right-0 z-30 border-b border-gray-800/90 bg-[#0B1120]/95 shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-xl md:landscape:left-72 lg:left-72 transition-transform duration-200 ease-out motion-reduce:transition-none ${cabecalhoVisivel ? "translate-y-0" : "-translate-y-[calc(100%+1px)]"}`}
       >
         <div className="px-4 py-3 sm:px-6 md:landscape:px-10 lg:px-10">
           <div className="max-w-[1600px] mx-auto flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -586,7 +587,8 @@ export function GraficoHistoricoFaturamento({ dados, periodo, periodoLabel, form
       <div
         ref={arrastar.ref}
         {...arrastar.props}
-        className="overflow-x-auto scrollbar-hide cursor-grab touch-pan-x"
+        className="overflow-x-auto scrollbar-hide cursor-grab touch-pan-y"
+        style={{ touchAction: "pan-y pinch-zoom" }}
       >
         <div className={`h-[270px] flex items-end gap-3 sm:gap-4 ${larguraMinima}`}>
           {(dados || []).map((item, indice) => {
@@ -636,4 +638,3 @@ export function DashboardAnimations() {
     `}</style>
   );
 }
-

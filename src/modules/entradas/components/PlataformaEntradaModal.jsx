@@ -305,7 +305,7 @@ export default function PlataformaEntradaModal({
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
             <Campo label="Faturamento" erro={erros.faturamento} shakeKey={shakeKey}>
               <CampoMoeda
                 erro={erros.faturamento}
@@ -389,17 +389,17 @@ export default function PlataformaEntradaModal({
 
 function Campo({ label, children, erro, shakeKey }) {
   return (
-    <div key={erro ? shakeKey : "ok"} className={`mt-4 first:mt-0 ${erro ? "animate-shake" : ""}`}>
-      <label className={erro ? "text-sm text-red-400" : "text-sm text-gray-300"}>{label}</label>
+    <div key={erro ? shakeKey : "ok"} className={`mt-4 first:mt-0 grid grid-rows-[1.25rem_auto_minmax(1rem,auto)] ${erro ? "animate-shake" : ""}`}>
+      <label className={erro ? "text-sm leading-5 text-red-400" : "text-sm leading-5 text-gray-300"}>{label}</label>
       {children}
-      {erro && <p className="mt-1 text-xs text-red-400">{erro}</p>}
+      {erro ? <p className="mt-1 text-xs text-red-400">{erro}</p> : <span aria-hidden="true" />}
     </div>
   );
 }
 
 function CampoMoeda({ value, onChange, erro }) {
   return (
-    <div className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500" : "border-gray-700 focus-within:border-green-400"} rounded-xl overflow-hidden`}>
+    <div className={`flex items-center mt-2 min-h-[50px] bg-[#0B1120] border ${erro ? "border-red-500" : "border-gray-700 focus-within:border-green-400"} rounded-xl overflow-hidden`}>
       <span className="px-3 text-gray-400">R$</span>
 
       <input
@@ -416,7 +416,7 @@ function CampoMoeda({ value, onChange, erro }) {
 
 function CampoCorridas({ value, onChange, erro }) {
   return (
-    <div className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500" : "border-gray-700 focus-within:border-green-400"} rounded-xl overflow-hidden`}>
+    <div className={`flex items-center mt-2 min-h-[50px] bg-[#0B1120] border ${erro ? "border-red-500" : "border-gray-700 focus-within:border-green-400"} rounded-xl overflow-hidden`}>
       <input
         type="text"
         inputMode="numeric"

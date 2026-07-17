@@ -19,11 +19,36 @@ import {
   nomeCartaoComFinal,
   somarMesesDataISO,
 } from "../../cartoes/utils/cartoesUtils";
+import {
+  desativarContratoIncompativel,
+  completarHorizontesAlugueis,
+  salvarAluguelVeiculo,
+  salvarFinanciamentoVeiculo,
+} from "../services/veiculosFinanceiroService";
+
+const criarFinanciamentoPadrao = () => ({
+  instituicaoFinanceira: "", valorVeiculo: "", valorFinanciado: "", entrada: "",
+  totalParcelas: "", parcelasPagas: "0", numeroProximaParcela: "1", valorParcela: "",
+  proximoVencimento: "", diaVencimento: "", observacoes: "", formaPagamento: "boleto",
+  contaId: "", cartaoId: "",
+});
+
+const criarAluguelPadrao = () => ({
+  locador: "", frequencia: "mensal", valor: "", dataInicio: "", proximoVencimento: "",
+  diaCobranca: "", dataFim: "", observacoes: "", formaPagamento: "boleto",
+  contaId: "", cartaoId: "", descontoPlataforma: false, plataformaId: "",
+});
+
+const criarCaucaoPadrao = () => ({
+  houve: false, valor: "", data: "", formaPagamento: "pix", contaId: "", cartaoId: "",
+  devolvivel: true, previsaoDevolucao: "", observacoes: "",
+});
 
 export default function Veiculos() {
   const [veiculos, setVeiculos] = useState([]);
   const [contasBanco, setContasBanco] = useState([]);
   const [cartoes, setCartoes] = useState([]);
+  const [plataformas, setPlataformas] = useState([]);
   const [veiculoDetalhes, setVeiculoDetalhes] = useState(null);
   const [modalConfigTagAberto, setModalConfigTagAberto] = useState(false);
   const [tagConfigEditando, setTagConfigEditando] = useState(null);
@@ -54,6 +79,11 @@ export default function Veiculos() {
   const [placa, setPlaca] = useState("");
   const [odometroInicial, setOdometroInicial] = useState("");
   const [categoriaVeiculo, setCategoriaVeiculo] = useState("flex");
+  const [tipoPosse, setTipoPosse] = useState("");
+  const [situacaoAquisicao, setSituacaoAquisicao] = useState("");
+  const [financiamento, setFinanciamento] = useState(criarFinanciamentoPadrao);
+  const [aluguel, setAluguel] = useState(criarAluguelPadrao);
+  const [caucao, setCaucao] = useState(criarCaucaoPadrao);
 
   const [possuiTag, setPossuiTag] = useState(false);
   const [tagId, setTagId] = useState(null);
@@ -195,7 +225,19 @@ export default function Veiculos() {
   }
 
   async function carregarTudo() {
-    await Promise.all([carregarVeiculos(), carregarContasBanco(), carregarCartoes()]);
+    const [, , cartoesAtuais] = await Promise.all([carregarVeiculos(), carregarContasBanco(), carregarCartoes(), carregarPlataformas()]);
+    await completarHorizontesAlugueis(supabase, cartoesAtuais || []);
+    await carregarVeiculos();
+  }
+
+  async function carregarPlataformas() {
+    const { data, error } = await supabase.from("plataformas").select("id, nome").eq("ativo", true).order("nome");
+    if (error) {
+      console.error(error);
+      setPlataformas([]);
+      return;
+    }
+    setPlataformas(data || []);
   }
 
   async function carregarContasBanco() {
@@ -248,6 +290,7 @@ export default function Veiculos() {
     });
 
     setCartoes(cartoesComUso);
+    return cartoesComUso;
   }
 
   async function calcularSaldoConta(conta) {
@@ -340,6 +383,14 @@ export default function Veiculos() {
           .in("veiculo_id", idsVeiculos)
       : { data: [] };
 
+    const [{ data: financiamentosData }, { data: alugueisData }, { data: caucoesData }] = idsVeiculos.length
+      ? await Promise.all([
+          supabase.from("veiculos_financiamentos").select("*").eq("ativo", true).in("veiculo_id", idsVeiculos),
+          supabase.from("veiculos_alugueis").select("*").eq("ativo", true).in("veiculo_id", idsVeiculos),
+          supabase.from("veiculos_caucoes").select("*").eq("ativo", true).in("veiculo_id", idsVeiculos),
+        ])
+      : [{ data: [] }, { data: [] }, { data: [] }];
+
 
     const veiculosComKm = await Promise.all(
       (veiculosData || []).map(async (veiculo) => {
@@ -359,11 +410,17 @@ export default function Veiculos() {
         const kmPessoal = Math.max(totalRodado - kmTrabalho, 0);
         const tag = tagsComSaldo.find((item) => Number(item.veiculo_id) === Number(veiculo.id));
         const protecao = (protecoesData || []).find((item) => Number(item.veiculo_id) === Number(veiculo.id));
+        const financiamentoVeiculo = (financiamentosData || []).find((item) => Number(item.veiculo_id) === Number(veiculo.id));
+        const aluguelVeiculo = (alugueisData || []).find((item) => Number(item.veiculo_id) === Number(veiculo.id));
+        const caucaoVeiculo = (caucoesData || []).find((item) => Number(item.veiculo_id) === Number(veiculo.id));
 
         return {
           ...veiculo,
           tag,
           protecao,
+          financiamento: financiamentoVeiculo,
+          aluguel: aluguelVeiculo,
+          caucao: caucaoVeiculo,
           km_trabalho_calculado: kmTrabalho,
           km_pessoal_calculado: kmPessoal,
           total_rodado_calculado: totalRodado,
@@ -430,6 +487,11 @@ export default function Veiculos() {
     setPlaca("");
     setOdometroInicial("");
     setCategoriaVeiculo("flex");
+    setTipoPosse("");
+    setSituacaoAquisicao("");
+    setFinanciamento(criarFinanciamentoPadrao());
+    setAluguel(criarAluguelPadrao());
+    setCaucao(criarCaucaoPadrao());
     resetTag();
     resetProtecao();
     setModalAberto(true);
@@ -443,6 +505,43 @@ export default function Veiculos() {
     setPlaca(veiculo.placa || "");
     setOdometroInicial(String(veiculo.odometro_inicial || veiculo.odometro_atual || ""));
     setCategoriaVeiculo(veiculo.categoria_veiculo || "flex");
+    setTipoPosse(veiculo.tipo_posse || "");
+    setSituacaoAquisicao(veiculo.tipo_posse === "proprio" ? veiculo.situacao_aquisicao || "" : "");
+    setFinanciamento(veiculo.financiamento ? {
+      instituicaoFinanceira: veiculo.financiamento.instituicao_financeira || "",
+      valorVeiculo: numeroParaMoedaInput(veiculo.financiamento.valor_veiculo),
+      valorFinanciado: numeroParaMoedaInput(veiculo.financiamento.valor_financiado),
+      entrada: numeroParaMoedaInput(veiculo.financiamento.valor_entrada),
+      totalParcelas: String(veiculo.financiamento.total_parcelas || ""),
+      parcelasPagas: String(veiculo.financiamento.parcelas_pagas || 0),
+      numeroProximaParcela: String(veiculo.financiamento.numero_proxima_parcela || ""),
+      valorParcela: numeroParaMoedaInput(veiculo.financiamento.valor_parcela),
+      proximoVencimento: veiculo.financiamento.proximo_vencimento || "",
+      diaVencimento: String(veiculo.financiamento.dia_vencimento || ""),
+      observacoes: veiculo.financiamento.observacoes || "",
+      formaPagamento: veiculo.financiamento.forma_pagamento || "boleto",
+      contaId: veiculo.financiamento.conta_id ? String(veiculo.financiamento.conta_id) : "",
+      cartaoId: veiculo.financiamento.cartao_id ? String(veiculo.financiamento.cartao_id) : "",
+    } : criarFinanciamentoPadrao());
+    setAluguel(veiculo.aluguel ? {
+      locador: veiculo.aluguel.locador || "", frequencia: veiculo.aluguel.frequencia || "mensal",
+      valor: numeroParaMoedaInput(veiculo.aluguel.valor), dataInicio: veiculo.aluguel.data_inicio || "",
+      proximoVencimento: veiculo.aluguel.proximo_vencimento || "", diaCobranca: String(veiculo.aluguel.dia_cobranca || ""),
+      dataFim: veiculo.aluguel.data_fim || "", observacoes: veiculo.aluguel.observacoes || "",
+      formaPagamento: veiculo.aluguel.forma_pagamento || "boleto",
+      contaId: veiculo.aluguel.conta_id ? String(veiculo.aluguel.conta_id) : "",
+      cartaoId: veiculo.aluguel.cartao_id ? String(veiculo.aluguel.cartao_id) : "",
+      descontoPlataforma: Boolean(veiculo.aluguel.desconto_plataforma),
+      plataformaId: veiculo.aluguel.plataforma_id ? String(veiculo.aluguel.plataforma_id) : "",
+    } : criarAluguelPadrao());
+    setCaucao(veiculo.caucao ? {
+      houve: true, valor: numeroParaMoedaInput(veiculo.caucao.valor), data: veiculo.caucao.data_pagamento || "",
+      formaPagamento: veiculo.caucao.forma_pagamento || "pix",
+      contaId: veiculo.caucao.conta_id ? String(veiculo.caucao.conta_id) : "",
+      cartaoId: veiculo.caucao.cartao_id ? String(veiculo.caucao.cartao_id) : "",
+      devolvivel: Boolean(veiculo.caucao.devolvivel), previsaoDevolucao: veiculo.caucao.previsao_devolucao || "",
+      observacoes: veiculo.caucao.observacoes || "",
+    } : criarCaucaoPadrao());
 
     if (veiculo.tag) {
       setPossuiTag(true);
@@ -493,6 +592,11 @@ export default function Veiculos() {
     setPlaca("");
     setOdometroInicial("");
     setCategoriaVeiculo("flex");
+    setTipoPosse("");
+    setSituacaoAquisicao("");
+    setFinanciamento(criarFinanciamentoPadrao());
+    setAluguel(criarAluguelPadrao());
+    setCaucao(criarCaucaoPadrao());
     resetTag();
     resetProtecao();
   }
@@ -912,6 +1016,33 @@ export default function Veiculos() {
     if (error) throw error;
   }
 
+  async function salvarContratosVeiculo(veiculoId) {
+    await desativarContratoIncompativel(supabase, veiculoId, tipoPosse, situacaoAquisicao);
+
+    if (tipoPosse === "proprio" && situacaoAquisicao === "financiado") {
+      await salvarFinanciamentoVeiculo(supabase, {
+        veiculoId,
+        financiamento: {
+          ...financiamento,
+          valorVeiculo: moedaParaNumero(financiamento.valorVeiculo),
+          valorFinanciado: moedaParaNumero(financiamento.valorFinanciado),
+          entrada: moedaParaNumero(financiamento.entrada),
+          valorParcela: moedaParaNumero(financiamento.valorParcela),
+        },
+        cartoes,
+      });
+    }
+
+    if (tipoPosse === "alugado") {
+      await salvarAluguelVeiculo(supabase, {
+        veiculoId,
+        aluguel: { ...aluguel, valor: moedaParaNumero(aluguel.valor) },
+        caucao: { ...caucao, valor: moedaParaNumero(caucao.valor) },
+        cartoes,
+      });
+    }
+  }
+
   async function salvarVeiculoConfirmado(kmInicialConfirmado = null) {
     const kmInicial = Number(kmInicialConfirmado ?? odometroInicial ?? 0);
     const nomeGerado = `${marca.trim()} ${modelo.trim()}`.trim();
@@ -944,6 +1075,8 @@ export default function Veiculos() {
       categoria_veiculo: categoriaVeiculo,
       combustiveis_aceitos: regras.combustiveis,
       aceita_recarga_eletrica: regras.eletrico,
+      tipo_posse: tipoPosse,
+      situacao_aquisicao: tipoPosse === "proprio" ? situacaoAquisicao : null,
     };
 
     if (veiculoEditando) {
@@ -968,9 +1101,10 @@ export default function Veiculos() {
       try {
         await salvarTagDoVeiculo(veiculoEditando.id, nomeGerado);
         await salvarProtecaoDoVeiculo(veiculoEditando.id, nomeGerado);
+        await salvarContratosVeiculo(veiculoEditando.id);
       } catch (errorTag) {
         console.error(errorTag);
-        abrirAviso("Erro", "Veículo salvo, mas houve erro ao salvar a TAG.", "erro");
+        abrirAviso("Erro", "Veículo salvo, mas houve erro ao salvar a estrutura financeira vinculada.", "erro");
         return;
       }
 
@@ -1002,9 +1136,10 @@ export default function Veiculos() {
       try {
         await salvarTagDoVeiculo(veiculoReativado.id, nomeGerado);
         await salvarProtecaoDoVeiculo(veiculoReativado.id, nomeGerado);
+        await salvarContratosVeiculo(veiculoReativado.id);
       } catch (errorTag) {
         console.error(errorTag);
-        abrirAviso("Erro", "Veículo reativado, mas houve erro ao salvar a TAG.", "erro");
+        abrirAviso("Erro", "Veículo reativado, mas houve erro ao salvar a estrutura financeira vinculada.", "erro");
         return;
       }
 
@@ -1035,9 +1170,10 @@ export default function Veiculos() {
     try {
       await salvarTagDoVeiculo(novoVeiculo.id, nomeGerado);
       await salvarProtecaoDoVeiculo(novoVeiculo.id, nomeGerado);
+      await salvarContratosVeiculo(novoVeiculo.id);
     } catch (errorTag) {
       console.error(errorTag);
-      abrirAviso("Erro", "Veículo criado, mas houve erro ao salvar a TAG.", "erro");
+      abrirAviso("Erro", "Veículo criado, mas houve erro ao salvar a estrutura financeira vinculada.", "erro");
       return;
     }
 
@@ -1066,11 +1202,38 @@ export default function Veiculos() {
     carregarVeiculos();
   }
 
-  function solicitarExclusaoVeiculo(veiculo) {
+  async function solicitarExclusaoVeiculo(veiculo) {
     if (veiculo.principal) {
       abrirAviso(
         "Veículo principal",
         "Você não pode excluir o veículo principal. Defina outro veículo como principal antes.",
+        "erro"
+      );
+      return;
+    }
+
+    const dependencias = [
+      ["entradas", "Lançamentos de ganhos"], ["manutencoes", "Manutenções"],
+      ["saidas_abastecimentos", "Abastecimentos"], ["saidas_recargas_eletricas", "Recargas elétricas"],
+      ["saidas_manutencoes", "Despesas de manutenção"], ["contas", "TAG/contas vinculadas"],
+      ["veiculos_protecoes", "Seguro/proteção"], ["veiculos_financiamentos", "Financiamento"],
+      ["veiculos_alugueis", "Aluguel"], ["veiculos_caucoes", "Caução"], ["saidas", "Despesas financeiras"],
+    ];
+    const resultados = await Promise.all(dependencias.map(async ([tabela, titulo]) => {
+      const { count, error } = await supabase.from(tabela).select("id", { count: "exact", head: true }).eq("veiculo_id", veiculo.id);
+      if (error) throw error;
+      return { titulo, count: Number(count || 0) };
+    })).catch((error) => {
+      console.error(error);
+      abrirAviso("Não foi possível verificar", "A exclusão foi bloqueada porque as dependências do veículo não puderam ser auditadas.", "erro");
+      return null;
+    });
+    if (!resultados) return;
+    const existentes = resultados.filter((item) => item.count > 0);
+    if (existentes.length) {
+      abrirAviso(
+        "Veículo com histórico vinculado",
+        `A exclusão foi bloqueada para preservar: ${existentes.map((item) => item.titulo).join(", ")}.`,
         "erro"
       );
       return;
@@ -1372,6 +1535,17 @@ export default function Veiculos() {
         setPlaca={setPlaca}
         odometroInicial={odometroInicial}
         setOdometroInicial={setOdometroInicial}
+        tipoPosse={tipoPosse}
+        setTipoPosse={setTipoPosse}
+        situacaoAquisicao={situacaoAquisicao}
+        setSituacaoAquisicao={setSituacaoAquisicao}
+        financiamento={financiamento}
+        setFinanciamento={setFinanciamento}
+        aluguel={aluguel}
+        setAluguel={setAluguel}
+        caucao={caucao}
+        setCaucao={setCaucao}
+        plataformas={plataformas}
         possuiTag={possuiTag}
         setPossuiTag={setPossuiTag}
         nomeTag={nomeTag}
@@ -1514,19 +1688,20 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
   const [modalTagAberto, setModalTagAberto] = useState(false);
   const [modalRecargaAberto, setModalRecargaAberto] = useState(false);
   const [abaAtiva, setAbaAtiva] = useState("resumo");
-  const [dadosDashboard, setDadosDashboard] = useState({ entradas: [], abastecimentos: [], recargas: [], manutencoes: [], manutencoesLegadas: [] });
+  const [dadosDashboard, setDadosDashboard] = useState({ entradas: [], abastecimentos: [], recargas: [], manutencoes: [], manutencoesLegadas: [], saidasContratos: [] });
   const [carregandoDashboard, setCarregandoDashboard] = useState(true);
 
   useEffect(() => {
     let ativo = true;
     async function carregarDashboardVeiculo() {
       setCarregandoDashboard(true);
-      const [entradas, abastecimentos, recargas, manutencoes, manutencoesLegadas] = await Promise.all([
+      const [entradas, abastecimentos, recargas, manutencoes, manutencoesLegadas, saidasContratos] = await Promise.all([
         supabase.from("entradas").select("id, data, km_rodados, entrada_plataformas(faturamento, valor_reembolso)").eq("veiculo_id", veiculo.id),
         supabase.from("saidas_abastecimentos").select("*, saidas(id, data_compra, valor_total, categoria, descricao)").eq("veiculo_id", veiculo.id),
         supabase.from("saidas_recargas_eletricas").select("*, saidas(id, data_compra, valor_total, categoria, descricao)").eq("veiculo_id", veiculo.id),
         supabase.from("saidas_manutencoes").select("*, saidas(id, data_compra, valor_total, categoria, descricao)").eq("veiculo_id", veiculo.id),
         supabase.from("manutencoes").select("*").eq("veiculo_id", veiculo.id),
+        supabase.from("saidas").select("*").eq("veiculo_id", veiculo.id).not("tipo_movimentacao", "eq", "conta_pagar"),
       ]);
       if (!ativo) return;
       setDadosDashboard({
@@ -1535,6 +1710,7 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
         recargas: recargas.data || [],
         manutencoes: manutencoes.data || [],
         manutencoesLegadas: manutencoesLegadas.data || [],
+        saidasContratos: saidasContratos.data || [],
       });
       setCarregandoDashboard(false);
     }
@@ -1546,7 +1722,11 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
   const gastosAbastecimento = dadosDashboard.abastecimentos.reduce((total, item) => total + Number(item.saidas?.valor_total || 0), 0);
   const gastosRecarga = dadosDashboard.recargas.reduce((total, item) => total + Number(item.saidas?.valor_total || 0), 0);
   const gastosManutencao = dadosDashboard.manutencoes.reduce((total, item) => total + Number(item.saidas?.valor_total || 0), 0);
-  const gastos = gastosAbastecimento + gastosRecarga + gastosManutencao;
+  const hojeDashboard = new Date().toISOString().split("T")[0];
+  const gastosContratos = dadosDashboard.saidasContratos
+    .filter((item) => item.finalidade !== "caucao_devolvivel" && (item.conta_pagar_origem_id || (item.cartao_id && item.data_compra <= hojeDashboard)))
+    .reduce((total, item) => total + Number(item.valor_total || 0), 0);
+  const gastos = gastosAbastecimento + gastosRecarga + gastosManutencao + gastosContratos;
   const consumos = dadosDashboard.abastecimentos.map((item) => Number(item.consumo_km_l || 0)).filter((valor) => valor > 0);
   const mediaConsumo = consumos.length ? consumos.reduce((soma, valor) => soma + valor, 0) / consumos.length : 0;
   const historico = [
@@ -1616,6 +1796,7 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
           <ResumoCard titulo="Abastecimentos" valor={formatarMoeda(gastosAbastecimento)} />
           <ResumoCard titulo="Recargas elétricas" valor={formatarMoeda(gastosRecarga)} />
           <ResumoCard titulo="Manutenções" valor={formatarMoeda(gastosManutencao)} />
+          <ResumoCard titulo="Financiamento / aluguel" valor={formatarMoeda(gastosContratos)} />
           <ResumoCard titulo="Custo por KM" valor={totalRodado > 0 ? formatarMoeda(gastos / totalRodado) : "Base insuficiente"} />
         </div>}
 

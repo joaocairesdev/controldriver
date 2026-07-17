@@ -26,6 +26,17 @@ export default function VeiculoModal({
   setPlaca,
   odometroInicial,
   setOdometroInicial,
+  tipoPosse,
+  setTipoPosse,
+  situacaoAquisicao,
+  setSituacaoAquisicao,
+  financiamento,
+  setFinanciamento,
+  aluguel,
+  setAluguel,
+  caucao,
+  setCaucao,
+  plataformas,
 
   possuiTag,
   setPossuiTag,
@@ -103,6 +114,10 @@ export default function VeiculoModal({
   const [modalFormaRecargaTagAberto, setModalFormaRecargaTagAberto] = useState(false);
   const [modalContaRecargaTagAberto, setModalContaRecargaTagAberto] = useState(false);
   const [modalCartaoRecargaTagAberto, setModalCartaoRecargaTagAberto] = useState(false);
+  const [modalDataContrato, setModalDataContrato] = useState({ aberto: false, grupo: "", campo: "" });
+  const [modalFormaContrato, setModalFormaContrato] = useState({ aberto: false, grupo: "" });
+  const [modalContaContrato, setModalContaContrato] = useState({ aberto: false, grupo: "" });
+  const [modalCartaoContrato, setModalCartaoContrato] = useState({ aberto: false, grupo: "" });
 
   const temProtecao = tipoProtecaoVeiculo !== "nenhuma";
   const protecaoParcelada = ["credito_parcelado", "boleto_parcelado"].includes(formaPagamentoProtecao);
@@ -110,19 +125,44 @@ export default function VeiculoModal({
   const protecaoUsaCartao = ["credito_avista", "credito_parcelado"].includes(formaPagamentoProtecao);
   const tagPrePaga = tipoTag === "pre_paga";
   const tagPosPaga = tipoTag === "pos_paga";
+  const etapas = useMemo(() => {
+    const lista = ["situacao", "veiculo"];
+    if (tipoPosse === "proprio" && situacaoAquisicao === "financiado") lista.push("financiamento");
+    if (tipoPosse === "alugado") {
+      lista.push("aluguel");
+      if (caucao.houve) lista.push("caucao");
+    }
+    lista.push("protecao", "tag", "resumo");
+    return lista;
+  }, [tipoPosse, situacaoAquisicao, caucao.houve]);
+  const formasPagamentoContrato = useMemo(
+    () => formasPagamentoProtecao.filter((item) => !["credito_parcelado", "boleto_parcelado"].includes(item.valor)),
+    [formasPagamentoProtecao]
+  );
+  const etapaAtual = etapas[etapa - 1];
 
 
   const tituloEtapa = useMemo(() => {
-    if (etapa === 1) return "Cadastro do veículo";
-    if (etapa === 2) return "Proteção";
-    return "TAG do veículo";
-  }, [etapa]);
+    if (etapaAtual === "situacao") return "Situação do veículo";
+    if (etapaAtual === "veiculo") return "Cadastro do veículo";
+    if (etapaAtual === "financiamento") return "Financiamento";
+    if (etapaAtual === "aluguel") return "Aluguel";
+    if (etapaAtual === "caucao") return "Caução";
+    if (etapaAtual === "protecao") return "Proteção";
+    if (etapaAtual === "tag") return "TAG do veículo";
+    return "Resumo";
+  }, [etapaAtual]);
 
   const descricaoEtapa = useMemo(() => {
-    if (etapa === 1) return "Informe os dados principais do carro.";
-    if (etapa === 2) return "Informe se o carro possui proteção e como ela será controlada no financeiro.";
-    return "Configure a TAG vinculada ao veículo, se existir.";
-  }, [etapa]);
+    if (etapaAtual === "situacao") return "Classifique a posse antes de informar os demais dados.";
+    if (etapaAtual === "veiculo") return "Informe os dados principais do carro.";
+    if (etapaAtual === "financiamento") return "Informe o contrato e as parcelas que ainda estão em aberto.";
+    if (etapaAtual === "aluguel") return "Configure a recorrência e o meio de cobrança do aluguel.";
+    if (etapaAtual === "caucao") return "Registre a caução sem transformá-la em custo definitivo quando devolvível.";
+    if (etapaAtual === "protecao") return "Informe se o carro possui proteção e como ela será controlada no financeiro.";
+    if (etapaAtual === "tag") return "Configure a TAG vinculada ao veículo, se existir.";
+    return "Revise os dados antes de salvar.";
+  }, [etapaAtual]);
 
   useEffect(() => {
     if (aberto) {
@@ -154,16 +194,69 @@ export default function VeiculoModal({
     });
   }
 
+  function atualizarGrupo(setter, campo, valor) {
+    setter((atual) => ({ ...atual, [campo]: valor }));
+    limparErro(campo);
+  }
+
+  function formaCredito(forma) {
+    return ["credito_avista", "credito_parcelado"].includes(forma);
+  }
+
   function validarEtapaAtual() {
     const novos = {};
-    if (etapa === 1) {
+    if (etapaAtual === "situacao") {
+      if (!tipoPosse) novos.tipoPosse = "Informe se o veículo é próprio ou alugado.";
+      if (tipoPosse === "proprio" && !situacaoAquisicao) novos.situacaoAquisicao = "Informe se o veículo está quitado ou financiado.";
+    }
+    if (etapaAtual === "veiculo") {
       if (!marca.trim()) novos.marca = "Informe a marca do veículo.";
       if (!modelo.trim()) novos.modelo = "Informe o modelo do veículo.";
       if (!ano || ano.length < 4) novos.ano = "Informe o ano com 4 dígitos.";
       if (!odometroInicial) novos.odometroInicial = "Informe o KM inicial.";
       if (!categoriaVeiculo) novos.categoriaVeiculo = "Selecione a categoria do veículo.";
     }
-    if (etapa === 2 && temProtecao) {
+    if (etapaAtual === "financiamento") {
+      const total = Number(financiamento.totalParcelas || 0);
+      const pagas = Number(financiamento.parcelasPagas || 0);
+      const proxima = Number(financiamento.numeroProximaParcela || 0);
+      if (!financiamento.instituicaoFinanceira.trim()) novos.instituicaoFinanceira = "Informe a instituição financeira.";
+      if (moedaParaNumero(financiamento.valorVeiculo) <= 0) novos.valorVeiculo = "Informe o valor do veículo.";
+      if (moedaParaNumero(financiamento.valorFinanciado) <= 0) novos.valorFinanciado = "Informe o valor financiado.";
+      if (moedaParaNumero(financiamento.valorFinanciado) > moedaParaNumero(financiamento.valorVeiculo)) novos.valorFinanciado = "O valor financiado não pode superar o valor do veículo.";
+      if (total < 1) novos.totalParcelas = "Informe o total de parcelas.";
+      if (pagas < 0 || pagas > total) novos.parcelasPagas = "As parcelas pagas devem ficar entre zero e o total.";
+      if (pagas < total && (proxima <= pagas || proxima > total)) novos.numeroProximaParcela = "Informe a próxima parcela ainda não paga.";
+      if (moedaParaNumero(financiamento.valorParcela) <= 0) novos.valorParcela = "Informe o valor da parcela.";
+      if (pagas < total && !financiamento.proximoVencimento) novos.proximoVencimento = "Informe o próximo vencimento.";
+      if (Number(financiamento.diaVencimento) < 1 || Number(financiamento.diaVencimento) > 31) novos.diaVencimento = "Informe um dia entre 1 e 31.";
+      if (!financiamento.formaPagamento) novos.formaPagamento = "Selecione a forma de pagamento.";
+      if (formaCredito(financiamento.formaPagamento) && !financiamento.cartaoId) novos.cartaoId = "Selecione o cartão.";
+      if (!formaCredito(financiamento.formaPagamento) && !financiamento.contaId) novos.contaId = "Selecione a conta.";
+    }
+    if (etapaAtual === "aluguel") {
+      if (!aluguel.locador.trim()) novos.locador = "Informe a locadora ou o proprietário.";
+      if (!aluguel.frequencia) novos.frequencia = "Selecione a frequência.";
+      if (moedaParaNumero(aluguel.valor) <= 0) novos.valor = "Informe o valor do aluguel.";
+      if (!aluguel.dataInicio) novos.dataInicio = "Informe a data de início.";
+      if (!aluguel.proximoVencimento) novos.proximoVencimento = "Informe o próximo vencimento.";
+      if (Number(aluguel.diaCobranca) < 1 || Number(aluguel.diaCobranca) > 31) novos.diaCobranca = "Informe um dia entre 1 e 31.";
+      if (aluguel.dataFim && aluguel.dataInicio && aluguel.dataFim < aluguel.dataInicio) novos.dataFim = "A data final não pode ser anterior ao início.";
+      if (aluguel.dataFim && aluguel.proximoVencimento && aluguel.dataFim < aluguel.proximoVencimento) novos.dataFim = "A data final não pode ser anterior à próxima cobrança.";
+      if (aluguel.descontoPlataforma && !aluguel.plataformaId) novos.plataformaId = "Selecione a plataforma responsável.";
+      if (!aluguel.descontoPlataforma && !aluguel.formaPagamento) novos.formaPagamento = "Selecione a forma de pagamento.";
+      if (!aluguel.descontoPlataforma && formaCredito(aluguel.formaPagamento) && !aluguel.cartaoId) novos.cartaoId = "Selecione o cartão.";
+      if (!aluguel.descontoPlataforma && !formaCredito(aluguel.formaPagamento) && !aluguel.contaId) novos.contaId = "Selecione a conta.";
+    }
+    if (etapaAtual === "caucao" && caucao.houve) {
+      if (moedaParaNumero(caucao.valor) <= 0) novos.valor = "Informe o valor da caução.";
+      if (!caucao.data) novos.data = "Informe a data da caução.";
+      if (!caucao.formaPagamento) novos.formaPagamento = "Selecione a forma de pagamento.";
+      if (formaCredito(caucao.formaPagamento) && !caucao.cartaoId) novos.cartaoId = "Selecione o cartão.";
+      if (!formaCredito(caucao.formaPagamento) && !caucao.contaId) novos.contaId = "Selecione a conta.";
+      if (caucao.previsaoDevolucao && caucao.data && caucao.previsaoDevolucao < caucao.data) novos.previsaoDevolucao = "A devolução não pode ser anterior ao pagamento.";
+    }
+    if (etapaAtual === "protecao" && temProtecao) {
       if (!nomeProtecaoVeiculo.trim()) novos.nomeProtecao = "Informe o nome da proteção.";
       if (!inicioVigenciaProtecao) novos.inicioVigencia = "Informe o início da vigência.";
       if (!fimVigenciaProtecao) novos.fimVigencia = "Informe o fim da vigência.";
@@ -175,7 +268,7 @@ export default function VeiculoModal({
       if (protecaoUsaConta && !contaProtecaoId) novos.contaProtecao = "Selecione a conta usada no pagamento.";
       if (protecaoUsaCartao && !cartaoProtecaoId) novos.cartaoProtecao = "Selecione o cartão usado no pagamento.";
     }
-    if (etapa === 3 && possuiTag) {
+    if (etapaAtual === "tag" && possuiTag) {
       if (!nomeTag.trim()) novos.nomeTag = "Informe o nome da TAG.";
       const exigeOrigem = tagPosPaga || (tagPrePaga && recargaAutomaticaTag);
       if (tagPrePaga && recargaAutomaticaTag && moedaParaNumero(valorRecargaTag) <= 0) novos.valorRecargaTag = "Informe o valor da recarga.";
@@ -190,7 +283,7 @@ export default function VeiculoModal({
   function irProximaEtapa() {
     if (!validarEtapaAtual()) return;
     setErros({});
-    setEtapa((atual) => Math.min(atual + 1, 3));
+    setEtapa((atual) => Math.min(atual + 1, etapas.length));
   }
 
   function voltarEtapa() {
@@ -230,6 +323,33 @@ export default function VeiculoModal({
     }
   }
 
+  function dadosDoGrupoContrato(grupo) {
+    if (grupo === "financiamento") return financiamento;
+    if (grupo === "aluguel") return aluguel;
+    return caucao;
+  }
+
+  function setterDoGrupoContrato(grupo) {
+    if (grupo === "financiamento") return setFinanciamento;
+    if (grupo === "aluguel") return setAluguel;
+    return setCaucao;
+  }
+
+  function selecionarFormaContrato(valor) {
+    const grupo = modalFormaContrato.grupo;
+    const setter = setterDoGrupoContrato(grupo);
+    setter((atual) => ({
+      ...atual,
+      formaPagamento: valor,
+      contaId: formaCredito(valor) ? "" : atual.contaId,
+      cartaoId: formaCredito(valor) ? atual.cartaoId : "",
+    }));
+    limparErro("formaPagamento");
+    limparErro("contaId");
+    limparErro("cartaoId");
+    setModalFormaContrato({ aberto: false, grupo: "" });
+  }
+
   function alternarProtecao() {
     setTipoProtecaoVeiculo(temProtecao ? "nenhuma" : "protecao_veicular");
   }
@@ -238,7 +358,7 @@ export default function VeiculoModal({
     <>
       <ModalBase
         aberto={aberto}
-        titulo={veiculoEditando ? "Editar Veículo" : "Novo Veículo"}
+        titulo={`${veiculoEditando ? "Editar Veículo" : "Novo Veículo"} · ${tituloEtapa}`}
         descricao={descricaoEtapa}
         onClose={onClose}
         largura="max-w-2xl"
@@ -246,9 +366,38 @@ export default function VeiculoModal({
       
         confirmarAoFecharSeAlterado>
         <div>
-          <IndicadorEtapas etapa={etapa} />
+          <IndicadorEtapas etapa={etapa} total={etapas.length} />
 
-          {etapa === 1 && (
+          {etapaAtual === "situacao" && (
+            <section className="mt-6 space-y-5">
+              <GrupoEscolha
+                titulo="Este veículo é:"
+                valor={tipoPosse}
+                opcoes={[["proprio", "Próprio"], ["alugado", "Alugado"]]}
+                erro={erros.tipoPosse}
+                shakeKey={shakeKey}
+                onChange={(valor) => {
+                  limparErro("tipoPosse");
+                  limparErro("situacaoAquisicao");
+                  setTipoPosse(valor);
+                  if (valor === "alugado") setSituacaoAquisicao("");
+                }}
+              />
+
+              {tipoPosse === "proprio" && (
+                <GrupoEscolha
+                  titulo="Situação:"
+                  valor={situacaoAquisicao}
+                  opcoes={[["quitado", "Quitado"], ["financiado", "Financiado"]]}
+                  erro={erros.situacaoAquisicao}
+                  shakeKey={shakeKey}
+                  onChange={(valor) => { limparErro("situacaoAquisicao"); setSituacaoAquisicao(valor); }}
+                />
+              )}
+            </section>
+          )}
+
+          {etapaAtual === "veiculo" && (
             <section className="mt-6 space-y-5">
               <div>
                 <h3 className="text-lg font-bold text-white">Veículo</h3>
@@ -320,7 +469,81 @@ export default function VeiculoModal({
             </section>
           )}
 
-          {etapa === 2 && (
+          {etapaAtual === "financiamento" && (
+            <section className="mt-6 space-y-5">
+              <InputTexto label="Instituição financeira" value={financiamento.instituicaoFinanceira} placeholder="Ex: Banco ou financeira" onChange={(valor) => atualizarGrupo(setFinanciamento, "instituicaoFinanceira", valor)} erro={erros.instituicaoFinanceira} shakeKey={shakeKey} />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <CampoMoeda label="Valor do veículo" value={financiamento.valorVeiculo} placeholder="0,00" onChange={(valor) => atualizarGrupo(setFinanciamento, "valorVeiculo", formatarMoedaDigitada(valor))} erro={erros.valorVeiculo} shakeKey={shakeKey} />
+                <CampoMoeda label="Valor financiado" value={financiamento.valorFinanciado} placeholder="0,00" onChange={(valor) => atualizarGrupo(setFinanciamento, "valorFinanciado", formatarMoedaDigitada(valor))} erro={erros.valorFinanciado} shakeKey={shakeKey} />
+                <CampoMoeda label="Entrada" value={financiamento.entrada} placeholder="0,00" onChange={(valor) => atualizarGrupo(setFinanciamento, "entrada", formatarMoedaDigitada(valor))} />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <InputTexto label="Total de parcelas" value={financiamento.totalParcelas} placeholder="48" onChange={(valor) => atualizarGrupo(setFinanciamento, "totalParcelas", somenteNumeros(valor))} erro={erros.totalParcelas} shakeKey={shakeKey} />
+                <InputTexto label="Parcelas já pagas" value={financiamento.parcelasPagas} placeholder="0" onChange={(valor) => atualizarGrupo(setFinanciamento, "parcelasPagas", somenteNumeros(valor))} erro={erros.parcelasPagas} shakeKey={shakeKey} />
+                <InputTexto label="Número da próxima" value={financiamento.numeroProximaParcela} placeholder="1" onChange={(valor) => atualizarGrupo(setFinanciamento, "numeroProximaParcela", somenteNumeros(valor))} erro={erros.numeroProximaParcela} shakeKey={shakeKey} />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <CampoMoeda label="Valor da parcela" value={financiamento.valorParcela} placeholder="0,00" onChange={(valor) => atualizarGrupo(setFinanciamento, "valorParcela", formatarMoedaDigitada(valor))} erro={erros.valorParcela} shakeKey={shakeKey} />
+                <CampoDataBotao label="Próximo vencimento" value={financiamento.proximoVencimento} formatarDataBR={formatarDataBR} onClick={() => setModalDataContrato({ aberto: true, grupo: "financiamento", campo: "proximoVencimento" })} erro={erros.proximoVencimento} shakeKey={shakeKey} />
+                <InputTexto label="Dia do vencimento" value={financiamento.diaVencimento} placeholder="10" onChange={(valor) => atualizarGrupo(setFinanciamento, "diaVencimento", somenteNumeros(valor).slice(0, 2))} erro={erros.diaVencimento} shakeKey={shakeKey} />
+              </div>
+              <OrigemPagamentoContrato
+                grupo="financiamento" dados={financiamento} erros={erros} shakeKey={shakeKey}
+                textoForma={textoFormaPagamentoProtecao} textoConta={textoContaProtecao} textoCartao={textoCartaoProtecao}
+                abrirForma={setModalFormaContrato} abrirConta={setModalContaContrato} abrirCartao={setModalCartaoContrato}
+              />
+              <AreaObservacoes value={financiamento.observacoes} onChange={(valor) => atualizarGrupo(setFinanciamento, "observacoes", valor)} />
+            </section>
+          )}
+
+          {etapaAtual === "aluguel" && (
+            <section className="mt-6 space-y-5">
+              <InputTexto label="Locadora ou proprietário" value={aluguel.locador} placeholder="Nome do responsável" onChange={(valor) => atualizarGrupo(setAluguel, "locador", valor)} erro={erros.locador} shakeKey={shakeKey} />
+              <GrupoEscolha titulo="Frequência" valor={aluguel.frequencia} opcoes={[["diaria", "Diária"], ["semanal", "Semanal"], ["quinzenal", "Quinzenal"], ["mensal", "Mensal"], ["anual", "Anual"]]} onChange={(valor) => atualizarGrupo(setAluguel, "frequencia", valor)} erro={erros.frequencia} shakeKey={shakeKey} colunas="sm:grid-cols-5" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <CampoMoeda label="Valor" value={aluguel.valor} placeholder="0,00" onChange={(valor) => atualizarGrupo(setAluguel, "valor", formatarMoedaDigitada(valor))} erro={erros.valor} shakeKey={shakeKey} />
+                <InputTexto label="Dia da cobrança" value={aluguel.diaCobranca} placeholder="10" onChange={(valor) => atualizarGrupo(setAluguel, "diaCobranca", somenteNumeros(valor).slice(0, 2))} erro={erros.diaCobranca} shakeKey={shakeKey} />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <CampoDataBotao label="Data de início" value={aluguel.dataInicio} formatarDataBR={formatarDataBR} onClick={() => setModalDataContrato({ aberto: true, grupo: "aluguel", campo: "dataInicio" })} erro={erros.dataInicio} shakeKey={shakeKey} />
+                <CampoDataBotao label="Próximo vencimento" value={aluguel.proximoVencimento} formatarDataBR={formatarDataBR} onClick={() => setModalDataContrato({ aberto: true, grupo: "aluguel", campo: "proximoVencimento" })} erro={erros.proximoVencimento} shakeKey={shakeKey} />
+                <CampoDataBotao label="Data final (opcional)" value={aluguel.dataFim} formatarDataBR={formatarDataBR} onClick={() => setModalDataContrato({ aberto: true, grupo: "aluguel", campo: "dataFim" })} erro={erros.dataFim} shakeKey={shakeKey} />
+              </div>
+              <div className="rounded-2xl border border-gray-700 bg-[#0B1120] p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div><p className="font-bold">Desconto direto por aplicativo?</p><p className="text-xs text-gray-400 mt-1">Use quando a plataforma desconta o aluguel dos ganhos.</p></div>
+                  <SwitchButton ativo={aluguel.descontoPlataforma} onClick={() => atualizarGrupo(setAluguel, "descontoPlataforma", !aluguel.descontoPlataforma)} />
+                </div>
+                {aluguel.descontoPlataforma && (
+                  <div className="mt-4">
+                    <p className="text-sm text-gray-300">Plataforma responsável</p>
+                    <div className={`grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2 ${erros.plataformaId ? "animate-shake" : ""}`}>
+                      {plataformas.map((item) => <button key={item.id} type="button" onClick={() => atualizarGrupo(setAluguel, "plataformaId", String(item.id))} className={`rounded-xl border p-3 font-bold ${String(aluguel.plataformaId) === String(item.id) ? "border-green-400 bg-green-500/10 text-green-400" : "border-gray-700"}`}>{item.nome}</button>)}
+                    </div>
+                    {erros.plataformaId && <ErroCampo mensagem={erros.plataformaId} shakeKey={shakeKey} />}
+                  </div>
+                )}
+              </div>
+              {!aluguel.descontoPlataforma && <OrigemPagamentoContrato grupo="aluguel" dados={aluguel} erros={erros} shakeKey={shakeKey} textoForma={textoFormaPagamentoProtecao} textoConta={textoContaProtecao} textoCartao={textoCartaoProtecao} abrirForma={setModalFormaContrato} abrirConta={setModalContaContrato} abrirCartao={setModalCartaoContrato} />}
+              <GrupoEscolha titulo="Houve caução?" valor={caucao.houve ? "sim" : "nao"} opcoes={[["sim", "Sim"], ["nao", "Não"]]} onChange={(valor) => setCaucao((atual) => ({ ...atual, houve: valor === "sim" }))} />
+              <AreaObservacoes value={aluguel.observacoes} onChange={(valor) => atualizarGrupo(setAluguel, "observacoes", valor)} />
+            </section>
+          )}
+
+          {etapaAtual === "caucao" && (
+            <section className="mt-6 space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <CampoMoeda label="Valor da caução" value={caucao.valor} placeholder="0,00" onChange={(valor) => atualizarGrupo(setCaucao, "valor", formatarMoedaDigitada(valor))} erro={erros.valor} shakeKey={shakeKey} />
+                <CampoDataBotao label="Data" value={caucao.data} formatarDataBR={formatarDataBR} onClick={() => setModalDataContrato({ aberto: true, grupo: "caucao", campo: "data" })} erro={erros.data} shakeKey={shakeKey} />
+              </div>
+              <OrigemPagamentoContrato grupo="caucao" dados={caucao} erros={erros} shakeKey={shakeKey} textoForma={textoFormaPagamentoProtecao} textoConta={textoContaProtecao} textoCartao={textoCartaoProtecao} abrirForma={setModalFormaContrato} abrirConta={setModalContaContrato} abrirCartao={setModalCartaoContrato} />
+              <GrupoEscolha titulo="A caução é devolvível?" valor={caucao.devolvivel ? "sim" : "nao"} opcoes={[["sim", "Sim"], ["nao", "Não"]]} onChange={(valor) => setCaucao((atual) => ({ ...atual, devolvivel: valor === "sim", previsaoDevolucao: valor === "sim" ? atual.previsaoDevolucao : "" }))} />
+              {caucao.devolvivel && <CampoDataBotao label="Previsão de devolução (opcional)" value={caucao.previsaoDevolucao} formatarDataBR={formatarDataBR} onClick={() => setModalDataContrato({ aberto: true, grupo: "caucao", campo: "previsaoDevolucao" })} erro={erros.previsaoDevolucao} shakeKey={shakeKey} />}
+              <AreaObservacoes value={caucao.observacoes} onChange={(valor) => atualizarGrupo(setCaucao, "observacoes", valor)} />
+            </section>
+          )}
+
+          {etapaAtual === "protecao" && (
             <section className="mt-6 space-y-5">
               <div>
                 <h3 className="text-lg font-bold text-white">Proteção</h3>
@@ -473,7 +696,7 @@ export default function VeiculoModal({
             </section>
           )}
 
-          {etapa === 3 && (
+          {etapaAtual === "tag" && (
             <section className="mt-6 space-y-5">
               <div>
                 <h3 className="text-lg font-bold text-white">TAG</h3>
@@ -697,6 +920,21 @@ export default function VeiculoModal({
             </section>
           )}
 
+          {etapaAtual === "resumo" && (
+            <section className="mt-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <ResumoCadastro titulo="Posse" valor={tipoPosse === "proprio" ? "Próprio" : "Alugado"} />
+                <ResumoCadastro titulo="Situação" valor={tipoPosse === "proprio" ? (situacaoAquisicao === "financiado" ? "Financiado" : "Quitado") : "Não se aplica"} />
+                <ResumoCadastro titulo="Veículo" valor={[marca, modelo, ano].filter(Boolean).join(" ")} />
+                <ResumoCadastro titulo="Proteção" valor={temProtecao ? nomeProtecaoVeiculo : "Sem proteção"} />
+                <ResumoCadastro titulo="TAG" valor={possuiTag ? nomeTag : "Sem TAG"} />
+                {tipoPosse === "proprio" && situacaoAquisicao === "financiado" && <ResumoCadastro titulo="Financiamento" valor={`${financiamento.instituicaoFinanceira} · ${financiamento.totalParcelas || 0} parcelas`} />}
+                {tipoPosse === "alugado" && <ResumoCadastro titulo="Aluguel" valor={`${aluguel.locador} · ${aluguel.frequencia}`} />}
+                {tipoPosse === "alugado" && <ResumoCadastro titulo="Caução" valor={caucao.houve ? (caucao.devolvivel ? "Devolvível" : "Não devolvível") : "Sem caução"} />}
+              </div>
+            </section>
+          )}
+
           <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 -mx-1 pt-4 pb-1 bg-[#111827]">
             {etapa > 1 ? (
               <button
@@ -716,7 +954,7 @@ export default function VeiculoModal({
               </button>
             )}
 
-            {etapa < 3 ? (
+            {etapa < etapas.length ? (
               <button
                 type="button"
                 onClick={irProximaEtapa}
@@ -849,14 +1087,56 @@ export default function VeiculoModal({
         onClose={() => setModalCartaoRecargaTagAberto(false)}
         formatarMoeda={formatarMoeda}
       />
+
+      <DatePickerModal
+        aberto={modalDataContrato.aberto}
+        valor={modalDataContrato.aberto ? dadosDoGrupoContrato(modalDataContrato.grupo)?.[modalDataContrato.campo] || "" : ""}
+        onChange={(valor) => {
+          atualizarGrupo(setterDoGrupoContrato(modalDataContrato.grupo), modalDataContrato.campo, valor);
+          setModalDataContrato({ aberto: false, grupo: "", campo: "" });
+        }}
+        onClose={() => setModalDataContrato({ aberto: false, grupo: "", campo: "" })}
+      />
+
+      <SelecionarFormaPagamentoModal
+        aberto={modalFormaContrato.aberto}
+        formasPagamento={formasPagamentoContrato}
+        formaPagamento={modalFormaContrato.aberto ? dadosDoGrupoContrato(modalFormaContrato.grupo)?.formaPagamento || "" : ""}
+        onSelecionar={selecionarFormaContrato}
+        onClose={() => setModalFormaContrato({ aberto: false, grupo: "" })}
+      />
+
+      <SelecionarContaModal
+        aberto={modalContaContrato.aberto}
+        contas={contasBanco}
+        contaId={modalContaContrato.aberto ? dadosDoGrupoContrato(modalContaContrato.grupo)?.contaId || "" : ""}
+        onSelecionar={(valor) => {
+          atualizarGrupo(setterDoGrupoContrato(modalContaContrato.grupo), "contaId", valor);
+          setModalContaContrato({ aberto: false, grupo: "" });
+        }}
+        onClose={() => setModalContaContrato({ aberto: false, grupo: "" })}
+        formatarMoeda={formatarMoeda}
+      />
+
+      <SelecionarCartaoModal
+        aberto={modalCartaoContrato.aberto}
+        cartoes={cartoes}
+        cartaoId={modalCartaoContrato.aberto ? dadosDoGrupoContrato(modalCartaoContrato.grupo)?.cartaoId || "" : ""}
+        onSelecionar={(valor) => {
+          atualizarGrupo(setterDoGrupoContrato(modalCartaoContrato.grupo), "cartaoId", valor);
+          setModalCartaoContrato({ aberto: false, grupo: "" });
+        }}
+        onClose={() => setModalCartaoContrato({ aberto: false, grupo: "" })}
+        formatarMoeda={formatarMoeda}
+      />
     </>
   );
 }
 
-function IndicadorEtapas({ etapa }) {
+function IndicadorEtapas({ etapa, total }) {
   return (
-    <div className="grid grid-cols-3 gap-2 mt-6">
-      {Array.from({ length: 3 }, (_, index) => {
+    <div className="grid gap-2 mt-6" style={{ gridTemplateColumns: `repeat(${total}, minmax(0, 1fr))` }}>
+      {Array.from({ length: total }, (_, index) => {
         const ativo = etapa >= index + 1;
 
         return (
@@ -866,6 +1146,70 @@ function IndicadorEtapas({ etapa }) {
           />
         );
       })}
+    </div>
+  );
+}
+
+function GrupoEscolha({ titulo, valor, opcoes, onChange, erro, shakeKey, colunas = "grid-cols-2" }) {
+  return (
+    <div key={erro ? shakeKey : "ok"} className={erro ? "animate-shake" : ""}>
+      <p className={`text-sm font-bold ${erro ? "text-red-400" : "text-gray-300"}`}>{titulo}</p>
+      <div className={`grid ${colunas} gap-3 mt-2`}>
+        {opcoes.map(([chave, label]) => (
+          <button
+            key={chave}
+            type="button"
+            onClick={() => onChange(chave)}
+            aria-pressed={valor === chave}
+            className={`rounded-xl border p-4 font-bold transition ${valor === chave ? "border-green-400 bg-green-500/10 text-green-400" : erro ? "border-red-500 text-gray-200" : "border-gray-700 text-gray-300 hover:border-green-400"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {erro && <ErroCampo mensagem={erro} shakeKey={shakeKey} />}
+    </div>
+  );
+}
+
+function OrigemPagamentoContrato({ grupo, dados, erros, shakeKey, textoForma, textoConta, textoCartao, abrirForma, abrirConta, abrirCartao }) {
+  const credito = ["credito_avista", "credito_parcelado"].includes(dados.formaPagamento);
+  const erroForma = erros.formaPagamento;
+  const erroOrigem = erros[credito ? "cartaoId" : "contaId"];
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <label className="text-sm text-gray-300">Forma de pagamento</label>
+        <button key={erroForma ? shakeKey : "ok"} type="button" onClick={() => abrirForma({ aberto: true, grupo })} className={`w-full mt-2 rounded-xl border p-3 text-left font-semibold ${erroForma ? "border-red-500 animate-shake" : "border-gray-700 hover:border-green-400"}`}>
+          {textoForma(dados.formaPagamento)}
+        </button>
+        {erroForma && <ErroCampo mensagem={erroForma} shakeKey={shakeKey} />}
+      </div>
+      <div>
+        <label className="text-sm text-gray-300">{credito ? "Cartão" : "Conta"}</label>
+        <button key={erroOrigem ? shakeKey : "ok"} type="button" onClick={() => credito ? abrirCartao({ aberto: true, grupo }) : abrirConta({ aberto: true, grupo })} className={`w-full mt-2 rounded-xl border p-3 text-left font-semibold ${erroOrigem ? "border-red-500 animate-shake" : "border-gray-700 hover:border-green-400"}`}>
+          {credito ? textoCartao(dados.cartaoId) : textoConta(dados.contaId)}
+        </button>
+        {erroOrigem && <ErroCampo mensagem={erroOrigem} shakeKey={shakeKey} />}
+      </div>
+    </div>
+  );
+}
+
+function AreaObservacoes({ value, onChange }) {
+  return (
+    <div>
+      <label className="text-sm text-gray-300">Observações</label>
+      <textarea value={value} onChange={(evento) => onChange(evento.target.value)} rows={3} className="w-full mt-2 rounded-xl border border-gray-700 bg-[#0B1120] p-3 outline-none focus:border-green-400" />
+    </div>
+  );
+}
+
+function ResumoCadastro({ titulo, valor }) {
+  return (
+    <div className="rounded-xl border border-gray-800 bg-[#0B1120] p-4">
+      <p className="text-xs text-gray-500">{titulo}</p>
+      <p className="font-bold text-white mt-1">{valor || "Não informado"}</p>
     </div>
   );
 }

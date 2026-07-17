@@ -198,6 +198,9 @@ export function obterCategoriaDaSaida(saida, categoriasPorId, categoriasPorNome)
     abastecimento: { nome: "Abastecimento", tipo_uso: "rateada" },
     manutencao: { nome: "Manutenção", tipo_uso: "rateada" },
     seguro: { nome: "Seguro", tipo_uso: "rateada" },
+    "financiamentodeveiculo": { nome: "Financiamento de veículo", tipo_uso: "rateada" },
+    "alugueldeveiculo": { nome: "Aluguel de veículo", tipo_uso: "rateada" },
+    "caucaonaodevolvivel": { nome: "Caução não devolvível", tipo_uso: "rateada" },
     "mensalidadedatag": { nome: "Mensalidade da TAG", tipo_uso: "proporcional" },
     "pedagiotrabalho": { nome: "Pedágio (Trabalho)", tipo_uso: "trabalho" },
     "pedagiodeusoatrabalho": { nome: "Pedágio (Trabalho)", tipo_uso: "trabalho" },
@@ -239,6 +242,7 @@ export function custoRealParaDashboard(saida) {
     "recargatag",
     "recargadetag",
     "transferencia",
+    "caucaodevolvivel",
   ]);
 
   return !categoriasIgnoradas.has(categoria);
@@ -698,5 +702,4 @@ export function construirHistoricoFaturamento(entradas, periodo, selecao) {
     return { label, valor };
   });
 }
-
 

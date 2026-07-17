@@ -180,8 +180,20 @@ export default function App() {
     window.dispatchEvent(new CustomEvent("abrir-cronometro-jornada"));
   }
 
+  function reiniciarAnimacoesDeValidacao(evento) {
+    if (!evento.target.closest("button")) return;
+    requestAnimationFrame(() => {
+      document.querySelectorAll(".animate-shake, .cd-shake").forEach((elemento) => {
+        elemento.getAnimations().forEach((animacao) => {
+          animacao.cancel();
+          animacao.play();
+        });
+      });
+    });
+  }
+
   return (
-    <div className="h-dvh bg-[#0B1120] text-white flex overflow-hidden">
+    <div className="h-dvh bg-[#0B1120] text-white flex overflow-hidden" onClickCapture={reiniciarAnimacoesDeValidacao}>
       <div className="hidden lg:block md:landscape:block h-dvh shrink-0">
         <Sidebar setPagina={navegarPara} paginaAtual={pagina} />
       </div>
