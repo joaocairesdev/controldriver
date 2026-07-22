@@ -31,6 +31,10 @@ import {
   removerParcelasDaSaidaERecalcularFaturas,
 } from "../../cartoes/utils/cartoesUtils";
 import { FORMA_PAGAMENTO_DEBITO_CONTA } from "../../../shared/constants/formasPagamento";
+import {
+  localizarAbastecimentosVizinhos,
+  validarCrescimentoOdometro,
+} from "../utils/abastecimentosCronologia";
 
 const COMBUSTIVEIS = [
   { valor: "etanol", titulo: "Etanol" },
@@ -72,7 +76,6 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   const [veiculoId, setVeiculoId] = useState("");
   const [tipoCombustivel, setTipoCombustivel] = useState("");
   const [valorLitro, setValorLitro] = useState("");
-  const [modoKm, setModoKm] = useState("trip");
   const [kmRodados, setKmRodados] = useState("");
   const [odometro, setOdometro] = useState("");
   const [tanqueCheio, setTanqueCheio] = useState(true);
@@ -132,7 +135,6 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     setVeiculoId(a.veiculo_id ? String(a.veiculo_id) : "");
     setTipoCombustivel(a.tipo_combustivel || "etanol");
     setValorLitro(numeroParaMoedaInput(a.valor_litro || 0));
-    setModoKm("trip");
     setKmRodados(String(Number(a.km_rodados || a.km_total_periodo || 0)));
     setOdometro(String(Number(a.odometro || 0)));
     setTanqueCheio(a.tanque_cheio ?? true);
@@ -217,7 +219,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
 
   function limparFormulario(limparTudo = true) {
     setDataCompra(hoje); setDataVencimento(hoje); setFormaPagamento(""); setValorTotal(""); setNumeroParcelas("1"); setValorParcela(""); setUltimoCampoEditado("total");
-    setValorLitro(""); setModoKm("trip"); setKmRodados(""); setOdometro(""); setTanqueCheio(true); setTipoCombustivel(""); setCartaoId("");
+    setValorLitro(""); setKmRodados(""); setOdometro(""); setTanqueCheio(true); setTipoCombustivel(""); setCartaoId("");
     if (limparTudo) { setContaId(""); setVeiculoId(""); }
   }
 
@@ -234,8 +236,10 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   function consumoCalculado() { const km = Number(kmRodados || 0); const litros = litrosCalculados(); return km > 0 && litros > 0 ? km / litros : 0; }
 
   function atualizarValorTotal(valor) { setUltimoCampoEditado("total"); setValorTotal(formatarMoedaDigitada(valor)); }
-  function atualizarKmRodados(valor) { const km = somenteNumeros(valor); setKmRodados(km); if (modoKm === "trip" && veiculoSelecionado) setOdometro(String(Number(veiculoSelecionado.odometro_atual || 0) + Number(km || 0))); }
-  function atualizarOdometro(valor) { const novo = somenteNumeros(valor); setOdometro(novo); if (modoKm === "odometro" && veiculoSelecionado) setKmRodados(String(Math.max(Number(novo || 0) - Number(veiculoSelecionado.odometro_atual || 0), 0))); }
+  function atualizarOdometro(valor) {
+    setOdometro(somenteNumeros(valor));
+    setKmRodados("");
+  }
   function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) { setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois }); }
   function limparErro(campo) { setErros((atuais) => { if (!atuais[campo]) return atuais; const novos = { ...atuais }; delete novos[campo]; return novos; }); }
   async function fecharFeedback() {
@@ -308,20 +312,67 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     if (!isCredito && !isBoleto && !contaId) novos.contaId = "Selecione uma conta.";
     if (isBoleto && !dataVencimento) novos.dataVencimento = "Informe a data de vencimento.";
     if (isCreditoParcelado && Number(numeroParcelas || 0) < 2) { abrirFeedback("erro", "Parcelamento inválido", "Crédito parcelado precisa começar em 2x."); return false; }
-    if (!kmRodados && !odometro) novos.km = "Informe o KM rodado ou o odômetro.";
-    if (modoKm === "odometro" && veiculoSelecionado && Number(odometro || 0) < Number(veiculoSelecionado.odometro_atual || 0)) { abrirFeedback("erro", "Odômetro inválido", `O odômetro não pode ser menor que ${Number(veiculoSelecionado.odometro_atual || 0).toLocaleString("pt-BR")} km.`); return false; }
+    if (!odometro) novos.km = "Informe o odômetro.";
     setErros(novos); if (Object.keys(novos).length) setShakeKey(Date.now());
     return Object.keys(novos).length === 0;
   }
 
+  async function validarSequenciaOdometro() {
+    const { data: historico, error } = await supabase
+      .from("saidas_abastecimentos")
+      .select("id, saida_id, odometro, saidas!inner(data_compra)")
+      .eq("veiculo_id", Number(veiculoId));
+
+    if (error) throw error;
+
+    const abastecimentoEditado = edicao?.abastecimento || null;
+    const lancamento = {
+      id: abastecimentoEditado?.id || Number.MAX_SAFE_INTEGER,
+      data_compra: dataCompra,
+      odometro: Number(odometro),
+    };
+    const vizinhos = localizarAbastecimentosVizinhos(
+      historico,
+      lancamento,
+      abastecimentoEditado?.id || null
+    );
+    const resultado = validarCrescimentoOdometro(
+      odometro,
+      vizinhos.anterior,
+      vizinhos.posterior
+    );
+
+    if (!resultado.valido) {
+      let mensagem = "O odômetro deve respeitar a sequência cronológica dos abastecimentos.";
+
+      if (resultado.valorAnterior !== null && resultado.valorPosterior !== null) {
+        mensagem = `Informe um odômetro maior que ${resultado.valorAnterior.toLocaleString("pt-BR")} km e menor que ${resultado.valorPosterior.toLocaleString("pt-BR")} km.`;
+      } else if (resultado.valorAnterior !== null) {
+        mensagem = `Informe um odômetro maior que ${resultado.valorAnterior.toLocaleString("pt-BR")} km.`;
+      } else if (resultado.valorPosterior !== null) {
+        mensagem = `Informe um odômetro menor que ${resultado.valorPosterior.toLocaleString("pt-BR")} km.`;
+      }
+
+      setErros((atuais) => ({ ...atuais, km: mensagem }));
+      setShakeKey(Date.now());
+      return null;
+    }
+
+    return vizinhos;
+  }
+
   async function salvar() {
     if (!validar()) return;
-    const total = moedaParaNumero(valorTotal);
-    const parcelas = isCreditoParcelado ? Number(numeroParcelas || 2) : 1;
-    const parcelaValor = isCreditoParcelado ? moedaParaNumero(valorParcela) : total;
-    if (isCredito && !(await verificarLimiteCartao(total))) return;
     setSalvando(true);
     try {
+      const vizinhos = await validarSequenciaOdometro();
+      if (!vizinhos) return;
+
+      const total = moedaParaNumero(valorTotal);
+      const parcelas = isCreditoParcelado ? Number(numeroParcelas || 2) : 1;
+      const parcelaValor = isCreditoParcelado ? moedaParaNumero(valorParcela) : total;
+      if (isCredito && !(await verificarLimiteCartao(total))) return;
+
       const dadosSaida = { data_compra: dataCompra, forma_pagamento: formaPagamento, tipo_movimentacao: definirTipoMovimentacao(), conta_id: isCredito || isBoleto ? null : Number(contaId), cartao_id: isCredito ? Number(cartaoId) : null, tipo_credito: isCredito ? (isCreditoParcelado ? "parcelado" : "avista") : null, numero_parcelas: parcelas, valor_total: total, valor_parcela: parcelaValor, data_efetivacao: isBoleto ? null : dataCompra, data_vencimento: isBoleto ? dataVencimento : null, categoria: "Abastecimento", descricao: `Compra de combustível - ${veiculoSelecionado?.nome || "Veículo"}`, status: definirStatus() };
       let saidaId = edicao?.id || null;
       if (saidaId) {
@@ -332,14 +383,13 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
 
         if (isCredito) await gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas);
 
-        await supabase.from("saidas_abastecimentos").delete().eq("saida_id", saidaId);
       } else {
         const { data: saidaCriada, error: erroSaida } = await supabase.from("saidas").insert(dadosSaida).select().single();
         if (erroSaida) throw erroSaida;
         saidaId = saidaCriada.id;
         if (isCredito) await gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas);
       }
-      await salvarDetalhesAbastecimento(saidaId);
+      await salvarDetalhesAbastecimento(saidaId, vizinhos);
       abrirFeedback(
         "sucesso",
         edicao?.id ? "Abastecimento atualizado" : isBoleto ? "Conta registrada" : "Abastecimento registrado",
@@ -355,34 +405,26 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     } finally { setSalvando(false); }
   }
 
-  async function salvarDetalhesAbastecimento(saidaId) {
+  async function salvarDetalhesAbastecimento(saidaId, vizinhos) {
     const litros = litrosCalculados();
     const odometroFinal = Number(odometro || 0);
-    const kmInformado = Number(kmRodados || 0);
-
-    let kmPeriodo = kmInformado;
-
-    if (modoKm === "odometro") {
-      const abastecimentoAnterior = await supabase
-        .from("saidas_abastecimentos")
-        .select("*")
-        .eq("veiculo_id", Number(veiculoId))
-        .lt("odometro", odometroFinal)
-        .order("odometro", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const odometroAnterior = Number(abastecimentoAnterior.data?.odometro || veiculoSelecionado?.odometro_atual || 0);
-      kmPeriodo = Math.max(odometroFinal - odometroAnterior, 0);
-    }
-
-    if (modoKm === "trip") {
-      kmPeriodo = kmInformado;
-    }
+    const odometroAnterior = Number(
+      vizinhos.anterior?.odometro ??
+      veiculoSelecionado?.odometro_inicial ??
+      veiculoSelecionado?.odometro_atual ??
+      0
+    );
+    const kmPeriodo = Math.max(odometroFinal - odometroAnterior, 0);
 
     const consumoKmLitro = litros > 0 ? kmPeriodo / litros : 0;
     const custoPorKm = kmPeriodo > 0 ? moedaParaNumero(valorTotal) / kmPeriodo : 0;
-    const { error } = await supabase.from("saidas_abastecimentos").insert({ saida_id: saidaId, veiculo_id: Number(veiculoId), odometro: odometroFinal, km_rodados: kmPeriodo, km_total_periodo: kmPeriodo, tipo_combustivel: tipoCombustivel, litros, valor_litro: moedaParaNumero(valorLitro), tanque_cheio: tanqueCheio, uso: "automatico", percentual_trabalho: 0, consumo_km_l: consumoKmLitro, custo_por_km: custoPorKm, posto: null });
+    const dadosAbastecimento = { saida_id: saidaId, veiculo_id: Number(veiculoId), odometro: odometroFinal, km_rodados: kmPeriodo, km_total_periodo: kmPeriodo, tipo_combustivel: tipoCombustivel, litros, valor_litro: moedaParaNumero(valorLitro), tanque_cheio: tanqueCheio, uso: "automatico", percentual_trabalho: 0, consumo_km_l: consumoKmLitro, custo_por_km: custoPorKm, posto: null };
+    const { error } = edicao?.abastecimento?.id
+      ? await supabase
+          .from("saidas_abastecimentos")
+          .update(dadosAbastecimento)
+          .eq("id", edicao.abastecimento.id)
+      : await supabase.from("saidas_abastecimentos").insert(dadosAbastecimento);
     if (error) throw error;
     let campoMedia = null;
     if (tipoCombustivel === "etanol" || tipoCombustivel === "etanol_aditivado") campoMedia = "media_etanol";
@@ -397,7 +439,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
 
   return (
     <>
-      <ModalBase aberto={aberto} titulo="Novo Abastecimento" descricao="Registre combustível e atualize km/odômetro do veículo." onClose={onClose} largura="max-w-5xl" confirmarAoFecharSeAlterado>
+      <ModalBase aberto={aberto} titulo="Novo Abastecimento" descricao="Registre combustível e atualize o odômetro do veículo." onClose={onClose} largura="max-w-5xl" confirmarAoFecharSeAlterado>
         <div className="max-h-[72vh] overflow-y-auto pr-1 scrollbar-hide">
           <section className="bg-[#0B1120] border border-gray-800 rounded-2xl p-5">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -466,22 +508,9 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
                 </>
               )}
 
-              <Campo label="Informar por">
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <Toggle ativo={modoKm === "trip"} onClick={() => setModoKm("trip")}>KM rodados</Toggle>
-                  <Toggle ativo={modoKm === "odometro"} onClick={() => setModoKm("odometro")}>Odômetro</Toggle>
-                </div>
+              <Campo label="Odômetro atual" erro={erros.km} shakeKey={shakeKey}>
+                <MoneyInput erro={erros.km} shakeKey={shakeKey} value={odometro} onChange={(valor) => { limparErro("km"); atualizarOdometro(valor); }} suffix="km" placeholder="0" />
               </Campo>
-
-              {modoKm === "trip" ? (
-                <Campo label="KM rodados / Trip B" erro={erros.km} shakeKey={shakeKey}>
-                  <MoneyInput erro={erros.km} shakeKey={shakeKey} value={kmRodados} onChange={(valor) => { limparErro("km"); atualizarKmRodados(valor); }} suffix="km" placeholder="0" />
-                </Campo>
-              ) : (
-                <Campo label="Odômetro atual" erro={erros.km} shakeKey={shakeKey}>
-                  <MoneyInput erro={erros.km} shakeKey={shakeKey} value={odometro} onChange={(valor) => { limparErro("km"); atualizarOdometro(valor); }} suffix="km" placeholder="0" />
-                </Campo>
-              )}
 
               <Campo label="Completou o tanque?">
                 <div className="grid grid-cols-2 gap-2 mt-2">

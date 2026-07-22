@@ -347,14 +347,16 @@ export default function PlataformaEntradaModal({
         </div>
 
         {houvePedagio && (
-          <Campo label="Valor do reembolso de pedágio" erro={erros.valorReembolso} shakeKey={shakeKey}>
-            <CampoMoeda
-              erro={erros.valorReembolso}
-              shakeKey={shakeKey}
-              value={valorReembolso}
-              onChange={(valor) => { limparErro("valorReembolso"); setValorReembolso(formatarMoedaDigitada(valor)); }}
-            />
-          </Campo>
+          <div className="mt-5">
+            <Campo label="Valor do reembolso de pedágio" erro={erros.valorReembolso} shakeKey={shakeKey}>
+              <CampoMoeda
+                erro={erros.valorReembolso}
+                shakeKey={shakeKey}
+                value={valorReembolso}
+                onChange={(valor) => { limparErro("valorReembolso"); setValorReembolso(formatarMoedaDigitada(valor)); }}
+              />
+            </Campo>
+          </div>
         )}
 
         <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
@@ -389,7 +391,7 @@ export default function PlataformaEntradaModal({
 
 function Campo({ label, children, erro, shakeKey }) {
   return (
-    <div key={erro ? shakeKey : "ok"} className={`mt-4 first:mt-0 grid grid-rows-[1.25rem_auto_minmax(1rem,auto)] ${erro ? "animate-shake" : ""}`}>
+    <div key={erro ? shakeKey : "ok"} className={`grid grid-rows-[1.25rem_auto_minmax(1rem,auto)] ${erro ? "animate-shake" : ""}`}>
       <label className={erro ? "text-sm leading-5 text-red-400" : "text-sm leading-5 text-gray-300"}>{label}</label>
       {children}
       {erro ? <p className="mt-1 text-xs text-red-400">{erro}</p> : <span aria-hidden="true" />}
