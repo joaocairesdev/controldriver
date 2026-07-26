@@ -11,6 +11,7 @@ import SaidaModal from "../../saidas/components/SaidaModal";
 import AbastecimentoOuRecargaModal from "../../abastecimentos/components/AbastecimentoOuRecargaModal";
 import ManutencaoModal from "../../manutencoes/components/ManutencaoModal";
 import TagModal from "../../tag/components/TagModal";
+import { rotuloEntradaAvulsa } from "../../contratos/utils/contratosFinanceiros";
 import {
   nomeCartaoComFinal,
   removerParcelasDaSaidaERecalcularFaturas,
@@ -154,6 +155,7 @@ export default function Extrato() {
         valor,
         descricao,
         finalidade,
+        contrato_financeiro_id,
         contas ( nome )
       `);
 
@@ -190,6 +192,8 @@ export default function Extrato() {
       finalidade,
       conta_pagar_origem_id,
       fatura_pagamento_id,
+      contrato_financeiro_id,
+      contrato_financeiro_parcela_id,
       contas ( nome ),
       cartoes ( nome, final_cartao, tipo_cartao )
     `);
@@ -270,19 +274,14 @@ export default function Extrato() {
         tipo: "entrada_avulsa",
         data: entrada.data,
         created_at: entrada.created_at,
-        titulo: "Entrada Avulsa",
+        titulo: entrada.contrato_financeiro_id ? "Empréstimo" : "Entrada Avulsa",
         descricao: entrada.descricao || "Entrada avulsa",
         valor: Number(entrada.valor || 0),
         contaDestino: entrada.contas?.nome || "Conta",
-        categoria:
-          entrada.finalidade === "pessoal"
-            ? "Entrada Avulsa Pessoal"
-            : entrada.finalidade === "trabalho"
-            ? "Entrada Avulsa Trabalho"
-            : "Entrada Avulsa",
+        categoria: rotuloEntradaAvulsa(entrada),
         finalidade: entrada.finalidade || null,
-        formaPagamento: "entrada_avulsa",
-        textoBusca: `Entrada Avulsa ${entrada.finalidade || ""} ${entrada.descricao || ""} ${entrada.contas?.nome || ""}`,
+        formaPagamento: entrada.contrato_financeiro_id ? "emprestimo" : "entrada_avulsa",
+        textoBusca: `${rotuloEntradaAvulsa(entrada)} ${entrada.finalidade || ""} ${entrada.descricao || ""} ${entrada.contas?.nome || ""}`,
         dadosOriginais: entrada,
       })
     );
@@ -401,6 +400,7 @@ export default function Extrato() {
       credito_parcelado: "Crédito Parcelado",
       entrada: "Entrada",
       entrada_avulsa: "Entrada Avulsa",
+      emprestimo: "Empréstimo",
       transferencia: "Transferência",
     };
 
@@ -712,12 +712,16 @@ export default function Extrato() {
   }
 
   function editarLancamento(lancamento) {
+    if (lancamento?.dadosOriginais?.contrato_financeiro_id) return;
     setLancamentoSelecionado(null);
     setEdicaoLancamento(lancamento);
   }
 
   async function excluirLancamentoItem(lancamentoAlvo) {
     if (!lancamentoAlvo) return;
+    if (lancamentoAlvo.dadosOriginais?.contrato_financeiro_id) {
+      throw new Error("Movimentações de empréstimos devem ser alteradas no módulo Empréstimos.");
+    }
 
     if (lancamentoAlvo.tipo === "entrada") {
       const { error: erroDetalhes } = await supabase

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FiFilter, FiSearch } from "react-icons/fi";
 import { supabase } from "../../../services/supabase";
 import ModalBase from "../../../shared/components/modals/ModalBase";
+import { rotuloEntradaAvulsa } from "../../contratos/utils/contratosFinanceiros";
 
 const ITENS_POR_PAGINA_CONTA = 50;
 
@@ -79,7 +80,7 @@ export default function ModalExtratoConta({
       const { data: entradasAvulsasData, error: erroEntradasAvulsas } =
         await supabase
           .from("entradas_avulsas")
-          .select("id, data, created_at, valor, descricao, finalidade")
+          .select("id, data, created_at, valor, descricao, finalidade, contrato_financeiro_id")
           .eq("conta_id", contaId);
 
       if (erroEntradasAvulsas) throw erroEntradasAvulsas;
@@ -176,14 +177,9 @@ export default function ModalExtratoConta({
         data: entrada.data,
         created_at: entrada.created_at,
         descricao: entrada.descricao || "Entrada avulsa",
-        categoria:
-          entrada.finalidade === "pessoal"
-            ? "Entrada Avulsa Pessoal"
-            : entrada.finalidade === "trabalho"
-              ? "Entrada Avulsa Trabalho"
-              : "Entrada Avulsa",
+        categoria: rotuloEntradaAvulsa(entrada),
         valor: Number(entrada.valor || 0),
-        textoBusca: `entrada avulsa ${entrada.descricao || ""} ${entrada.finalidade || ""}`,
+        textoBusca: `${rotuloEntradaAvulsa(entrada)} ${entrada.descricao || ""} ${entrada.finalidade || ""}`,
       }));
 
       const saidas = (saidasData || [])
@@ -509,20 +505,20 @@ function MovimentoLinha({ item, formatarMoeda, formatarData }) {
   const corValor = entrada ? "text-green-400" : "text-red-400";
 
   return (
-    <div className="w-full bg-[#0B1120] border border-gray-800 rounded-2xl px-4 py-3 grid grid-cols-[82px_minmax(0,1fr)_minmax(120px,210px)_auto] items-center gap-3">
+    <div className="w-full bg-[#0B1120] border border-gray-800 rounded-2xl px-4 py-3 grid grid-cols-[72px_minmax(0,1fr)_auto] sm:grid-cols-[82px_minmax(0,1fr)_180px_140px] items-center gap-x-3 gap-y-1">
       <p className="text-xs text-gray-500 whitespace-nowrap">
         {formatarData(item.data)}
       </p>
 
-      <h3 className="text-sm sm:text-base font-black truncate">
+      <h3 className="min-w-0 text-sm sm:text-base font-black truncate">
         {item.descricao}
       </h3>
 
-      <p className="text-xs sm:text-sm text-gray-400 truncate">
+      <p className="col-start-2 row-start-2 min-w-0 text-xs sm:col-start-3 sm:row-start-1 sm:text-sm text-gray-400 truncate">
         {item.categoria}
       </p>
 
-      <p className={`text-sm sm:text-lg font-black whitespace-nowrap text-right ${corValor}`}>
+      <p className={`col-start-3 row-span-2 row-start-1 text-sm sm:col-start-4 sm:row-span-1 sm:text-lg font-black whitespace-nowrap text-right ${corValor}`}>
         {sinal} {formatarMoeda(item.valor)}
       </p>
     </div>
@@ -1177,4 +1173,3 @@ function DateRangePickerModal({
     </ModalBase>
   );
 }
-

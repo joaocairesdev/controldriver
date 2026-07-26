@@ -13,6 +13,7 @@ import {
   nomeCartaoComFinal,
 } from "../../cartoes/utils/cartoesUtils";
 import { adicionarFrequencia } from "../../veiculos/utils/veiculosFinanceiro";
+import { sincronizarParcelaContratoAposPagamento } from "../../contratos/services/contratosFinanceirosService";
 
 const HOJE = new Date().toISOString().split("T")[0];
 
@@ -23,13 +24,15 @@ export default function RegistrarPagamentoModal({
   saldoContaPagar,
   onClose,
   onSalvo,
+  onConfirmarPersonalizado = null,
+  exigirValorIntegral = false,
 }) {
   const [dataPagamento, setDataPagamento] = useState(HOJE);
-  const [contaId, setContaId] = useState("");
+  const [contaId, setContaId] = useState(() => contas.length === 1 ? String(contas[0].id) : "");
   const [cartaoId, setCartaoId] = useState("");
   const [cartoes, setCartoes] = useState([]);
-  const [valorPago, setValorPago] = useState("");
-  const [formaPagamento, setFormaPagamento] = useState("pix");
+  const [valorPago, setValorPago] = useState(() => numeroParaMoedaInput(saldoContaPagar(contaPagar)));
+  const [formaPagamento, setFormaPagamento] = useState("");
   const [numeroParcelas, setNumeroParcelas] = useState("1");
   const [modalDataAberto, setModalDataAberto] = useState(false);
   const [modalContaAberto, setModalContaAberto] = useState(false);
@@ -51,39 +54,17 @@ export default function RegistrarPagamentoModal({
 
   useEffect(() => {
     if (!aberto) return;
-
-    setDataPagamento(HOJE);
-    setValorPago(numeroParaMoedaInput(saldoContaPagar(contaPagar)));
-    setFormaPagamento("");
-    setNumeroParcelas("1");
-    setConfirmarParcial(false);
-    setErros({});
-
-    setContaId(contas.length === 1 ? String(contas[0].id) : "");
-
-    carregarCartoes();
-  }, [aberto, contaPagar?.id]);
-
-  useEffect(() => {
-    if (!isCredito) return;
-    if (cartoes.length === 1 && !cartaoId) setCartaoId(String(cartoes[0].id));
-  }, [isCredito, cartoes, cartaoId]);
-
-  async function carregarCartoes() {
-    const { data, error } = await supabase
-      .from("cartoes")
-      .select("*")
-      .eq("ativo", true)
-      .order("nome");
-
-    if (error) {
-      console.error(error);
-      setCartoes([]);
-      return;
-    }
-
-    setCartoes(data || []);
-  }
+    supabase.from("cartoes").select("*").eq("ativo", true).order("nome").then(({ data, error }) => {
+      if (error) {
+        console.error(error);
+        setCartoes([]);
+        return;
+      }
+      const lista = data || [];
+      setCartoes(lista);
+      if (lista.length === 1) setCartaoId(String(lista[0].id));
+    });
+  }, [aberto]);
 
   function abrirFeedback(tipo, titulo, mensagem) {
     setFeedback({ aberto: true, tipo, titulo, mensagem });
@@ -126,6 +107,15 @@ export default function RegistrarPagamentoModal({
       setValorPago(numeroParaMoedaInput(saldo));
       return false;
     }
+    if (exigirValorIntegral && Math.round(valor * 100) !== Math.round(saldo * 100)) {
+      abrirFeedback(
+        "erro",
+        "Informe o saldo integral",
+        `A quitação antecipada deve registrar o saldo devedor completo de ${formatarMoeda(saldo)}.`
+      );
+      setValorPago(numeroParaMoedaInput(saldo));
+      return false;
+    }
 
     return true;
   }
@@ -150,6 +140,20 @@ export default function RegistrarPagamentoModal({
       const valorParcela = Math.round((valorArredondado / parcelas) * 100) / 100;
       const descricaoPagamento = `Pagamento de ${contaPagar.descricao || contaPagar.categoria || "conta a pagar"}`;
 
+      if (onConfirmarPersonalizado) {
+        await onConfirmarPersonalizado({
+          dataPagamento,
+          formaPagamento,
+          contaId: isCredito ? null : Number(contaId),
+          cartaoId: isCredito ? Number(cartaoId) : null,
+          cartao: isCredito ? cartaoSelecionado : null,
+          numeroParcelas: parcelas,
+          valorPago: valorArredondado,
+        });
+        await onSalvo?.();
+        return;
+      }
+
       const payloadSaida = {
         data_compra: dataPagamento,
         forma_pagamento: formaPagamento,
@@ -173,6 +177,10 @@ export default function RegistrarPagamentoModal({
         aluguel_id: contaPagar.aluguel_id || null,
         caucao_id: contaPagar.caucao_id || null,
         referencia_contrato: contaPagar.referencia_contrato || null,
+        ...(contaPagar.contrato_financeiro_id ? {
+          contrato_financeiro_id: contaPagar.contrato_financeiro_id,
+          contrato_financeiro_parcela_id: contaPagar.contrato_financeiro_parcela_id || null,
+        } : {}),
       };
 
       const { data: saidaCriada, error: erroSaida } = await supabase
@@ -203,6 +211,13 @@ export default function RegistrarPagamentoModal({
         .eq("id", contaPagar.id);
 
       if (erroConta) throw erroConta;
+
+      await sincronizarParcelaContratoAposPagamento(
+        supabase,
+        contaPagar,
+        novoValorPago,
+        novoStatus
+      );
 
       if (novoStatus === "pago" && contaPagar.aluguel_id && contaPagar.data_vencimento) {
         const { data: contrato, error: erroContrato } = await supabase

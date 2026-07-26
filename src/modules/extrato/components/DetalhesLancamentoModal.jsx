@@ -28,6 +28,7 @@ export default function DetalhesLancamentoModal({
   const isContaPagar = lancamento.tipo === "conta_pagar";
   const isSaida = lancamento.tipo === "saida";
   const isSaidaOuConta = isSaida || isContaPagar;
+  const pertenceContratoFinanceiro = Boolean(dados.contrato_financeiro_id);
 
   const sinalValor = isEntrada || isEntradaAvulsa || isGrupoEntrada ? "+" : isSaida ? "-" : "";
   const corValor = isEntrada || isEntradaAvulsa || isGrupoEntrada
@@ -44,7 +45,7 @@ export default function DetalhesLancamentoModal({
       onClose={fechar}
       largura="max-w-2xl"
       acaoCabecalho={
-        !isGrupoEntrada ? (
+        !isGrupoEntrada && !pertenceContratoFinanceiro ? (
           <button
             type="button"
             onClick={pedirExclusao}
@@ -116,7 +117,7 @@ export default function DetalhesLancamentoModal({
 
         {isEntradaAvulsa && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <DetalheItem titulo="Tipo" valor="Entrada avulsa" />
+            <DetalheItem titulo="Tipo" valor={pertenceContratoFinanceiro ? "Empréstimo" : "Entrada avulsa"} />
             {dados.finalidade ? (
               <DetalheItem
                 titulo="Finalidade"
@@ -189,8 +190,14 @@ export default function DetalhesLancamentoModal({
           </div>
         )}
 
+        {pertenceContratoFinanceiro && (
+          <p className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-300">
+            Esta movimentação pertence a um empréstimo. Faça alterações pelo módulo Empréstimos para preservar o contrato e suas parcelas.
+          </p>
+        )}
+
         <div className="grid grid-cols-2 gap-3 pt-2">
-          {!isGrupoEntrada ? (
+          {!isGrupoEntrada && !pertenceContratoFinanceiro ? (
             <button
               type="button"
               onClick={editar}
@@ -338,4 +345,3 @@ function DetalheItem({ titulo, valor, destaque }) {
     </div>
   );
 }
-
