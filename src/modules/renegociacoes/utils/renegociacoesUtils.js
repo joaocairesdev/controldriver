@@ -1,4 +1,4 @@
-export { formatarMoeda } from "../../../shared/utils/moeda";
+export { formatarMoeda } from "../../../shared/utils/moeda.js";
 
 export function formatarMoedaDigitada(valor) {
   const somenteDigitos = String(valor ?? "").replace(/\D/g, "");
@@ -83,4 +83,67 @@ export function textoFormaPagamento(valor) {
 
 export function normalizarDescricao(texto) {
   return String(texto || "").trim();
+}
+
+function tipoProdutoRenegociado(item) {
+  const tipo = item?.tipo_origem || item?.tipo;
+  const payload = item?.payload || item?.original || {};
+  const categoria = String(payload.categoria || item?.detalhe || "").toLowerCase();
+
+  if (tipo === "fatura") return "Cartão de Crédito";
+  if (tipo === "conta_negativa") return "Cheque Especial";
+  if (categoria.includes("financiamento")) return "Financiamento";
+  if (categoria.includes("empréstimo") || categoria.includes("emprestimo")) return "Empréstimo";
+  if (tipo === "conta") return "Conta a Pagar";
+  return "Produto Financeiro";
+}
+
+function nomeProdutoRenegociado(item) {
+  const payload = item?.payload || item?.original || {};
+  return payload.cartoes?.nome
+    || payload.cartao?.nome
+    || payload.contas?.nome
+    || payload.conta?.nome
+    || item?.titulo
+    || "Sem nome";
+}
+
+export function normalizarProdutosRenegociados(itens = []) {
+  const produtos = new Map();
+
+  for (const item of itens) {
+    const tipoOrigem = item.tipo_origem || item.tipo || "produto";
+    const payload = item?.payload || item?.original || {};
+    const origemId = tipoOrigem === "fatura"
+      ? payload.cartoes?.id ?? payload.cartao?.id ?? nomeProdutoRenegociado(item)
+      : tipoOrigem === "conta_negativa"
+        ? payload.contas?.id ?? payload.conta?.id ?? item.origem_id ?? nomeProdutoRenegociado(item)
+        : item.origem_id ?? item.id ?? nomeProdutoRenegociado(item);
+    const chave = `${tipoOrigem}-${origemId}`;
+    const tipo = tipoProdutoRenegociado(item);
+    const nome = nomeProdutoRenegociado(item);
+    const valor = Number(
+      item.valor_renegociado
+      ?? item.valor_considerado_banco
+      ?? item.valor_original
+      ?? item.valor_aberto
+      ?? 0
+    );
+    const atual = produtos.get(chave);
+
+    if (atual) {
+      atual.valor += valor;
+      continue;
+    }
+
+    produtos.set(chave, {
+      id: chave,
+      tipo,
+      nome,
+      titulo: `${tipo} — ${nome}`,
+      valor,
+    });
+  }
+
+  return [...produtos.values()];
 }

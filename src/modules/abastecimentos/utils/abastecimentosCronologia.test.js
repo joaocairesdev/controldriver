@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  calcularMetricasConsumo,
   localizarAbastecimentosVizinhos,
   validarCrescimentoOdometro,
 } from "./abastecimentosCronologia.js";
@@ -106,4 +107,34 @@ test("valida somente o lado existente nos extremos da sequência", () => {
   assert.equal(validarCrescimentoOdometro(200, { odometro: 200 }, null).valido, false);
   assert.equal(validarCrescimentoOdometro(300, null, { odometro: 400 }).valido, true);
   assert.equal(validarCrescimentoOdometro(400, null, { odometro: 400 }).valido, false);
+});
+
+test("calcula consumo automaticamente pela cronologia dos abastecimentos", () => {
+  assert.deepEqual(
+    calcularMetricasConsumo({
+      odometro: 550,
+      litros: 30,
+      anterior: { odometro: 250 },
+    }),
+    { kmPeriodo: 300, consumoKmLitro: 10 }
+  );
+});
+
+test("não calcula consumo sem distância ou litros válidos", () => {
+  assert.equal(
+    calcularMetricasConsumo({
+      odometro: 250,
+      litros: 30,
+      anterior: { odometro: 250 },
+    }).consumoKmLitro,
+    0
+  );
+  assert.equal(
+    calcularMetricasConsumo({
+      odometro: 550,
+      litros: 0,
+      anterior: { odometro: 250 },
+    }).consumoKmLitro,
+    0
+  );
 });

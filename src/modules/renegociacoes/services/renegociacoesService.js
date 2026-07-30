@@ -1,9 +1,17 @@
 import { supabase } from "../../../services/supabase";
+import { atualizarCobrancaParcela } from "../../../shared/services/parcelasContratosService";
+import {
+  criarItensParcela,
+  normalizarParcelaContrato,
+} from "../../../shared/utils/parcelasContratos";
 import { calcularSaldoAbertoFatura } from "../../cartoes/utils/cartoesUtils";
-import { adicionarMeses } from "../utils/renegociacoesUtils";
+import {
+  adicionarMeses,
+  normalizarProdutosRenegociados,
+} from "../utils/renegociacoesUtils";
 
 export async function carregarRenegociacoes() {
-  const [{ data, error }, { data: parcelas, error: erroParcelas }] = await Promise.all([
+  const [{ data, error }, { data: saidasAcordos, error: erroParcelas }] = await Promise.all([
     supabase
       .from("renegociacoes")
       .select("*")
@@ -11,7 +19,7 @@ export async function carregarRenegociacoes() {
       .order("id", { ascending: false }),
     supabase
       .from("saidas")
-      .select("renegociacao_id, valor_total, valor_pago, status, data_vencimento, tipo_movimentacao")
+      .select("*")
       .not("renegociacao_id", "is", null)
       .eq("categoria", "Renegociação"),
   ]);
@@ -19,11 +27,32 @@ export async function carregarRenegociacoes() {
   if (error) throw error;
   if (erroParcelas) throw erroParcelas;
 
+  const cobrancasIds = (saidasAcordos || [])
+    .filter((saida) => saida.tipo_movimentacao === "conta_pagar")
+    .map((saida) => saida.id);
+  const { data: pagamentos, error: erroPagamentos } = cobrancasIds.length
+    ? await supabase.from("saidas").select("*").in("conta_pagar_origem_id", cobrancasIds).order("data_compra")
+    : { data: [], error: null };
+  if (erroPagamentos) throw erroPagamentos;
+
+  const pagamentosPorCobranca = new Map();
+  for (const pagamento of pagamentos || []) {
+    const chave = String(pagamento.conta_pagar_origem_id);
+    const lista = pagamentosPorCobranca.get(chave) || [];
+    lista.push(pagamento);
+    pagamentosPorCobranca.set(chave, lista);
+  }
+
   return (data || []).map((renegociacao) => {
-    const parcelasDoAcordo = (parcelas || []).filter(
+    const parcelasDoAcordo = (saidasAcordos || []).filter(
       (parcela) => String(parcela.renegociacao_id) === String(renegociacao.id)
     );
-    const parcelasMensais = parcelasDoAcordo.filter((parcela) => parcela.tipo_movimentacao === "conta_pagar");
+    const parcelasMensais = parcelasDoAcordo
+      .filter((parcela) => parcela.tipo_movimentacao === "conta_pagar")
+      .sort((a, b) =>
+        String(a.data_vencimento || "").localeCompare(String(b.data_vencimento || ""))
+        || Number(a.id) - Number(b.id)
+      );
     const pagas = parcelasMensais.filter(
       (parcela) => parcela.status === "pago" || Number(parcela.valor_pago || 0) >= Number(parcela.valor_total || 0)
     );
@@ -35,6 +64,13 @@ export async function carregarRenegociacoes() {
     const proxima = parcelasMensais
       .filter((parcela) => !(parcela.status === "pago" || Number(parcela.valor_pago || 0) >= Number(parcela.valor_total || 0)))
       .sort((a, b) => String(a.data_vencimento || "").localeCompare(String(b.data_vencimento || "")))[0];
+    const parcelasNormalizadas = parcelasMensais.map((parcela, indice) =>
+      normalizarParcelaContrato({
+        cobranca: parcela,
+        numero: indice + 1,
+        pagamentos: pagamentosPorCobranca.get(String(parcela.id)) || [],
+      })
+    );
 
     return {
       ...renegociacao,
@@ -42,8 +78,30 @@ export async function carregarRenegociacoes() {
       valor_pago_acordo: valorPago,
       proximo_vencimento: proxima?.data_vencimento || null,
       proxima_parcela_valor: proxima?.valor_total || null,
+      saldo_devedor: parcelasNormalizadas.reduce(
+        (total, parcela) => total + Math.max(parcela.valorAtualizado - parcela.valorPago, 0),
+        0
+      ),
+      parcelas: parcelasNormalizadas,
     };
   });
+}
+
+export async function atualizarParcelaRenegociacao(
+  parcela,
+  itemId,
+  ajuste,
+  itensBase,
+  nomePadrao
+) {
+  return atualizarCobrancaParcela(
+    supabase,
+    parcela,
+    itemId,
+    ajuste,
+    itensBase,
+    nomePadrao
+  );
 }
 
 export async function carregarItensRenegociacao(renegociacaoId) {
@@ -335,6 +393,7 @@ export async function criarRenegociacao(payload) {
     formaPagamento,
     contaDebitoId,
     cartaoPagamentoId,
+    itens,
   });
 
   return renegociacao;
@@ -415,10 +474,27 @@ async function criarParcelasRenegociacao({
   formaPagamento,
   contaDebitoId,
   cartaoPagamentoId,
+  itens,
 }) {
   const saldoParcelar = Math.max(Number(valorRenegociado || 0) - Number(valorEntrada || 0), 0);
   const parcelas = Math.max(Number(numeroParcelas || 1), 1);
   const valorParcela = parcelas > 0 ? saldoParcelar / parcelas : saldoParcelar;
+  const produtos = normalizarProdutosRenegociados(itens);
+  const itensParcela = criarItensParcela(
+    { valorPrevisto: valorParcela, valorAtualizado: valorParcela },
+    produtos.map((produto) => ({
+      id: produto.id,
+      nome: produto.titulo,
+      valor: produto.valor,
+    })),
+    credor
+  ).map((item) => ({
+    id: item.id,
+    nome: item.nome,
+    valor_previsto: item.valorPrevisto,
+    valor_atualizado: item.valorAtualizado,
+    observacao: null,
+  }));
 
   if (Number(valorEntrada || 0) > 0) {
     await supabase.from("saidas").insert({
@@ -457,6 +533,7 @@ async function criarParcelasRenegociacao({
     numero_parcelas: parcelas,
     valor_parcela: valorParcela,
     renegociacao_id: renegociacao.id,
+    itens_parcela: itensParcela,
   }));
 
   const { error } = await supabase.from("saidas").insert(saidas);
@@ -525,6 +602,7 @@ export async function editarRenegociacao(renegociacaoId, payload) {
     formaPagamento,
     contaDebitoId,
     cartaoPagamentoId,
+    itens,
   });
 
   return renegociacaoAtualizada;
@@ -627,4 +705,3 @@ export async function excluirRenegociacao(renegociacaoId) {
 
   return true;
 }
-

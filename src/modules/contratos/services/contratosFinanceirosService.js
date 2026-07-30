@@ -1,8 +1,9 @@
 import { hojeBrasil } from "../../../shared/utils/data";
+import { atualizarCobrancaParcela } from "../../../shared/services/parcelasContratosService";
+import { normalizarParcelaContrato } from "../../../shared/utils/parcelasContratos";
 import { gerarParcelasEFaturasPadrao } from "../../cartoes/utils/cartoesUtils";
 import {
   calcularResumoContrato,
-  calcularTaxaJurosPercentual,
   gerarParcelasContrato,
 } from "../utils/contratosFinanceiros";
 
@@ -37,10 +38,35 @@ export async function buscarContratosFinanceiros(supabase, tipoContrato = "empre
     : { data: [], error: null };
   if (erroSaidas) throw erroSaidas;
 
+  const { data: pagamentos, error: erroPagamentos } = saidaIds.length
+    ? await supabase.from("saidas").select("*").in("conta_pagar_origem_id", saidaIds).order("data_compra")
+    : { data: [], error: null };
+  if (erroPagamentos) throw erroPagamentos;
+
   const saidasPorId = new Map((saidas || []).map((saida) => [String(saida.id), saida]));
+  const pagamentosPorSaida = new Map();
+  for (const pagamento of pagamentos || []) {
+    const chave = String(pagamento.conta_pagar_origem_id);
+    const lista = pagamentosPorSaida.get(chave) || [];
+    lista.push(pagamento);
+    pagamentosPorSaida.set(chave, lista);
+  }
   const parcelasPorContrato = new Map();
   for (const parcela of parcelas || []) {
-    const item = { ...parcela, saida: saidasPorId.get(String(parcela.saida_id)) || null };
+    const saida = saidasPorId.get(String(parcela.saida_id)) || null;
+    const normalizada = normalizarParcelaContrato({
+      parcela,
+      cobranca: saida,
+      pagamentos: pagamentosPorSaida.get(String(parcela.saida_id)) || [],
+    });
+    const item = {
+      ...parcela,
+      saida,
+      ...normalizada,
+      valor: normalizada.valorAtualizado,
+      valor_pago: normalizada.valorPago,
+      status: parcela.status,
+    };
     const lista = parcelasPorContrato.get(String(parcela.contrato_id)) || [];
     lista.push(item);
     parcelasPorContrato.set(String(parcela.contrato_id), lista);
@@ -98,62 +124,40 @@ export async function excluirContratoFinanceiro(supabase, contrato) {
   return data;
 }
 
-export async function atualizarParcelaFutura(supabase, parcela, { dataVencimento, valor }) {
-  if (!parcela?.saida) throw new Error("Conta a pagar vinculada não encontrada.");
-  if (parcela.data_vencimento < HOJE() || saidaProtegida(parcela.saida)) {
-    throw new Error("Somente parcelas futuras sem pagamento podem ser alteradas.");
-  }
-
-  const valorNumerico = Math.round(Number(valor) * 100) / 100;
-  if (!dataVencimento || dataVencimento < HOJE()) throw new Error("Informe um vencimento de hoje em diante.");
-  if (valorNumerico <= 0) throw new Error("Informe um valor de parcela maior que zero.");
-  const { data: contrato, error: erroContrato } = await supabase
-    .from("contratos_financeiros")
-    .select("valor_recebido")
-    .eq("id", parcela.contrato_id)
-    .single();
-  if (erroContrato) throw erroContrato;
-  const { data: irmas, error: erroIrmas } = await supabase
-    .from("contratos_financeiros_parcelas")
-    .select("id, valor, status")
-    .eq("contrato_id", parcela.contrato_id);
-  if (erroIrmas) throw erroIrmas;
-  const novoTotal = (irmas || [])
-    .filter((item) => item.status !== "cancelada")
-    .reduce((total, item) => total + Number(item.id === parcela.id ? valorNumerico : item.valor || 0), 0);
-  if (novoTotal < Number(contrato.valor_recebido || 0)) {
-    throw new Error("A alteração deixaria o valor contratado menor que o valor recebido.");
-  }
-
-  const atualizacao = { data_vencimento: dataVencimento, valor: valorNumerico, updated_at: new Date().toISOString() };
-  const { error: erroParcela } = await supabase
-    .from("contratos_financeiros_parcelas")
-    .update(atualizacao)
-    .eq("id", parcela.id);
-  if (erroParcela) throw erroParcela;
-
-  const { error: erroSaida } = await supabase.from("saidas").update({
-    data_compra: dataVencimento,
-    data_vencimento: dataVencimento,
-    valor_total: valorNumerico,
-    valor_parcela: valorNumerico,
-  }).eq("id", parcela.saida.id);
-  if (erroSaida) throw erroSaida;
-
-  const { error: erroTotal } = await supabase.from("contratos_financeiros").update({
-    valor_contratado: Math.round(novoTotal * 100) / 100,
-    taxa_juros_percentual: calcularTaxaJurosPercentual(contrato.valor_recebido, novoTotal),
-    updated_at: new Date().toISOString(),
-  }).eq("id", parcela.contrato_id);
-  if (erroTotal) throw erroTotal;
+export async function atualizarParcelaFutura(
+  supabase,
+  parcela,
+  itemId,
+  ajuste,
+  itensBase,
+  nomePadrao
+) {
+  return atualizarCobrancaParcela(
+    supabase,
+    parcela,
+    itemId,
+    ajuste,
+    itensBase,
+    nomePadrao
+  );
 }
 
 export async function sincronizarParcelaContratoAposPagamento(supabase, contaPagar, valorPago, status) {
   if (!contaPagar?.contrato_financeiro_parcela_id) return;
+  const { data: parcela, error: erroBuscaParcela } = await supabase
+    .from("contratos_financeiros_parcelas")
+    .select("valor")
+    .eq("id", contaPagar.contrato_financeiro_parcela_id)
+    .single();
+  if (erroBuscaParcela) throw erroBuscaParcela;
+
   const statusParcela = status === "pago" ? "paga" : "parcial";
+  const valorContratualPago = status === "pago"
+    ? Number(parcela.valor || 0)
+    : Math.min(Number(valorPago || 0), Number(parcela.valor || 0));
   const { error: erroParcela } = await supabase
     .from("contratos_financeiros_parcelas")
-    .update({ valor_pago: valorPago, status: statusParcela, updated_at: new Date().toISOString() })
+    .update({ valor_pago: valorContratualPago, status: statusParcela, updated_at: new Date().toISOString() })
     .eq("id", contaPagar.contrato_financeiro_parcela_id);
   if (erroParcela) throw erroParcela;
 

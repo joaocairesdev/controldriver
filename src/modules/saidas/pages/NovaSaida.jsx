@@ -50,7 +50,6 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   const [modoKm, setModoKm] = useState("trip");
   const [kmRodados, setKmRodados] = useState("");
   const [odometro, setOdometro] = useState("");
-  const [tanqueCheio, setTanqueCheio] = useState(true);
 
   const [tipoManutencao, setTipoManutencao] = useState("");
   const [servico, setServico] = useState("");
@@ -769,7 +768,6 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         tipo_combustivel: tipoCombustivel,
         litros,
         valor_litro: moedaParaNumero(valorLitro),
-        tanque_cheio: tanqueCheio,
         uso: "automatico",
         percentual_trabalho: 0,
         consumo_km_l: consumoKmLitro,
@@ -1032,33 +1030,6 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
             </Campo>
           )}
 
-          <Campo label="Tanque cheio">
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              <button
-                type="button"
-                onClick={() => setTanqueCheio(true)}
-                className={`rounded-xl border p-3 font-bold ${
-                  tanqueCheio
-                    ? "border-green-400 bg-green-500/10 text-green-400"
-                    : "border-gray-700 text-gray-300 hover:bg-white/5"
-                }`}
-              >
-                Sim
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setTanqueCheio(false)}
-                className={`rounded-xl border p-3 font-bold ${
-                  !tanqueCheio
-                    ? "border-green-400 bg-green-500/10 text-green-400"
-                    : "border-gray-700 text-gray-300 hover:bg-white/5"
-                }`}
-              >
-                Não
-              </button>
-            </div>
-          </Campo>
         </div>
 
         <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">

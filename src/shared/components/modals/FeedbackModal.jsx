@@ -5,6 +5,7 @@ export default function FeedbackModal({
   tipo = "sucesso",
   titulo,
   mensagem,
+  destaque,
   onClose,
   textoBotao = "Entendi",
 }) {
@@ -50,6 +51,10 @@ export default function FeedbackModal({
 
         {mensagem ? <p className="text-gray-300 mt-3">{mensagem}</p> : null}
 
+        {destaque ? (
+          <p className="mt-3 text-4xl font-black text-white">{destaque}</p>
+        ) : null}
+
         <button
           type="button"
           onClick={onClose}
@@ -61,4 +66,3 @@ export default function FeedbackModal({
     </div>
   );
 }
-

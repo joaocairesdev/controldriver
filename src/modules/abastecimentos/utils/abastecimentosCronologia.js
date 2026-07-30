@@ -64,3 +64,21 @@ export function validarCrescimentoOdometro(odometro, anterior, posterior) {
     valorPosterior,
   };
 }
+
+export function calcularMetricasConsumo({
+  odometro,
+  litros,
+  anterior,
+  odometroInicial = 0,
+}) {
+  const odometroAtual = Number(odometro || 0);
+  const odometroBase = Number(anterior?.odometro ?? odometroInicial ?? 0);
+  const kmPeriodo = Math.max(odometroAtual - odometroBase, 0);
+  const litrosNumericos = Number(litros || 0);
+  const periodoValido = kmPeriodo > 0 && litrosNumericos > 0;
+
+  return {
+    kmPeriodo,
+    consumoKmLitro: periodoValido ? kmPeriodo / litrosNumericos : 0,
+  };
+}

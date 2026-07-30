@@ -1,6 +1,7 @@
 import { FiEdit2, FiTrash2, FiTrendingUp, FiArrowRight } from "react-icons/fi";
 import { obterConfigPlataforma } from "../../entradas/utils/plataformasIcons";
 import ModalBase from "../../../shared/components/modals/ModalBase";
+import { nomeCartaoComFinal } from "../../cartoes/utils/cartoesUtils";
 
 export default function DetalhesLancamentoModal({
   aberto,
@@ -149,6 +150,38 @@ export default function DetalhesLancamentoModal({
               <DetalheItem titulo="Descrição" valor={dados.descricao || dados.categoria || "-"} />
             </div>
 
+            {dados.pagamentos?.length > 1 && (
+              <div className="space-y-3">
+                <h3 className="font-black">Pagamentos</h3>
+                {dados.pagamentos.map((pagamento, index) => (
+                  <div
+                    key={pagamento.id}
+                    className="grid grid-cols-1 gap-3 rounded-xl border border-gray-800 bg-[#0B1120] p-4 sm:grid-cols-3"
+                  >
+                    <InfoLinha
+                      titulo={`Pagamento ${index + 1}`}
+                      valor={textoFormaPagamentoDetalhe(pagamento)}
+                    />
+                    <InfoLinha
+                      titulo="Origem"
+                      valor={
+                        pagamento.cartoes
+                          ? nomeCartaoComFinal(pagamento.cartoes)
+                          : pagamento.contas?.nome ||
+                            (pagamento.forma_pagamento === "boleto"
+                              ? "Conta a pagar"
+                              : "-")
+                      }
+                    />
+                    <InfoLinha
+                      titulo="Valor"
+                      valor={formatarMoeda(pagamento.valor_total)}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
             {abastecimento && (
               <SecaoEspecial titulo="Abastecimento">
                 <DetalheItem titulo="Combustível" valor={abastecimento.tipo_combustivel || "-"} />
@@ -226,6 +259,20 @@ export default function DetalhesLancamentoModal({
       </div>
     </ModalBase>
   );
+}
+
+function textoFormaPagamentoDetalhe(pagamento) {
+  const nomes = {
+    dinheiro: "Dinheiro",
+    pix: "Pix",
+    debito: "Débito",
+    debito_conta: "Débito em conta",
+    credito_avista: "Crédito à vista",
+    credito_parcelado: "Crédito parcelado",
+    boleto: "Boleto",
+  };
+
+  return nomes[pagamento.forma_pagamento] || pagamento.forma_pagamento || "-";
 }
 
 function DetalhesEntrada({ dados, formatarMoeda, formatarHoraSemSegundos }) {

@@ -3,7 +3,7 @@ export const TIPOS_CARTAO = {
   TERCEIRO: "terceiro",
 };
 
-export { formatarMoeda } from "../../../shared/utils/moeda";
+export { formatarMoeda } from "../../../shared/utils/moeda.js";
 
 export function formatarDataBR(dataISOTexto) {
   if (!dataISOTexto) return "-";
@@ -334,6 +334,32 @@ export function criarPayloadParcela({
   };
 }
 
+export function distribuirValorEntreParcelas(
+  valorTotal,
+  quantidadeParcelas,
+  valorParcelaBase
+) {
+  const quantidade = Math.max(Number(quantidadeParcelas || 1), 1);
+  const totalCentavos = Math.round(Number(valorTotal || 0) * 100);
+  const baseCentavos = Math.round(
+    Number(valorParcelaBase || valorTotal / quantidade || 0) * 100
+  );
+  const valores = Array.from({ length: quantidade }, () => baseCentavos);
+  valores[quantidade - 1] =
+    totalCentavos - baseCentavos * (quantidade - 1);
+
+  if (valores[quantidade - 1] <= 0) {
+    const baseSegura = Math.floor(totalCentavos / quantidade);
+    return Array.from({ length: quantidade }, (_, index) =>
+      index === quantidade - 1
+        ? (totalCentavos - baseSegura * (quantidade - 1)) / 100
+        : baseSegura / 100
+    );
+  }
+
+  return valores.map((valor) => valor / 100);
+}
+
 export async function gerarParcelasEFaturasPadrao(
   supabase,
   {
@@ -343,12 +369,22 @@ export async function gerarParcelasEFaturasPadrao(
     dataBase,
     quantidadeParcelas,
     valorParcela,
+    valorTotal = null,
     recalcularAoFinal,
   }
 ) {
   const parcelasPayload = [];
+  const valoresParcelas =
+    valorTotal === null || valorTotal === undefined
+      ? Array.from({ length: quantidadeParcelas }, () => valorParcela)
+      : distribuirValorEntreParcelas(
+          valorTotal,
+          quantidadeParcelas,
+          valorParcela
+        );
 
   for (let index = 0; index < quantidadeParcelas; index++) {
+    const valorParcelaAtual = valoresParcelas[index];
     const dataParcela = somarMesesData(dataBase, index);
     const dataReferencia = dataParcela.toISOString().split("T")[0];
     const competencia = calcularCompetenciaFaturaPorCompra(dataReferencia, cartao);
@@ -374,7 +410,7 @@ export async function gerarParcelasEFaturasPadrao(
     const { error: erroIncremento } = await incrementarValorTotalFatura(
       supabase,
       fatura.id,
-      valorParcela
+      valorParcelaAtual
     );
 
     if (erroIncremento) throw erroIncremento;
@@ -386,7 +422,7 @@ export async function gerarParcelasEFaturasPadrao(
         fatura_id: fatura.id,
         numero_parcela: index + 1,
         total_parcelas: quantidadeParcelas,
-        valor_parcela: valorParcela,
+        valor_parcela: valorParcelaAtual,
         data_vencimento: fatura.data_vencimento,
         status: "pendente",
       })

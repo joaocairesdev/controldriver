@@ -25,6 +25,7 @@ import {
   salvarAluguelVeiculo,
   salvarFinanciamentoVeiculo,
 } from "../services/veiculosFinanceiroService";
+import { somarPagamentosDoAbastecimento } from "../../abastecimentos/utils/abastecimentosPagamentos";
 
 const criarFinanciamentoPadrao = () => ({
   instituicaoFinanceira: "", valorVeiculo: "", valorFinanciado: "", entrada: "",
@@ -1688,7 +1689,7 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
   const [modalTagAberto, setModalTagAberto] = useState(false);
   const [modalRecargaAberto, setModalRecargaAberto] = useState(false);
   const [abaAtiva, setAbaAtiva] = useState("resumo");
-  const [dadosDashboard, setDadosDashboard] = useState({ entradas: [], abastecimentos: [], recargas: [], manutencoes: [], manutencoesLegadas: [], saidasContratos: [] });
+  const [dadosDashboard, setDadosDashboard] = useState({ entradas: [], abastecimentos: [], pagamentosAbastecimentos: [], recargas: [], manutencoes: [], manutencoesLegadas: [], saidasContratos: [] });
   const [carregandoDashboard, setCarregandoDashboard] = useState(true);
 
   useEffect(() => {
@@ -1703,10 +1704,20 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
         supabase.from("manutencoes").select("*").eq("veiculo_id", veiculo.id),
         supabase.from("saidas").select("*").eq("veiculo_id", veiculo.id).not("tipo_movimentacao", "eq", "conta_pagar"),
       ]);
+      const idsAbastecimentos = (abastecimentos.data || [])
+        .map((item) => item.saida_id)
+        .filter(Boolean);
+      const pagamentosAbastecimentos = idsAbastecimentos.length
+        ? await supabase
+            .from("saidas")
+            .select("id, saida_origem_id, valor_total")
+            .in("saida_origem_id", idsAbastecimentos)
+        : { data: [] };
       if (!ativo) return;
       setDadosDashboard({
         entradas: entradas.data || [],
         abastecimentos: abastecimentos.data || [],
+        pagamentosAbastecimentos: pagamentosAbastecimentos.data || [],
         recargas: recargas.data || [],
         manutencoes: manutencoes.data || [],
         manutencoesLegadas: manutencoesLegadas.data || [],
@@ -1719,7 +1730,17 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
   }, [veiculo.id]);
 
   const receita = dadosDashboard.entradas.reduce((total, entrada) => total + (entrada.entrada_plataformas || []).reduce((soma, item) => soma + Number(item.faturamento || 0) + Number(item.valor_reembolso || 0), 0), 0);
-  const gastosAbastecimento = dadosDashboard.abastecimentos.reduce((total, item) => total + Number(item.saidas?.valor_total || 0), 0);
+  const gastosAbastecimento = dadosDashboard.abastecimentos.reduce(
+    (total, item) =>
+      total +
+      somarPagamentosDoAbastecimento(
+        item.saidas,
+        dadosDashboard.pagamentosAbastecimentos.filter(
+          (pagamento) => Number(pagamento.saida_origem_id) === Number(item.saida_id)
+        )
+      ),
+    0
+  );
   const gastosRecarga = dadosDashboard.recargas.reduce((total, item) => total + Number(item.saidas?.valor_total || 0), 0);
   const gastosManutencao = dadosDashboard.manutencoes.reduce((total, item) => total + Number(item.saidas?.valor_total || 0), 0);
   const hojeDashboard = new Date().toISOString().split("T")[0];
@@ -1730,7 +1751,18 @@ function DetalhesVeiculo({ veiculo, voltar, nomeCategoria, formatarMoeda, config
   const consumos = dadosDashboard.abastecimentos.map((item) => Number(item.consumo_km_l || 0)).filter((valor) => valor > 0);
   const mediaConsumo = consumos.length ? consumos.reduce((soma, valor) => soma + valor, 0) / consumos.length : 0;
   const historico = [
-    ...dadosDashboard.abastecimentos.map((item) => ({ id: `a-${item.id}`, data: item.saidas?.data_compra, tipo: "Abastecimento", descricao: item.saidas?.descricao, valor: item.saidas?.valor_total })),
+    ...dadosDashboard.abastecimentos.map((item) => ({
+      id: `a-${item.id}`,
+      data: item.saidas?.data_compra,
+      tipo: "Abastecimento",
+      descricao: item.saidas?.descricao,
+      valor: somarPagamentosDoAbastecimento(
+        item.saidas,
+        dadosDashboard.pagamentosAbastecimentos.filter(
+          (pagamento) => Number(pagamento.saida_origem_id) === Number(item.saida_id)
+        )
+      ),
+    })),
     ...dadosDashboard.recargas.map((item) => ({ id: `r-${item.id}`, data: item.saidas?.data_compra, tipo: "Recarga elétrica", descricao: item.local_recarga, valor: item.saidas?.valor_total })),
     ...dadosDashboard.manutencoes.map((item) => ({ id: `m-${item.id}`, data: item.saidas?.data_compra, tipo: "Manutenção", descricao: item.servico, valor: item.saidas?.valor_total })),
     ...dadosDashboard.manutencoesLegadas.map((item) => ({ id: `ml-${item.id}`, data: item.data, tipo: "Manutenção", descricao: item.titulo, valor: null })),

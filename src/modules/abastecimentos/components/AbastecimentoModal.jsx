@@ -17,24 +17,32 @@ import {
 
 import ModalBase from "../../../shared/components/modals/ModalBase";
 import DatePickerModal from "../../../shared/components/modals/DatePickerModal";
+import FeedbackModal from "../../../shared/components/modals/FeedbackModal";
 import SelecionarVeiculoModal from "../../../shared/components/modals/SelecionarVeiculoModal";
-import SelecionarFormaPagamentoModal from "../../../shared/components/modals/SelecionarFormaPagamentoModal";
-import SelecionarContaModal from "../../../shared/components/modals/SelecionarContaModal";
-import SelecionarCartaoModal from "../../../shared/components/modals/SelecionarCartaoModal";
 import SelecionarCombustivelModal from "./SelecionarCombustivelModal";
-import SelecionarParcelasModal from "../../../shared/components/modals/SelecionarParcelasModal";
+import PagamentosMultiplos from "../../../shared/components/financeiro/PagamentosMultiplos";
 import {
   calcularUsoELimiteCartao,
   gerarParcelasEFaturasPadrao,
-  nomeCartaoComFinal,
   recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
   removerParcelasDaSaidaERecalcularFaturas,
 } from "../../cartoes/utils/cartoesUtils";
 import { FORMA_PAGAMENTO_DEBITO_CONTA } from "../../../shared/constants/formasPagamento";
 import {
+  calcularMetricasConsumo,
   localizarAbastecimentosVizinhos,
   validarCrescimentoOdometro,
 } from "../utils/abastecimentosCronologia";
+import { criarFeedbackAbastecimento } from "../utils/abastecimentosFeedback";
+import {
+  criarPagamentoVazio,
+  criarPayloadSaidaPagamento,
+  formaPagamentoEhCredito,
+  normalizarPagamentosEdicao,
+  planejarPersistenciaPagamentos,
+  validarCamposPagamento,
+  validarTotalPagamentos,
+} from "../../../shared/utils/pagamentosMultiplos";
 
 const COMBUSTIVEIS = [
   { valor: "etanol", titulo: "Etanol" },
@@ -64,47 +72,44 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   const [veiculos, setVeiculos] = useState([]);
 
   const [dataCompra, setDataCompra] = useState(hoje);
-  const [formaPagamento, setFormaPagamento] = useState("");
-  const [contaId, setContaId] = useState("");
-  const [cartaoId, setCartaoId] = useState("");
-  const [dataVencimento, setDataVencimento] = useState(hoje);
+  const [pagamentos, setPagamentos] = useState(() => [criarPagamentoVazio(hoje)]);
+  const [saidasAdicionaisEdicao, setSaidasAdicionaisEdicao] = useState([]);
+  const [erroCarregamentoPagamentos, setErroCarregamentoPagamentos] = useState("");
   const [valorTotal, setValorTotal] = useState("");
-  const [numeroParcelas, setNumeroParcelas] = useState("1");
-  const [valorParcela, setValorParcela] = useState("");
-  const [ultimoCampoEditado, setUltimoCampoEditado] = useState("total");
 
   const [veiculoId, setVeiculoId] = useState("");
   const [tipoCombustivel, setTipoCombustivel] = useState("");
   const [valorLitro, setValorLitro] = useState("");
-  const [kmRodados, setKmRodados] = useState("");
   const [odometro, setOdometro] = useState("");
-  const [tanqueCheio, setTanqueCheio] = useState(true);
 
   const [modalDataAberto, setModalDataAberto] = useState(false);
-  const [modalVencimentoAberto, setModalVencimentoAberto] = useState(false);
-  const [modalPagamentoAberto, setModalPagamentoAberto] = useState(false);
-  const [modalContaAberto, setModalContaAberto] = useState(false);
-  const [modalCartaoAberto, setModalCartaoAberto] = useState(false);
   const [modalVeiculoAberto, setModalVeiculoAberto] = useState(false);
   const [modalCombustivelAberto, setModalCombustivelAberto] = useState(false);
-  const [modalParcelasAberto, setModalParcelasAberto] = useState(false);
 
   const [salvando, setSalvando] = useState(false);
-  const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "", fecharDepois: false });
+  const [feedback, setFeedback] = useState({
+    aberto: false,
+    tipo: "sucesso",
+    titulo: "",
+    mensagem: "",
+    destaque: "",
+    textoBotao: "Entendi",
+    fecharDepois: false,
+  });
   const [erros, setErros] = useState({});
   const [shakeKey, setShakeKey] = useState(0);
 
-  const isCredito = formaPagamento === "credito_avista" || formaPagamento === "credito_parcelado";
-  const isCreditoParcelado = formaPagamento === "credito_parcelado";
-  const isBoleto = formaPagamento === "boleto";
-  const isDinheiro = formaPagamento === "dinheiro";
-
   const veiculoSelecionado = useMemo(() => veiculos.find((v) => String(v.id) === String(veiculoId)), [veiculos, veiculoId]);
-  const contaSelecionada = useMemo(() => contas.find((c) => String(c.id) === String(contaId)), [contas, contaId]);
   const carteiraSelecionada = useMemo(() => contas.find((c) => c.tipo_conta === "carteira"), [contas]);
-  const contasBancarias = useMemo(() => contas.filter((c) => (c.tipo_conta || "banco") === "banco"), [contas]);
-  const cartaoSelecionado = useMemo(() => cartoes.find((c) => String(c.id) === String(cartaoId)), [cartoes, cartaoId]);
-
+  const validacaoPagamentos = useMemo(
+    () => validarTotalPagamentos(valorTotal, pagamentos),
+    [valorTotal, pagamentos]
+  );
+  const litrosFormulario = useMemo(() => {
+    const total = moedaParaNumero(valorTotal);
+    const valorUnitario = moedaParaNumero(valorLitro);
+    return total > 0 && valorUnitario > 0 ? total / valorUnitario : 0;
+  }, [valorTotal, valorLitro]);
   const combustiveisDisponiveis = useMemo(() => {
     const aceitos = veiculoSelecionado?.combustiveis_aceitos;
 
@@ -124,28 +129,59 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   useEffect(() => {
     if (!aberto || !edicao?.id || !edicao?.abastecimento) return;
     const a = edicao.abastecimento;
+    const saidaPrincipal = edicao.pagamentos?.[0] || edicao;
+    setErroCarregamentoPagamentos("");
+    setSaidasAdicionaisEdicao([]);
+    setPagamentos(
+      normalizarPagamentosEdicao(
+        saidaPrincipal,
+        [],
+        edicao.data_compra || hoje
+      )
+    );
     setDataCompra(edicao.data_compra || hoje);
-    setDataVencimento(edicao.data_vencimento || edicao.data_compra || hoje);
-    setFormaPagamento(edicao.forma_pagamento || "pix");
-    setContaId(edicao.conta_id ? String(edicao.conta_id) : "");
-    setCartaoId(edicao.cartao_id ? String(edicao.cartao_id) : "");
     setValorTotal(numeroParaMoedaInput(edicao.valor_total || 0));
-    setNumeroParcelas(String(edicao.numero_parcelas || 1));
-    setValorParcela(numeroParaMoedaInput(edicao.valor_parcela || edicao.valor_total || 0));
     setVeiculoId(a.veiculo_id ? String(a.veiculo_id) : "");
     setTipoCombustivel(a.tipo_combustivel || "etanol");
     setValorLitro(numeroParaMoedaInput(a.valor_litro || 0));
-    setKmRodados(String(Number(a.km_rodados || a.km_total_periodo || 0)));
     setOdometro(String(Number(a.odometro || 0)));
-    setTanqueCheio(a.tanque_cheio ?? true);
-  }, [aberto, edicao?.id, edicao?.abastecimento?.id]);
 
-  useEffect(() => {
-    if (isDinheiro && carteiraSelecionada) {
-      setContaId(String(carteiraSelecionada.id));
-      setCartaoId("");
-    }
-  }, [isDinheiro, carteiraSelecionada]);
+    let ativo = true;
+    supabase
+      .from("saidas")
+      .select("*")
+      .eq("saida_origem_id", Number(edicao.id))
+      .order("id")
+      .then(({ data, error }) => {
+        if (!ativo) return;
+        if (error) {
+          console.error(error);
+          setErroCarregamentoPagamentos(
+            "Não foi possível carregar todas as formas de pagamento. Feche e tente novamente."
+          );
+          return;
+        }
+
+        const adicionais = data || [];
+        setSaidasAdicionaisEdicao(adicionais);
+        setPagamentos(
+          normalizarPagamentosEdicao(
+            saidaPrincipal,
+            adicionais,
+            edicao.data_compra || hoje
+          )
+        );
+        const totalGrupo = [saidaPrincipal, ...adicionais].reduce(
+          (total, saida) => total + Number(saida.valor_total || 0),
+          0
+        );
+        setValorTotal(numeroParaMoedaInput(totalGrupo));
+      });
+
+    return () => {
+      ativo = false;
+    };
+  }, [aberto, edicao?.id, edicao?.abastecimento?.id]);
 
   useEffect(() => {
     if (!veiculoSelecionado) return;
@@ -157,23 +193,6 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     }
   }, [veiculoSelecionado, tipoCombustivel]);
 
-  useEffect(() => {
-    if (!isCreditoParcelado) return;
-    const total = moedaParaNumero(valorTotal);
-    const parcelas = Number(numeroParcelas || 1);
-    if (ultimoCampoEditado === "total" && total > 0 && parcelas > 0) {
-      setValorParcela(numeroParaMoedaInput(total / parcelas));
-    }
-  }, [valorTotal, numeroParcelas, isCreditoParcelado, ultimoCampoEditado]);
-
-  useEffect(() => {
-    if (!isCreditoParcelado) return;
-    const parcela = moedaParaNumero(valorParcela);
-    const parcelas = Number(numeroParcelas || 1);
-    if (ultimoCampoEditado === "parcela" && parcela > 0 && parcelas > 0) {
-      setValorTotal(numeroParaMoedaInput(parcela * parcelas));
-    }
-  }, [valorParcela, numeroParcelas, isCreditoParcelado, ultimoCampoEditado]);
 
   async function carregarContasComSaldo(contasBase) {
     return Promise.all((contasBase || []).map(async (conta) => {
@@ -201,12 +220,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     setContas(contasComSaldo);
     setCartoes(cartoesComUso);
     setVeiculos(veiculosPermitidos || veiculosData || []);
-    const carteira = contasComSaldo.find((c) => c.tipo_conta === "carteira");
-    const contasValidas = contasComSaldo.filter((c) => (c.tipo_conta || "banco") === "banco");
     const listaVeiculos = veiculosPermitidos || veiculosData || [];
-    if (formaPagamento === "dinheiro" && carteira) setContaId(String(carteira.id));
-    else setContaId(contasValidas.length === 1 ? String(contasValidas[0].id) : "");
-    setCartaoId(cartoesComUso.length === 1 ? String(cartoesComUso[0].id) : "");
     setVeiculoId(listaVeiculos.length === 1 ? String(listaVeiculos[0].id) : "");
   }
 
@@ -218,30 +232,74 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   }
 
   function limparFormulario(limparTudo = true) {
-    setDataCompra(hoje); setDataVencimento(hoje); setFormaPagamento(""); setValorTotal(""); setNumeroParcelas("1"); setValorParcela(""); setUltimoCampoEditado("total");
-    setValorLitro(""); setKmRodados(""); setOdometro(""); setTanqueCheio(true); setTipoCombustivel(""); setCartaoId("");
-    if (limparTudo) { setContaId(""); setVeiculoId(""); }
+    setDataCompra(hoje); setValorTotal(""); setPagamentos([criarPagamentoVazio(hoje)]); setSaidasAdicionaisEdicao([]); setErroCarregamentoPagamentos("");
+    setValorLitro(""); setOdometro(""); setTipoCombustivel("");
+    if (limparTudo) setVeiculoId("");
   }
 
-  function numeroParaDecimalInput(valor, casas = 2) { if (!Number.isFinite(Number(valor))) return ""; return Number(valor || 0).toFixed(casas).replace(".", ","); }
-
-  function textoFormaPagamento() { return formasPagamento.find((f) => f.valor === formaPagamento)?.titulo || "Selecionar"; }
-  function textoContaCartao() {
-    if (isCredito) return cartaoSelecionado ? nomeCartaoComFinal(cartaoSelecionado) : "Selecionar cartão";
-    if (isDinheiro) return carteiraSelecionada?.nome || "Carteira";
-    return contaSelecionada?.nome || "Selecionar conta";
-  }
   function textoCombustivel() { return COMBUSTIVEIS.find((c) => c.valor === tipoCombustivel)?.titulo || "Selecionar"; }
-  function litrosCalculados() { const total = moedaParaNumero(valorTotal); const litro = moedaParaNumero(valorLitro); return total > 0 && litro > 0 ? total / litro : 0; }
-  function consumoCalculado() { const km = Number(kmRodados || 0); const litros = litrosCalculados(); return km > 0 && litros > 0 ? km / litros : 0; }
+  function litrosCalculados() { return litrosFormulario; }
 
-  function atualizarValorTotal(valor) { setUltimoCampoEditado("total"); setValorTotal(formatarMoedaDigitada(valor)); }
+  function atualizarValorTotal(valor) {
+    const valorFormatado = formatarMoedaDigitada(valor);
+    setValorTotal(valorFormatado);
+    limparErro("somaPagamentos");
+
+    if (pagamentos.length === 1) {
+      setPagamentos((atuais) =>
+        atuais.map((pagamento) => {
+          const parcelas = Math.max(Number(pagamento.numeroParcelas || 1), 1);
+          return {
+            ...pagamento,
+            valor: valorFormatado,
+            valorParcela:
+              pagamento.formaPagamento === "credito_parcelado"
+                ? numeroParaMoedaInput(moedaParaNumero(valorFormatado) / parcelas)
+                : valorFormatado,
+          };
+        })
+      );
+    }
+  }
   function atualizarOdometro(valor) {
     setOdometro(somenteNumeros(valor));
-    setKmRodados("");
   }
-  function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) { setFeedback({ aberto: true, tipo, titulo, mensagem, fecharDepois }); }
+  function abrirFeedback(tipo, titulo, mensagem, fecharDepois = false) {
+    setFeedback({
+      aberto: true,
+      tipo,
+      titulo,
+      mensagem,
+      destaque: "",
+      textoBotao: "Entendi",
+      fecharDepois,
+    });
+  }
   function limparErro(campo) { setErros((atuais) => { if (!atuais[campo]) return atuais; const novos = { ...atuais }; delete novos[campo]; return novos; }); }
+  function limparErroPagamento(chave, campo) {
+    if (campo === "total") {
+      limparErro("somaPagamentos");
+      return;
+    }
+
+    setErros((atuais) => {
+      const errosPagamento = atuais.pagamentos?.[chave];
+      if (!errosPagamento?.[campo]) return atuais;
+      const proximosCampos = { ...errosPagamento };
+      delete proximosCampos[campo];
+      const proximosPagamentos = { ...atuais.pagamentos };
+
+      if (Object.keys(proximosCampos).length) {
+        proximosPagamentos[chave] = proximosCampos;
+      } else {
+        delete proximosPagamentos[chave];
+      }
+
+      const proximos = { ...atuais, pagamentos: proximosPagamentos };
+      if (!Object.keys(proximosPagamentos).length) delete proximos.pagamentos;
+      return proximos;
+    });
+  }
   async function fecharFeedback() {
     const fechar = feedback.fecharDepois;
 
@@ -250,6 +308,8 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
       tipo: "sucesso",
       titulo: "",
       mensagem: "",
+      destaque: "",
+      textoBotao: "Entendi",
       fecharDepois: false,
     });
 
@@ -260,9 +320,6 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     }
   }
 
-  function definirContaBancariaPadrao() { setContaId(contasBancarias.length === 1 ? String(contasBancarias[0].id) : ""); }
-  function definirStatus() { if (isBoleto) return "aberto"; if (isCredito) return "fatura"; return "pago"; }
-  function definirTipoMovimentacao() { if (isBoleto) return "conta_pagar"; return "saida"; }
   async function recalcularFaturaPorParcelas(faturaId) {
     return recalcularFaturaPorParcelasCompartilhada(supabase, faturaId);
   }
@@ -288,31 +345,102 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     return removerParcelasDaSaidaERecalcularFaturas(supabase, saidaId);
   }
 
-  async function gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas) { if (!isCredito || !cartaoSelecionado) return; return gerarParcelasEFaturasPadrao(supabase, { saidaId, cartao: cartaoSelecionado, cartaoId, dataBase: dataCompra, quantidadeParcelas: parcelas, valorParcela: parcelaValor, recalcularAoFinal: () => recalcularFaturasDaSaida(saidaId) }); }
+  async function gerarParcelasEFaturas(saidaId, pagamento) {
+    if (!formaPagamentoEhCredito(pagamento.formaPagamento)) return;
+    const cartao = cartoes.find(
+      (item) => String(item.id) === String(pagamento.cartaoId)
+    );
+    if (!cartao) throw new Error("Cartão selecionado não encontrado.");
+    const total = moedaParaNumero(pagamento.valor);
+    const parcelas =
+      pagamento.formaPagamento === "credito_parcelado"
+        ? Number(pagamento.numeroParcelas || 2)
+        : 1;
+    const parcelaValor =
+      pagamento.formaPagamento === "credito_parcelado"
+        ? moedaParaNumero(pagamento.valorParcela) || total / parcelas
+        : total;
 
-  async function verificarLimiteCartao(total) {
-    if (!cartaoSelecionado) return true;
-    const { data, error } = await supabase.from("faturas_cartao").select("valor_total, valor_pago, status").eq("cartao_id", Number(cartaoId)).in("status", ["aberta", "fechada", "parcial"]);
-    if (error) throw error;
-    const { limite, disponivel } = calcularUsoELimiteCartao(data, cartaoSelecionado.limite_total);
-    if (limite > 0 && total > disponivel) return window.confirm("⚠ Esta compra ultrapassará o limite do cartão.\n\nDeseja continuar mesmo assim?");
+    return gerarParcelasEFaturasPadrao(supabase, {
+      saidaId,
+      cartao,
+      cartaoId: pagamento.cartaoId,
+      dataBase: dataCompra,
+      quantidadeParcelas: parcelas,
+      valorParcela: parcelaValor,
+      valorTotal: total,
+      recalcularAoFinal: () => recalcularFaturasDaSaida(saidaId),
+    });
+  }
+
+  async function verificarLimitesCartoes() {
+    const valoresPorCartao = pagamentos
+      .filter((pagamento) => formaPagamentoEhCredito(pagamento.formaPagamento))
+      .reduce((grupos, pagamento) => {
+        const id = String(pagamento.cartaoId);
+        grupos.set(id, (grupos.get(id) || 0) + moedaParaNumero(pagamento.valor));
+        return grupos;
+      }, new Map());
+
+    for (const [cartaoId, total] of valoresPorCartao) {
+      const cartao = cartoes.find((item) => String(item.id) === cartaoId);
+      if (!cartao) throw new Error("Cartão selecionado não encontrado.");
+      const { data, error } = await supabase
+        .from("faturas_cartao")
+        .select("valor_total, valor_pago, status")
+        .eq("cartao_id", Number(cartaoId))
+        .in("status", ["aberta", "fechada", "parcial"]);
+      if (error) throw error;
+      const { limite, disponivel } = calcularUsoELimiteCartao(
+        data,
+        cartao.limite_total
+      );
+      if (
+        limite > 0 &&
+        total > disponivel &&
+        !window.confirm(
+          `⚠ Os pagamentos neste cartão somam ${formatarMoeda(total)} e ultrapassarão o limite disponível.\n\nDeseja continuar mesmo assim?`
+        )
+      ) {
+        return false;
+      }
+    }
+
     return true;
   }
 
   function validar() {
     const novos = {};
+    if (erroCarregamentoPagamentos) {
+      novos.somaPagamentos = erroCarregamentoPagamentos;
+    }
     if (!dataCompra) novos.dataCompra = "Selecione a data da compra.";
-    if (!formaPagamento) novos.formaPagamento = "Selecione a forma de pagamento.";
     if (!veiculoId) novos.veiculoId = "Selecione o veículo.";
     if (!tipoCombustivel) novos.tipoCombustivel = "Selecione o combustível.";
     if (moedaParaNumero(valorTotal) <= 0) novos.valorTotal = "Informe o valor total.";
     if (moedaParaNumero(valorLitro) <= 0) novos.valorLitro = "Informe o valor do litro.";
-    if (isCredito && !cartaoId) novos.cartaoId = "Selecione um cartão.";
-    if (isDinheiro && !carteiraSelecionada) { abrirFeedback("erro", "Carteira não encontrada", "Cadastre uma carteira antes de lançar dinheiro."); return false; }
-    if (!isCredito && !isBoleto && !contaId) novos.contaId = "Selecione uma conta.";
-    if (isBoleto && !dataVencimento) novos.dataVencimento = "Informe a data de vencimento.";
-    if (isCreditoParcelado && Number(numeroParcelas || 0) < 2) { abrirFeedback("erro", "Parcelamento inválido", "Crédito parcelado precisa começar em 2x."); return false; }
     if (!odometro) novos.km = "Informe o odômetro.";
+
+    const errosPagamentos = {};
+    pagamentos.forEach((pagamento) => {
+      const errosPagamento = validarCamposPagamento(pagamento, {
+        carteiraDisponivel: Boolean(carteiraSelecionada),
+      });
+
+      if (Object.keys(errosPagamento).length) {
+        errosPagamentos[pagamento.chave] = errosPagamento;
+      }
+    });
+
+    if (Object.keys(errosPagamentos).length) {
+      novos.pagamentos = errosPagamentos;
+    }
+
+    const validacaoTotal = validarTotalPagamentos(valorTotal, pagamentos);
+    if (moedaParaNumero(valorTotal) > 0 && !validacaoTotal.valido) {
+      novos.somaPagamentos = validacaoTotal.mensagem;
+    }
+
     setErros(novos); if (Object.keys(novos).length) setShakeKey(Date.now());
     return Object.keys(novos).length === 0;
   }
@@ -320,7 +448,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   async function validarSequenciaOdometro() {
     const { data: historico, error } = await supabase
       .from("saidas_abastecimentos")
-      .select("id, saida_id, odometro, saidas!inner(data_compra)")
+      .select("id, saida_id, veiculo_id, odometro, saidas!inner(data_compra)")
       .eq("veiculo_id", Number(veiculoId));
 
     if (error) throw error;
@@ -369,35 +497,145 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
       if (!vizinhos) return;
 
       const total = moedaParaNumero(valorTotal);
-      const parcelas = isCreditoParcelado ? Number(numeroParcelas || 2) : 1;
-      const parcelaValor = isCreditoParcelado ? moedaParaNumero(valorParcela) : total;
-      if (isCredito && !(await verificarLimiteCartao(total))) return;
+      if (!(await verificarLimitesCartoes())) return;
 
-      const dadosSaida = { data_compra: dataCompra, forma_pagamento: formaPagamento, tipo_movimentacao: definirTipoMovimentacao(), conta_id: isCredito || isBoleto ? null : Number(contaId), cartao_id: isCredito ? Number(cartaoId) : null, tipo_credito: isCredito ? (isCreditoParcelado ? "parcelado" : "avista") : null, numero_parcelas: parcelas, valor_total: total, valor_parcela: parcelaValor, data_efetivacao: isBoleto ? null : dataCompra, data_vencimento: isBoleto ? dataVencimento : null, categoria: "Abastecimento", descricao: `Compra de combustível - ${veiculoSelecionado?.nome || "Veículo"}`, status: definirStatus() };
+      const descricao = `Compra de combustível - ${veiculoSelecionado?.nome || "Veículo"}`;
       let saidaId = edicao?.id || null;
+      const pagamentosPersistidos = [];
+
       if (saidaId) {
-        await ajustarFaturasAoRemoverParcelasDaSaida(saidaId);
+        const plano = planejarPersistenciaPagamentos(
+          pagamentos,
+          saidaId,
+          saidasAdicionaisEdicao
+        );
+        const idsAnteriores = [
+          Number(saidaId),
+          ...saidasAdicionaisEdicao.map((saida) => Number(saida.id)),
+        ];
 
-        const { error: erroSaida } = await supabase.from("saidas").update(dadosSaida).eq("id", saidaId);
-        if (erroSaida) throw erroSaida;
+        for (const id of idsAnteriores) {
+          await ajustarFaturasAoRemoverParcelasDaSaida(id);
+        }
 
-        if (isCredito) await gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas);
+        if (plano.excluirIds.length) {
+          const { error: erroExcluir } = await supabase
+            .from("saidas")
+            .delete()
+            .in("id", plano.excluirIds);
+          if (erroExcluir) throw erroExcluir;
+        }
 
+        const payloadPrincipal = criarPayloadSaidaPagamento({
+          pagamento: plano.atualizarPrincipal,
+          dataCompra,
+          categoria: "Abastecimento",
+          descricao,
+        });
+        const { error: erroPrincipal } = await supabase
+          .from("saidas")
+          .update(payloadPrincipal)
+          .eq("id", saidaId);
+        if (erroPrincipal) throw erroPrincipal;
+        pagamentosPersistidos.push({
+          saidaId: Number(saidaId),
+          pagamento: plano.atualizarPrincipal,
+        });
+
+        for (const pagamento of plano.atualizarAdicionais) {
+          const payload = criarPayloadSaidaPagamento({
+            pagamento,
+            dataCompra,
+            categoria: "Abastecimento",
+            descricao,
+            saidaOrigemId: Number(saidaId),
+          });
+          const { error } = await supabase
+            .from("saidas")
+            .update(payload)
+            .eq("id", Number(pagamento.saidaId));
+          if (error) throw error;
+          pagamentosPersistidos.push({
+            saidaId: Number(pagamento.saidaId),
+            pagamento,
+          });
+        }
+
+        for (const pagamento of plano.inserirAdicionais) {
+          const payload = criarPayloadSaidaPagamento({
+            pagamento,
+            dataCompra,
+            categoria: "Abastecimento",
+            descricao,
+            saidaOrigemId: Number(saidaId),
+          });
+          const { data: saidaCriada, error } = await supabase
+            .from("saidas")
+            .insert(payload)
+            .select()
+            .single();
+          if (error) throw error;
+          pagamentosPersistidos.push({
+            saidaId: Number(saidaCriada.id),
+            pagamento,
+          });
+        }
       } else {
-        const { data: saidaCriada, error: erroSaida } = await supabase.from("saidas").insert(dadosSaida).select().single();
+        const [pagamentoPrincipal, ...pagamentosAdicionais] = pagamentos;
+        const payloadPrincipal = criarPayloadSaidaPagamento({
+          pagamento: pagamentoPrincipal,
+          dataCompra,
+          categoria: "Abastecimento",
+          descricao,
+        });
+        const { data: saidaCriada, error: erroSaida } = await supabase
+          .from("saidas")
+          .insert(payloadPrincipal)
+          .select()
+          .single();
         if (erroSaida) throw erroSaida;
         saidaId = saidaCriada.id;
-        if (isCredito) await gerarParcelasEFaturas(saidaId, total, parcelaValor, parcelas);
+        pagamentosPersistidos.push({
+          saidaId: Number(saidaId),
+          pagamento: pagamentoPrincipal,
+        });
+
+        for (const pagamento of pagamentosAdicionais) {
+          const payload = criarPayloadSaidaPagamento({
+            pagamento,
+            dataCompra,
+            categoria: "Abastecimento",
+            descricao,
+            saidaOrigemId: Number(saidaId),
+          });
+          const { data: adicionalCriada, error } = await supabase
+            .from("saidas")
+            .insert(payload)
+            .select()
+            .single();
+          if (error) throw error;
+          pagamentosPersistidos.push({
+            saidaId: Number(adicionalCriada.id),
+            pagamento,
+          });
+        }
       }
-      await salvarDetalhesAbastecimento(saidaId, vizinhos);
-      abrirFeedback(
-        "sucesso",
-        edicao?.id ? "Abastecimento atualizado" : isBoleto ? "Conta registrada" : "Abastecimento registrado",
-        isBoleto
-          ? "Conta a pagar registrada com sucesso."
-          : `${formatarMoeda(total)} lançados com sucesso para ${veiculoSelecionado?.nome || "o veículo"}.`,
-        true
-      );
+
+      for (const registro of pagamentosPersistidos) {
+        await gerarParcelasEFaturas(registro.saidaId, registro.pagamento);
+      }
+
+      const metricasSalvas = await salvarDetalhesAbastecimento(saidaId, vizinhos);
+      const feedbackSucesso = criarFeedbackAbastecimento({
+        consumoKmLitro: metricasSalvas.consumoKmLitro,
+        possuiAbastecimentoAnterior: Boolean(vizinhos.anterior),
+      });
+      setFeedback({
+        aberto: true,
+        tipo: "sucesso",
+        ...feedbackSucesso,
+        fecharDepois: true,
+      });
       limparFormulario(false);
     } catch (error) {
       console.error(error);
@@ -408,17 +646,17 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   async function salvarDetalhesAbastecimento(saidaId, vizinhos) {
     const litros = litrosCalculados();
     const odometroFinal = Number(odometro || 0);
-    const odometroAnterior = Number(
-      vizinhos.anterior?.odometro ??
-      veiculoSelecionado?.odometro_inicial ??
-      veiculoSelecionado?.odometro_atual ??
-      0
-    );
-    const kmPeriodo = Math.max(odometroFinal - odometroAnterior, 0);
-
-    const consumoKmLitro = litros > 0 ? kmPeriodo / litros : 0;
+    const { kmPeriodo, consumoKmLitro } = calcularMetricasConsumo({
+      odometro: odometroFinal,
+      litros,
+      anterior: vizinhos.anterior,
+      odometroInicial:
+        veiculoSelecionado?.odometro_inicial
+        ?? veiculoSelecionado?.odometro_atual
+        ?? 0,
+    });
     const custoPorKm = kmPeriodo > 0 ? moedaParaNumero(valorTotal) / kmPeriodo : 0;
-    const dadosAbastecimento = { saida_id: saidaId, veiculo_id: Number(veiculoId), odometro: odometroFinal, km_rodados: kmPeriodo, km_total_periodo: kmPeriodo, tipo_combustivel: tipoCombustivel, litros, valor_litro: moedaParaNumero(valorLitro), tanque_cheio: tanqueCheio, uso: "automatico", percentual_trabalho: 0, consumo_km_l: consumoKmLitro, custo_por_km: custoPorKm, posto: null };
+    const dadosAbastecimento = { saida_id: saidaId, veiculo_id: Number(veiculoId), odometro: odometroFinal, km_rodados: kmPeriodo, km_total_periodo: kmPeriodo, tipo_combustivel: tipoCombustivel, litros, valor_litro: moedaParaNumero(valorLitro), uso: "automatico", percentual_trabalho: 0, consumo_km_l: consumoKmLitro, custo_por_km: custoPorKm, posto: null };
     const { error } = edicao?.abastecimento?.id
       ? await supabase
           .from("saidas_abastecimentos")
@@ -433,6 +671,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     if (tipoCombustivel === "diesel") campoMedia = "media_diesel";
     if (campoMedia && consumoKmLitro > 0) await supabase.from("veiculos").update({ [campoMedia]: consumoKmLitro, custo_medio_km_combustivel: custoPorKm, custo_medio_km_geral: custoPorKm }).eq("id", Number(veiculoId));
     if (odometroFinal > Number(veiculoSelecionado?.odometro_atual || 0)) await supabase.from("veiculos").update({ odometro_atual: odometroFinal }).eq("id", Number(veiculoId));
+    return { consumoKmLitro };
   }
 
   if (!aberto) return null;
@@ -446,31 +685,6 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
               <Campo label="Data da compra" erro={erros.dataCompra} shakeKey={shakeKey}>
                 <ButtonField erro={erros.dataCompra} shakeKey={shakeKey} onClick={() => setModalDataAberto(true)}>{formatarDataBR(dataCompra)}</ButtonField>
               </Campo>
-
-              <Campo label="Forma de pagamento" erro={erros.formaPagamento} shakeKey={shakeKey}>
-                <ButtonField erro={erros.formaPagamento} shakeKey={shakeKey} onClick={() => setModalPagamentoAberto(true)}>{textoFormaPagamento()}</ButtonField>
-              </Campo>
-
-              {!isBoleto && (
-                <Campo label={isCredito ? "Cartão" : isDinheiro ? "Carteira" : "Conta"} erro={isCredito ? erros.cartaoId : erros.contaId} shakeKey={shakeKey}>
-                  <ButtonField
-                    erro={isCredito ? erros.cartaoId : erros.contaId}
-                    shakeKey={shakeKey}
-                    onClick={() => {
-                      if (isDinheiro) return;
-                      isCredito ? setModalCartaoAberto(true) : setModalContaAberto(true);
-                    }}
-                  >
-                    {textoContaCartao()}
-                  </ButtonField>
-                </Campo>
-              )}
-
-              {isBoleto && (
-                <Campo label="Vencimento do boleto" erro={erros.dataVencimento} shakeKey={shakeKey}>
-                  <ButtonField erro={erros.dataVencimento} shakeKey={shakeKey} onClick={() => setModalVencimentoAberto(true)}>{formatarDataBR(dataVencimento)}</ButtonField>
-                </Campo>
-              )}
 
               <Campo label="Veículo" erro={erros.veiculoId} shakeKey={shakeKey}>
                 <ButtonField erro={erros.veiculoId} shakeKey={shakeKey} onClick={() => setModalVeiculoAberto(true)}>{veiculoSelecionado?.nome || "Selecionar veículo"}</ButtonField>
@@ -488,65 +702,56 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
                 <MoneyInput erro={erros.valorTotal} shakeKey={shakeKey} value={valorTotal} onChange={(v) => { limparErro("valorTotal"); atualizarValorTotal(v); }} prefix="R$" placeholder="" />
               </Campo>
 
-              {isCreditoParcelado && (
-                <>
-                  <Campo label="Quantidade de parcelas">
-                    <ButtonField onClick={() => setModalParcelasAberto(true)}>{numeroParcelas}x</ButtonField>
-                  </Campo>
-
-                  <Campo label="Valor da parcela">
-                    <MoneyInput
-                      value={valorParcela}
-                      onChange={(v) => {
-                        setUltimoCampoEditado("parcela");
-                        setValorParcela(formatarMoedaDigitada(v));
-                      }}
-                      prefix="R$"
-                      placeholder=""
-                    />
-                  </Campo>
-                </>
-              )}
-
               <Campo label="Odômetro atual" erro={erros.km} shakeKey={shakeKey}>
                 <MoneyInput erro={erros.km} shakeKey={shakeKey} value={odometro} onChange={(valor) => { limparErro("km"); atualizarOdometro(valor); }} suffix="km" placeholder="0" />
               </Campo>
 
-              <Campo label="Completou o tanque?">
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  <Toggle ativo={tanqueCheio} onClick={() => setTanqueCheio(true)}>Sim</Toggle>
-                  <Toggle ativo={!tanqueCheio} onClick={() => setTanqueCheio(false)}>Não</Toggle>
-                </div>
-              </Campo>
             </div>
 
-            <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
-              <ResumoItem titulo="Litros calculados" valor={`${numeroParaDecimalInput(litrosCalculados(), 3)} L`} />
-              <ResumoItem titulo="Consumo estimado" valor={consumoCalculado() > 0 ? `${numeroParaDecimalInput(consumoCalculado(), 2)} km/L` : "-"} />
-              <ResumoItem titulo="Odômetro após abastecimento" valor={odometro ? `${Number(odometro).toLocaleString("pt-BR")} km` : "-"} />
+            <div className="mt-5">
+              <PagamentosMultiplos
+                pagamentos={pagamentos}
+                valorTotal={valorTotal}
+                onChange={(proximos) => {
+                  setPagamentos(proximos);
+                  limparErro("somaPagamentos");
+                }}
+                formasPagamento={formasPagamento}
+                contas={contas}
+                cartoes={cartoes}
+                dataVencimentoPadrao={dataCompra || hoje}
+                erros={erros.pagamentos}
+                erroTotal={
+                  erroCarregamentoPagamentos ||
+                  erros.somaPagamentos ||
+                  (moedaParaNumero(valorTotal) > 0 && !validacaoPagamentos.valido
+                    ? validacaoPagamentos.mensagem
+                    : "")
+                }
+                shakeKey={shakeKey}
+                onLimparErro={limparErroPagamento}
+              />
             </div>
+
           </section>
         </div>
 
         <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-4 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
           <button type="button" onClick={onClose} className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3">Cancelar</button>
-          <button type="button" onClick={salvar} disabled={salvando} className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3">{salvando ? "Salvando..." : "Salvar"}</button>
+          <button type="button" onClick={salvar} disabled={salvando || Boolean(erroCarregamentoPagamentos) || (moedaParaNumero(valorTotal) > 0 && !validacaoPagamentos.valido)} className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3 disabled:opacity-50">{salvando ? "Salvando..." : "Salvar"}</button>
         </div>
       </ModalBase>
 
       <DatePickerModal aberto={modalDataAberto} valor={dataCompra} onChange={(valor) => { limparErro("dataCompra"); setDataCompra(valor); }} onClose={() => setModalDataAberto(false)} titulo="Selecionar data" descricao="Escolha a data da compra." />
-      <DatePickerModal aberto={modalVencimentoAberto} valor={dataVencimento} onChange={(valor) => { limparErro("dataVencimento"); setDataVencimento(valor); }} onClose={() => setModalVencimentoAberto(false)} titulo="Vencimento do boleto" descricao="Escolha a data em que esta conta precisa ser paga." />
-      <SelecionarFormaPagamentoModal aberto={modalPagamentoAberto} formasPagamento={formasPagamento} formaPagamento={formaPagamento} onSelecionar={(valor) => { limparErro("formaPagamento"); setFormaPagamento(valor); if (valor === "credito_parcelado") { setContaId(""); setNumeroParcelas((a) => Number(a || 0) < 2 ? "2" : a); } if (valor === "credito_avista") { setContaId(""); setNumeroParcelas("1"); setValorParcela(""); } if (valor === "boleto") { setContaId(""); setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); } if (valor === "dinheiro") { setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); if (carteiraSelecionada) setContaId(String(carteiraSelecionada.id)); } if (!["credito_avista", "credito_parcelado", "boleto"].includes(valor)) { setCartaoId(""); setNumeroParcelas("1"); setValorParcela(""); if (valor !== "dinheiro") definirContaBancariaPadrao(); } }} onClose={() => setModalPagamentoAberto(false)} />
-      <SelecionarContaModal aberto={modalContaAberto} contas={contasBancarias} contaId={contaId} onSelecionar={(valor) => { limparErro("contaId"); setContaId(valor); }} onClose={() => setModalContaAberto(false)} formatarMoeda={formatarMoeda} />
-      <SelecionarCartaoModal aberto={modalCartaoAberto} cartoes={cartoes} cartaoId={cartaoId} onSelecionar={(valor) => { limparErro("cartaoId"); setCartaoId(valor); }} onClose={() => setModalCartaoAberto(false)} formatarMoeda={formatarMoeda} />
       <SelecionarVeiculoModal aberto={modalVeiculoAberto} veiculos={veiculos} veiculoId={veiculoId} onSelecionar={(valor) => { limparErro("veiculoId"); setVeiculoId(valor); }} onClose={() => setModalVeiculoAberto(false)} />
       <SelecionarCombustivelModal aberto={modalCombustivelAberto} combustiveis={combustiveisDisponiveis} tipoCombustivel={tipoCombustivel} onSelecionar={(valor) => { limparErro("tipoCombustivel"); setTipoCombustivel(valor); }} onClose={() => setModalCombustivelAberto(false)} />
-      <SelecionarParcelasModal aberto={modalParcelasAberto} numeroParcelas={numeroParcelas} onSelecionar={setNumeroParcelas} onClose={() => setModalParcelasAberto(false)} />
-      <FeedbackAbastecimentoModal
+      <FeedbackModal
         aberto={feedback.aberto}
         tipo={feedback.tipo}
         titulo={feedback.titulo}
         mensagem={feedback.mensagem}
+        destaque={feedback.destaque}
+        textoBotao={feedback.textoBotao}
         onClose={fecharFeedback}
       />
     </>
@@ -554,46 +759,3 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
 }
 
 function MoneyInput({ value, onChange, prefix, suffix, placeholder, erro, shakeKey }) { return <div key={erro ? shakeKey : "ok"} className={`flex items-center mt-2 bg-[#0B1120] border ${erro ? "border-red-500 animate-shake" : "border-gray-700"} rounded-xl overflow-hidden`}>{prefix && <span className="px-3 text-gray-400">{prefix}</span>}<input type="text" inputMode="decimal" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} className="w-full bg-transparent p-3 outline-none" />{suffix && <span className="px-3 text-gray-400">{suffix}</span>}</div>; }
-function Toggle({ ativo, onClick, children }) { return <button type="button" onClick={onClick} className={`rounded-xl border p-3 font-bold ${ativo ? "border-green-400 bg-green-500/10 text-green-400" : "border-gray-700 text-gray-300 hover:bg-white/5"}`}>{children}</button>; }
-function ResumoItem({ titulo, valor }) { return <div className="bg-[#111827] border border-gray-800 rounded-xl p-4"><p className="text-xs text-gray-400">{titulo}</p><p className="text-xl font-bold mt-1">{valor}</p></div>; }
-
-
-function FeedbackAbastecimentoModal({ aberto, tipo = "sucesso", titulo, mensagem, onClose }) {
-  if (!aberto) return null;
-
-  const isErro = tipo === "erro";
-
-  return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4">
-      <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-2xl p-6 shadow-2xl">
-        <div
-          className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black ${
-            isErro
-              ? "text-red-400 bg-red-500/10"
-              : "text-green-400 bg-green-500/10"
-          }`}
-        >
-          {isErro ? "!" : "✓"}
-        </div>
-
-        <h2
-          className={`text-2xl font-bold mt-5 ${
-            isErro ? "text-red-400" : "text-green-400"
-          }`}
-        >
-          {titulo}
-        </h2>
-
-        <p className="text-gray-300 mt-3">{mensagem}</p>
-
-        <button
-          type="button"
-          onClick={onClose}
-          className="w-full mt-6 bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
-        >
-          Entendi
-        </button>
-      </div>
-    </div>
-  );
-}

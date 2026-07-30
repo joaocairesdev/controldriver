@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ButtonField, Campo } from "../../../shared/components/ui/FormControls";
+import ParcelasContrato from "../../../shared/components/financeiro/ParcelasContrato";
+import ResumoContrato from "../../../shared/components/financeiro/ResumoContrato";
+import TelaParcelaContrato, { CabecalhoVoltar } from "../../../shared/components/financeiro/TelaParcelaContrato";
 import {
   FiAlertTriangle,
   FiChevronDown,
@@ -23,8 +26,11 @@ import SelecionarParcelasModal from "../../../shared/components/modals/Seleciona
 import SelecionarTipoAcordoModal from "../components/SelecionarTipoAcordoModal";
 import ToggleSwitch from "../../../shared/components/ui/ToggleSwitch";
 import useDirtyForm from "../../../shared/hooks/useDirtyForm";
+import RegistrarPagamentoModal from "../../contas/components/RegistrarPagamentoModal";
 
 import {
+  atualizarParcelaRenegociacao,
+  carregarContasComSaldo,
   carregarDividasDisponiveis,
   carregarItensRenegociacao,
   carregarRenegociacoes,
@@ -38,6 +44,7 @@ import {
   formatarMoedaDigitada,
   hojeISO,
   moedaParaNumero,
+  normalizarProdutosRenegociados,
   numeroParaMoedaInput,
   textoFormaPagamento,
 } from "../utils/renegociacoesUtils";
@@ -62,7 +69,10 @@ export default function Renegociacoes() {
   const [carregando, setCarregando] = useState(true);
   const [modalAberto, setModalAberto] = useState(false);
   const [renegociacaoDetalhe, setRenegociacaoDetalhe] = useState(null);
+  const [parcelaDetalhe, setParcelaDetalhe] = useState(null);
   const [itensDetalhe, setItensDetalhe] = useState([]);
+  const [contasPagamento, setContasPagamento] = useState([]);
+  const [parcelaPagamento, setParcelaPagamento] = useState(null);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
 
   useEffect(() => {
@@ -73,8 +83,22 @@ export default function Renegociacoes() {
     setCarregando(true);
 
     try {
-      const dados = await carregarRenegociacoes();
+      const [dados, contas] = await Promise.all([
+        carregarRenegociacoes(),
+        carregarContasComSaldo(),
+      ]);
       setRenegociacoes(dados);
+      setContasPagamento((contas || []).filter((conta) => conta.tipo_conta !== "tag"));
+      setRenegociacaoDetalhe((atual) =>
+        atual ? dados.find((item) => String(item.id) === String(atual.id)) || null : null
+      );
+      setParcelaDetalhe((atual) => {
+        if (!atual) return null;
+        const acordo = dados.find((item) => String(item.id) === String(atual.renegociacaoId));
+        const parcela = acordo?.parcelas.find((item) => String(item.id) === String(atual.id));
+        return parcela ? { ...parcela, renegociacaoId: acordo.id } : null;
+      });
+      return dados;
     } catch (error) {
       console.error(error);
       abrirFeedback("erro", "Erro ao carregar", error.message || "Não foi possível carregar as renegociações.");
@@ -118,9 +142,15 @@ export default function Renegociacoes() {
       { valorOriginal: 0, valorRenegociado: 0, ativas: 0 }
     );
   }, [renegociacoes]);
+  const produtosDetalhe = useMemo(
+    () => normalizarProdutosRenegociados(itensDetalhe),
+    [itensDetalhe]
+  );
 
   return (
     <div>
+      {!renegociacaoDetalhe && (
+        <>
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold">Renegociações</h1>
@@ -193,7 +223,7 @@ export default function Renegociacoes() {
                   </div>
                   <div className="flex items-center justify-between gap-3 mt-2 text-sm">
                     <p className="text-gray-400">{renegociacao.parcelas_pagas || 0} de {renegociacao.numero_parcelas || 1} parcelas pagas</p>
-                    <p className="font-bold">Restante: {formatarMoeda(Math.max(Number(renegociacao.valor_renegociado || 0) - Number(renegociacao.valor_pago_acordo || 0), 0))}</p>
+                    <p className="font-bold">Restante: {formatarMoeda(renegociacao.saldo_devedor)}</p>
                   </div>
                 </div>
 
@@ -214,6 +244,8 @@ export default function Renegociacoes() {
           <p className="text-gray-400 mt-2">Quando você fizer um acordo, ele aparecerá aqui.</p>
         </div>
       )}
+        </>
+      )}
 
       {modalAberto && (
         <RenegociacaoModal
@@ -226,14 +258,43 @@ export default function Renegociacoes() {
         />
       )}
 
-      {renegociacaoDetalhe && (
-        <DetalheRenegociacaoModal
+      {renegociacaoDetalhe && parcelaDetalhe ? (
+        <TelaParcelaContrato
+          parcela={parcelaDetalhe}
+          itensBase={produtosDetalhe.map((produto) => ({
+            id: produto.id,
+            nome: produto.titulo,
+            valor: produto.valor,
+          }))}
+          nomePadrao={renegociacaoDetalhe.credor}
+          onVoltar={() => setParcelaDetalhe(null)}
+          onSalvarItem={async (parcela, itemId, ajuste) => {
+            const itensBase = produtosDetalhe.map((produto) => ({
+              id: produto.id,
+              nome: produto.titulo,
+              valor: produto.valor,
+            }));
+            await atualizarParcelaRenegociacao(
+              parcela,
+              itemId,
+              ajuste,
+              itensBase,
+              renegociacaoDetalhe.credor
+            );
+            await carregarTudo();
+            abrirFeedback("sucesso", "Item atualizado", "O valor da parcela e a Conta a Pagar foram atualizados sem recalcular o acordo.");
+          }}
+          onPagar={(parcela) => setParcelaPagamento(parcela.cobranca)}
+        />
+      ) : renegociacaoDetalhe ? (
+        <TelaRenegociacao
           renegociacao={renegociacaoDetalhe}
-          itens={itensDetalhe}
+          produtos={produtosDetalhe}
           fechar={() => {
             setRenegociacaoDetalhe(null);
             setItensDetalhe([]);
           }}
+          onSelecionarParcela={(parcela) => setParcelaDetalhe({ ...parcela, renegociacaoId: renegociacaoDetalhe.id })}
           onExcluido={async () => {
             setRenegociacaoDetalhe(null);
             setItensDetalhe([]);
@@ -246,6 +307,21 @@ export default function Renegociacoes() {
             setItensDetalhe(itens);
             await carregarTudo();
             abrirFeedback("sucesso", "Renegociação atualizada", "As informações do acordo foram atualizadas.");
+          }}
+        />
+      ) : null}
+
+      {parcelaPagamento && (
+        <RegistrarPagamentoModal
+          aberto
+          contaPagar={parcelaPagamento}
+          contas={contasPagamento}
+          saldoContaPagar={(conta) => Math.max(Number(conta?.valor_total || 0) - Number(conta?.valor_pago || 0), 0)}
+          onClose={() => setParcelaPagamento(null)}
+          onSalvo={async () => {
+            setParcelaPagamento(null);
+            await carregarTudo();
+            abrirFeedback("sucesso", "Pagamento registrado", "O valor efetivamente pago foi registrado no Extrato e a parcela foi atualizada.");
           }}
         />
       )}
@@ -1087,21 +1163,22 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   );
 }
 
-function DetalheRenegociacaoModal({ renegociacao, itens, fechar, onExcluido, onAtualizado }) {
+function TelaRenegociacao({ renegociacao, produtos, fechar, onExcluido, onAtualizado, onSelecionarParcela }) {
   const [confirmarExclusao, setConfirmarExclusao] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
   const [modalEdicaoAberto, setModalEdicaoAberto] = useState(false);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
 
   const tipoAcordo = definirTipoAcordoRenegociacao(renegociacao);
-  const temEntrada = ["entrada_avista", "entrada_parcelado"].includes(tipoAcordo);
   const temParcelas = ["parcelado", "entrada_parcelado"].includes(tipoAcordo);
   const valorEntrada = Number(renegociacao.valor_entrada || 0);
   const numeroParcelas = temParcelas ? Math.max(Number(renegociacao.numero_parcelas || 1), 1) : 1;
   const valorParcelas = temParcelas
     ? Math.max(Number(renegociacao.valor_renegociado || 0) - valorEntrada, 0) / numeroParcelas
     : 0;
-  const itensAgrupados = agruparItensRenegociadosDetalhe(itens);
+  const proximaParcela = (renegociacao.parcelas || []).find(
+    (parcela) => !["paga", "pago"].includes(String(parcela.status || "").toLowerCase())
+  );
 
   function abrirFeedback(tipo, titulo, mensagem) {
     setFeedback({ aberto: true, tipo, titulo, mensagem });
@@ -1132,13 +1209,12 @@ function DetalheRenegociacaoModal({ renegociacao, itens, fechar, onExcluido, onA
 
   return (
     <>
-      <ModalBase
-        aberto={true}
-        titulo="Detalhes da renegociação"
-        descricao={renegociacao.credor}
-        onClose={fechar}
-        largura="max-w-3xl"
-        acaoCabecalho={
+      <div>
+        <CabecalhoVoltar
+          voltar={fechar}
+          titulo={renegociacao.credor}
+          descricao="Renegociação"
+          acoes={
           <>
             <button
               type="button"
@@ -1162,41 +1238,24 @@ function DetalheRenegociacaoModal({ renegociacao, itens, fechar, onExcluido, onA
               <FiTrash2 className="w-5 h-5" />
             </button>
           </>
-        }
-      >
-        <div className="space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <MiniInfo titulo="Data" valor={formatarDataBR(renegociacao.data_renegociacao)} />
-            <MiniInfo titulo="Tipo do acordo" valor={textoTipoAcordo(tipoAcordo)} />
-            <MiniInfo titulo="Forma" valor={textoFormaPagamento(renegociacao.forma_pagamento)} />
-            <MiniInfo titulo="Dívida original" valor={formatarMoeda(renegociacao.valor_original)} />
-            <MiniInfo titulo="Valor renegociado" valor={formatarMoeda(renegociacao.valor_renegociado)} />
-            {temEntrada && <MiniInfo titulo="Entrada" valor={formatarMoeda(valorEntrada)} />}
-            {temParcelas && <MiniInfo titulo="Parcelas" valor={`${numeroParcelas}x`} />}
-            {temParcelas && <MiniInfo titulo="Valor das parcelas" valor={formatarMoeda(valorParcelas)} />}
-            <MiniInfo titulo={temParcelas ? "Primeiro vencimento" : "Vencimento"} valor={formatarDataBR(renegociacao.primeiro_vencimento)} />
-          </div>
-
-          <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-5">
-            <p className="font-black mb-3">Itens renegociados</p>
-            {itensAgrupados.length > 0 ? (
-              <div className="space-y-2">
-                {itensAgrupados.map((item) => (
-                  <div key={item.chave} className="flex items-center justify-between gap-3 text-sm border-b border-gray-800 last:border-0 py-3">
-                    <div className="min-w-0">
-                      <p className="font-bold truncate">{item.titulo}</p>
-                      <p className="text-gray-500 truncate">{item.detalhe}</p>
-                    </div>
-                    <p className="font-black shrink-0">{formatarMoeda(item.total)}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-gray-400">Nenhum item encontrado.</p>
-            )}
-          </div>
-        </div>
-      </ModalBase>
+          }
+        />
+        <ResumoContrato
+          titulo="Resumo da renegociação"
+          hierarquico
+          itens={[
+          { titulo: "Produtos renegociados", valor: produtos.map((produto) => produto.titulo) },
+          { titulo: "Saldo renegociado", valor: formatarMoeda(renegociacao.valor_renegociado), principal: true },
+          { titulo: "Saldo devedor", valor: formatarMoeda(renegociacao.saldo_devedor), destaque: true, principal: true },
+          { titulo: "Parcelas", valor: `${Math.max(numeroParcelas - Number(renegociacao.parcelas_pagas || 0), 0)} de ${numeroParcelas} restantes`, principal: true },
+          { titulo: "Valor da parcela", valor: formatarMoeda(proximaParcela?.valorAtualizado ?? valorParcelas ?? renegociacao.valor_renegociado), principal: true },
+          { titulo: "Data do acordo", valor: formatarDataBR(renegociacao.data_renegociacao) },
+          { titulo: "Forma de pagamento", valor: textoFormaPagamento(renegociacao.forma_pagamento) },
+          { titulo: "Tipo do acordo", valor: textoTipoAcordo(tipoAcordo) },
+        ]}
+        />
+        <ParcelasContrato parcelas={renegociacao.parcelas || []} onSelecionar={onSelecionarParcela} />
+      </div>
 
       {modalEdicaoAberto && (
         <EditarRenegociacaoModal
@@ -1615,49 +1674,6 @@ function definirTipoAcordoRenegociacao(renegociacao) {
   if (entrada > 0) return "entrada_avista";
   if (parcelas > 1) return "parcelado";
   return "avista";
-}
-
-function agruparItensRenegociadosDetalhe(itens) {
-  const mapa = new Map();
-
-  (itens || []).forEach((item) => {
-    const payload = item.payload || {};
-    const cartao = payload.cartoes || payload.cartao || {};
-    const conta = payload.contas || payload.conta || {};
-    const cartaoId = payload.cartao_id || cartao.id || item.origem_id;
-    const contaId = payload.conta_id || conta.id || item.origem_id;
-
-    const tipo = item.tipo_origem === "fatura" ? "cartao" : item.tipo_origem === "conta_negativa" ? "conta_negativa" : "conta";
-    const chave = tipo === "cartao" ? `cartao-${cartaoId || item.titulo}` : `${tipo}-${contaId || item.titulo}`;
-    const titulo = tipo === "cartao"
-      ? cartao.nome || item.titulo || "Cartão"
-      : conta.nome || item.titulo || "Conta";
-    const detalhe = tipo === "cartao"
-      ? "Cartão de crédito"
-      : tipo === "conta_negativa"
-      ? "Conta negativa"
-      : item.detalhe || "Conta em acordo";
-
-    if (!mapa.has(chave)) {
-      mapa.set(chave, {
-        chave,
-        tipo,
-        titulo,
-        detalhe,
-        total: 0,
-      });
-    }
-
-    const valorTotalOperacao = payload._acordo?.valor_total_acordo;
-    mapa.get(chave).total += valorTotalOperacao === null || valorTotalOperacao === undefined
-      ? Number(item.valor_renegociado || 0)
-      : Number(valorTotalOperacao || 0);
-  });
-
-  return Array.from(mapa.values()).sort((a, b) => {
-    const ordem = { cartao: 1, conta_negativa: 2, conta: 3 };
-    return (ordem[a.tipo] || 9) - (ordem[b.tipo] || 9) || a.titulo.localeCompare(b.titulo);
-  });
 }
 
 function ResumoAcordoInicial({ itens }) {

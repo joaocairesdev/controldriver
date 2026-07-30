@@ -16,6 +16,11 @@ import {
   nomeCartaoComFinal,
   removerParcelasDaSaidaERecalcularFaturas,
 } from "../../cartoes/utils/cartoesUtils";
+import {
+  agruparSaidasDeAbastecimentos,
+  resumirFormasPagamento,
+  resumirOrigensPagamento,
+} from "../../abastecimentos/utils/abastecimentosPagamentos";
 
 const ITENS_POR_PAGINA_PADRAO = 30;
 
@@ -104,6 +109,7 @@ export default function Extrato() {
   }
 
   const nomes = {
+    multiplo: "Múltiplas formas",
     pix: "Pix",
     debito: "Débito",
     dinheiro: "Dinheiro",
@@ -190,6 +196,7 @@ export default function Extrato() {
       tipo_credito,
       data_efetivacao,
       finalidade,
+      saida_origem_id,
       conta_pagar_origem_id,
       fatura_pagamento_id,
       contrato_financeiro_id,
@@ -318,17 +325,35 @@ export default function Extrato() {
       }
     );
 
-    const saidasFormatadas = (saidasData || []).map((saida) => {
-      const formaTexto = textoFormaPagamento(saida);
+    const saidasAgrupadas = agruparSaidasDeAbastecimentos(
+      saidasData || [],
+      abastecimentosData || []
+    );
+
+    const saidasFormatadas = saidasAgrupadas.map((saida) => {
+      const multiplosPagamentos = (saida.pagamentos || []).length > 1;
+      const formaTexto = multiplosPagamentos
+        ? resumirFormasPagamento(saida.pagamentos)
+        : textoFormaPagamento(saida);
+      const textoPagamentos = (saida.pagamentos || [saida])
+        .map(
+          (pagamento) =>
+            `${textoFormaPagamento(pagamento)} ${
+              pagamento.contas?.nome || pagamento.cartoes?.nome || ""
+            }`
+        )
+        .join(" ");
 
       const contaCartao =
-        saida.tipo_movimentacao === "conta_pagar"
-          ? "Conta registrada"
-          : ["credito", "credito_avista", "credito_parcelado"].includes(
-              saida.forma_pagamento
-            )
-          ? nomeCartaoComFinal(saida.cartoes)
-          : saida.contas?.nome || "Conta";
+        multiplosPagamentos
+          ? resumirOrigensPagamento(saida.pagamentos)
+          : saida.tipo_movimentacao === "conta_pagar"
+            ? "Conta registrada"
+            : ["credito", "credito_avista", "credito_parcelado"].includes(
+                saida.forma_pagamento
+              )
+              ? nomeCartaoComFinal(saida.cartoes)
+              : saida.contas?.nome || "Conta";
 
       return {
         id: `saida-${saida.id}`,
@@ -346,11 +371,12 @@ export default function Extrato() {
         formaPagamento: saida.forma_pagamento,
         contaOrigem: contaCartao,
         categoria: saida.categoria,
-        textoBusca: `${saida.categoria} ${saida.descricao || ""} ${formaTexto} ${contaCartao}`,
+        textoBusca: `${saida.categoria} ${saida.descricao || ""} ${formaTexto} ${contaCartao} ${textoPagamentos}`,
         dadosOriginais: {
           ...saida,
           formaPagamentoTexto: formaTexto,
           contaOrigem: contaCartao,
+          pagamentos: saida.pagamentos || [saida],
           abastecimento: (abastecimentosData || []).find(
             (item) => item.saida_id === saida.id
           ),
@@ -389,6 +415,7 @@ export default function Extrato() {
 
   const formasPagamentoDisponiveis = useMemo(() => {
     const nomes = {
+      multiplo: "Múltiplas formas",
       pix: "Pix",
       debito: "Débito",
       dinheiro: "Dinheiro",
@@ -405,7 +432,13 @@ export default function Extrato() {
     };
 
     const formas = todosLancamentos
-      .map((item) => item.formaPagamento)
+      .flatMap((item) =>
+        item.dadosOriginais?.pagamentos?.length > 1
+          ? item.dadosOriginais.pagamentos.map(
+              (pagamento) => pagamento.forma_pagamento
+            )
+          : [item.formaPagamento]
+      )
       .filter(Boolean);
 
     return [...new Set(formas)].sort().map((valor) => ({
@@ -441,7 +474,12 @@ export default function Extrato() {
     }
 
     if ((formasPagamento || []).length > 0) {
-      lista = lista.filter((item) => formasPagamento.includes(item.formaPagamento));
+      lista = lista.filter((item) => {
+        const formasDoItem = item.dadosOriginais?.pagamentos?.map(
+          (pagamento) => pagamento.forma_pagamento
+        ) || [item.formaPagamento];
+        return formasDoItem.some((forma) => formasPagamento.includes(forma));
+      });
     }
 
     if (busca.trim()) {
@@ -758,6 +796,13 @@ export default function Extrato() {
     }
 
     if (["saida", "conta_pagar"].includes(lancamentoAlvo.tipo)) {
+      const idsSaidasAlvo = (
+        lancamentoAlvo.dadosOriginais?.pagamentos || [
+          { id: lancamentoAlvo.idOriginal },
+        ]
+      )
+        .map((saida) => Number(saida.id))
+        .filter(Boolean);
       const { data: saidaPagamento } = await supabase
         .from("saidas")
         .select("id, categoria, valor_total, fatura_pagamento_id, conta_pagar_origem_id")
@@ -798,7 +843,9 @@ export default function Extrato() {
       }
 
       await reabrirContaPagarAoExcluirPagamento(saidaPagamento);
-      await ajustarFaturasAoExcluirParcelasDaSaida(lancamentoAlvo.idOriginal);
+      for (const saidaId of idsSaidasAlvo) {
+        await ajustarFaturasAoExcluirParcelasDaSaida(saidaId);
+      }
 
       const { data: abastecimentoExcluido, error: erroBuscaAbastecimento } =
         await supabase
@@ -821,7 +868,7 @@ export default function Extrato() {
       const { error: erroParcelas } = await supabase
         .from("saidas_parcelas")
         .delete()
-        .eq("saida_id", lancamentoAlvo.idOriginal);
+        .in("saida_id", idsSaidasAlvo);
 
       if (erroParcelas) throw erroParcelas;
 
@@ -832,6 +879,17 @@ export default function Extrato() {
           .eq("saida_id", lancamentoAlvo.idOriginal);
 
         if (error) throw error;
+      }
+
+      const idsAdicionais = idsSaidasAlvo.filter(
+        (id) => id !== Number(lancamentoAlvo.idOriginal)
+      );
+      if (idsAdicionais.length) {
+        const { error: erroAdicionais } = await supabase
+          .from("saidas")
+          .delete()
+          .in("id", idsAdicionais);
+        if (erroAdicionais) throw erroAdicionais;
       }
 
       const { error: erroSaida } = await supabase
