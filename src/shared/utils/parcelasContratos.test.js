@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { atualizarCobrancaParcela } from "../services/parcelasContratosService.js";
 import {
+  calcularDiferencaParcela,
   criarAtualizacaoItemParcela,
   criarItensParcela,
   normalizarParcelaContrato,
+  obterValorExibidoItemParcela,
   obterSaldoParcela,
   parcelaEstaAtrasada,
   parcelaPodeSerEditada,
@@ -14,13 +16,11 @@ test("calcula o valor da parcela pela soma de diversos itens", () => {
   const parcela = {
     valorPrevisto: 365.91,
     valorAtualizado: 365.91,
-    cobranca: {
-      id: 70,
-      itens_parcela: [
-        { id: "cartao", nome: "Cartão Nubank PF", valor_previsto: 227.8, valor_atualizado: 227.8 },
-        { id: "conta", nome: "Conta Corrente", valor_previsto: 138.11, valor_atualizado: 138.11 },
-      ],
-    },
+    cobranca: { id: 70 },
+    composicao: [
+      { id: "cartao", nome: "Cartão Nubank PF", valorPrevisto: 227.8, valorAtualizado: 227.8 },
+      { id: "conta", nome: "Conta Corrente", valorPrevisto: 138.11, valorAtualizado: 138.11 },
+    ],
   };
 
   const itens = criarItensParcela(parcela);
@@ -46,11 +46,10 @@ test("composição persistida da parcela ignora itens de outras parcelas", () =>
     {
       valorPrevisto: 40,
       valorAtualizado: 40,
-      cobranca: {
-        itens_parcela: [
-          { id: "parcela-2", nome: "Cartão de Crédito — Itaú", valor_previsto: 40, valor_atualizado: 40 },
-        ],
-      },
+      cobranca: { id: 2 },
+      composicao: [
+        { id: "parcela-2", nome: "Cartão de Crédito — Itaú", valorPrevisto: 40, valorAtualizado: 40 },
+      ],
     },
     [
       { id: "parcela-1", nome: "Conta Corrente — Itaú", valor: 19.75 },
@@ -61,31 +60,39 @@ test("composição persistida da parcela ignora itens de outras parcelas", () =>
   assert.deepEqual(itens.map((item) => item.id), ["parcela-2"]);
 });
 
-test("edição altera somente valor atualizado e observação do item", () => {
+test("edição altera somente o valor atualizado do item", () => {
   const parcela = {
     valorPrevisto: 365.91,
     valorAtualizado: 365.91,
-    cobranca: {
-      id: 70,
-      itens_parcela: [
-        { id: "cartao", nome: "Cartão", valor_previsto: 227.8, valor_atualizado: 227.8 },
-        { id: "conta", nome: "Conta", valor_previsto: 138.11, valor_atualizado: 138.11 },
-      ],
-    },
+    cobranca: { id: 70 },
+    composicao: [
+      { id: "cartao", nome: "Cartão", valorPrevisto: 227.8, valorAtualizado: 227.8 },
+      { id: "conta", nome: "Conta", valorPrevisto: 138.11, valorAtualizado: 138.11 },
+    ],
   };
 
   const resultado = criarAtualizacaoItemParcela(
     parcela,
     "cartao",
-    { valorAtualizado: 230, observacao: "Valor confirmado no boleto" }
+    { valorAtualizado: 230 }
   );
 
   assert.equal(resultado.atualizacao.valor_total, 368.11);
   assert.equal(resultado.atualizacao.valor_parcela, 368.11);
-  assert.equal(resultado.atualizacao.itens_parcela[0].valor_previsto, 227.8);
-  assert.equal(resultado.atualizacao.itens_parcela[0].valor_atualizado, 230);
-  assert.equal(resultado.atualizacao.itens_parcela[0].observacao, "Valor confirmado no boleto");
-  assert.equal("motivo" in resultado.atualizacao.itens_parcela[0], false);
+  assert.deepEqual(Object.keys(resultado.atualizacao).sort(), ["valor_parcela", "valor_total"]);
+  assert.equal(resultado.itens[0].valorPrevisto, 227.8);
+  assert.equal(resultado.itens[0].valorAtualizado, 230);
+});
+
+test("cards e total resolvem valor atualizado antes do previsto", () => {
+  const itens = [
+    { valorPrevisto: 245.79, valorAtualizado: 260 },
+    { valorPrevisto: 100 },
+  ];
+
+  assert.deepEqual(itens.map(obterValorExibidoItemParcela), [260, 100]);
+  assert.deepEqual(itens.map(calcularDiferencaParcela), [14.21, 0]);
+  assert.equal(itens.reduce((total, item) => total + obterValorExibidoItemParcela(item), 0), 360);
 });
 
 test("normaliza cobrança antiga e usa o pagamento efetivo", () => {
@@ -137,7 +144,7 @@ test("serviço atualiza somente a cobrança que alimenta Contas a Pagar", async 
     supabase,
     parcela,
     "origem",
-    { valorAtualizado: 105, observacao: "" },
+    { valorAtualizado: 105 },
     [{ id: "origem", nome: "Banco", valor: 100 }],
     "Banco"
   );

@@ -32,19 +32,21 @@ test("lista separa parcelas abertas das pagas e inicia o histórico recolhido", 
   assert.match(lista, /parcelaEstaAtrasada/);
 });
 
-test("tela da parcela não mostra nem solicita motivo", async () => {
+test("tela da parcela restaura o comparativo e usa a mesma fonte nos cards e no total", async () => {
   const [tela, utilitario] = await Promise.all([
     ler("shared/components/financeiro/TelaParcelaContrato.jsx"),
     ler("shared/utils/parcelasContratos.js"),
   ]);
+  const campoRemovido = ["Observ", "ação"].join("");
+  const propriedadeRemovida = ["observ", "acao"].join("");
   assert.match(tela, /Valor previsto/);
   assert.match(tela, /Valor atualizado/);
   assert.match(tela, /Diferença/);
-  assert.match(tela, /Observação \(opcional\)/);
-  assert.doesNotMatch(tela, /Motivo/);
-  assert.doesNotMatch(utilitario, /juros|multa|amortizacao/);
   assert.match(tela, /alterado \?/);
-  assert.match(tela, /Observação/);
+  assert.match(tela, /obterValorExibidoItemParcela/);
+  assert.doesNotMatch(tela, new RegExp(`${campoRemovido}|Motivo`));
+  assert.doesNotMatch(utilitario, /juros|multa|amortizacao/);
+  assert.doesNotMatch(utilitario, new RegExp(propriedadeRemovida));
 });
 
 test("resumo da renegociação mantém toda a hierarquia em um card", async () => {
@@ -146,12 +148,16 @@ test("pagamento e Extrato preservam o valor efetivamente pago", async () => {
   assert.match(extrato, /valor: Number\(saida\.valor_total \|\| 0\)/);
 });
 
-test("migration corretiva preserva ajustes e elimina campos de motivo", async () => {
-  const migration = await ler("../supabase/migrations/20260730160000_composicao_itens_parcelas.sql");
-  assert.match(migration, /add column if not exists itens_parcela/);
-  assert.match(migration, /jsonb_build_array/);
-  assert.match(migration, /drop column if exists motivo_ajuste_parcela/);
-  assert.match(migration, /drop column if exists descricao_ajuste_parcela/);
-  assert.match(migration, /drop column if exists valor_previsto/);
-  assert.doesNotMatch(migration, /\bdelete\b/i);
+test("renegociação persiste a composição sem enviar coluna removida para saídas", async () => {
+  const [servico, utilitario] = await Promise.all([
+    ler("modules/renegociacoes/services/renegociacoesService.js"),
+    ler("shared/utils/parcelasContratos.js"),
+  ]);
+  const colunaRemovida = ["itens", "parcela"].join("_");
+
+  assert.doesNotMatch(servico, new RegExp(colunaRemovida));
+  assert.doesNotMatch(utilitario, new RegExp(colunaRemovida));
+  assert.match(servico, /ajustes_parcelas/);
+  assert.match(servico, /\.from\("renegociacoes_itens"\)/);
+  assert.match(utilitario, /valor_total: valorParcela/);
 });

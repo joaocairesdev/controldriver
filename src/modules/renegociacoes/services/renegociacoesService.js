@@ -1,17 +1,22 @@
 import { supabase } from "../../../services/supabase";
-import { atualizarCobrancaParcela } from "../../../shared/services/parcelasContratosService";
 import {
-  criarItensParcela,
+  criarAtualizacaoItemParcela,
   normalizarParcelaContrato,
+  parcelaPodeSerEditada,
 } from "../../../shared/utils/parcelasContratos";
 import { calcularSaldoAbertoFatura } from "../../cartoes/utils/cartoesUtils";
 import {
   adicionarMeses,
-  normalizarProdutosRenegociados,
+  criarComposicaoParcelaRenegociacao,
+  encontrarItemRenegociacaoPorProduto,
 } from "../utils/renegociacoesUtils";
 
 export async function carregarRenegociacoes() {
-  const [{ data, error }, { data: saidasAcordos, error: erroParcelas }] = await Promise.all([
+  const [
+    { data, error },
+    { data: saidasAcordos, error: erroParcelas },
+    { data: itensRenegociacoes, error: erroItens },
+  ] = await Promise.all([
     supabase
       .from("renegociacoes")
       .select("*")
@@ -22,10 +27,14 @@ export async function carregarRenegociacoes() {
       .select("*")
       .not("renegociacao_id", "is", null)
       .eq("categoria", "Renegociação"),
+    supabase
+      .from("renegociacoes_itens")
+      .select("*"),
   ]);
 
   if (error) throw error;
   if (erroParcelas) throw erroParcelas;
+  if (erroItens) throw erroItens;
 
   const cobrancasIds = (saidasAcordos || [])
     .filter((saida) => saida.tipo_movimentacao === "conta_pagar")
@@ -44,6 +53,13 @@ export async function carregarRenegociacoes() {
   }
 
   return (data || []).map((renegociacao) => {
+    const itensDoAcordo = (itensRenegociacoes || []).filter(
+      (item) => String(item.renegociacao_id) === String(renegociacao.id)
+    );
+    const valorPrevistoParcela = (
+      Math.max(Number(renegociacao.valor_renegociado || 0) - Number(renegociacao.valor_entrada || 0), 0)
+      / Math.max(Number(renegociacao.numero_parcelas || 1), 1)
+    );
     const parcelasDoAcordo = (saidasAcordos || []).filter(
       (parcela) => String(parcela.renegociacao_id) === String(renegociacao.id)
     );
@@ -64,13 +80,25 @@ export async function carregarRenegociacoes() {
     const proxima = parcelasMensais
       .filter((parcela) => !(parcela.status === "pago" || Number(parcela.valor_pago || 0) >= Number(parcela.valor_total || 0)))
       .sort((a, b) => String(a.data_vencimento || "").localeCompare(String(b.data_vencimento || "")))[0];
-    const parcelasNormalizadas = parcelasMensais.map((parcela, indice) =>
-      normalizarParcelaContrato({
-        cobranca: parcela,
-        numero: indice + 1,
-        pagamentos: pagamentosPorCobranca.get(String(parcela.id)) || [],
-      })
-    );
+    const parcelasNormalizadas = parcelasMensais.map((parcela, indice) => {
+      const numero = indice + 1;
+      const composicao = criarComposicaoParcelaRenegociacao({
+        itens: itensDoAcordo,
+        numeroParcela: numero,
+        valorPrevisto: valorPrevistoParcela,
+        nomePadrao: renegociacao.credor,
+      });
+
+      return {
+        ...normalizarParcelaContrato({
+          parcela: { valor: valorPrevistoParcela },
+          cobranca: parcela,
+          numero,
+          pagamentos: pagamentosPorCobranca.get(String(parcela.id)) || [],
+        }),
+        composicao,
+      };
+    });
 
     return {
       ...renegociacao,
@@ -94,14 +122,69 @@ export async function atualizarParcelaRenegociacao(
   itensBase,
   nomePadrao
 ) {
-  return atualizarCobrancaParcela(
-    supabase,
+  if (!parcela?.cobranca?.id || !parcela?.renegociacaoId) {
+    throw new Error("Parcela da renegociação não encontrada.");
+  }
+  if (!parcelaPodeSerEditada(parcela)) {
+    throw new Error("Somente parcelas abertas e sem pagamento podem ser alteradas.");
+  }
+
+  const resultado = criarAtualizacaoItemParcela(
     parcela,
     itemId,
     ajuste,
     itensBase,
     nomePadrao
   );
+  const itensRenegociacao = await carregarItensRenegociacao(parcela.renegociacaoId);
+  const itemPersistencia = encontrarItemRenegociacaoPorProduto(itensRenegociacao, itemId);
+  if (!itemPersistencia) throw new Error("Item da renegociação não encontrado.");
+
+  const itemAtualizado = resultado.itens.find((item) => String(item.id) === String(itemId));
+  const payloadAnterior = itemPersistencia.payload || {};
+  const ajustesAnteriores = Object.fromEntries(
+    Object.entries(payloadAnterior.ajustes_parcelas || {}).map(([numero, ajusteExistente]) => [
+      numero,
+      {
+        valorPrevisto: ajusteExistente?.valorPrevisto,
+        valorAtualizado: ajusteExistente?.valorAtualizado,
+      },
+    ])
+  );
+  const payloadAtualizado = {
+    ...payloadAnterior,
+    ajustes_parcelas: {
+      ...ajustesAnteriores,
+      [String(parcela.numero)]: {
+        valorPrevisto: itemAtualizado.valorPrevisto,
+        valorAtualizado: itemAtualizado.valorAtualizado,
+      },
+    },
+  };
+
+  const { error: erroCobranca } = await supabase
+    .from("saidas")
+    .update(resultado.atualizacao)
+    .eq("id", parcela.cobranca.id);
+  if (erroCobranca) throw erroCobranca;
+
+  const { error: erroItem } = await supabase
+    .from("renegociacoes_itens")
+    .update({ payload: payloadAtualizado })
+    .eq("id", itemPersistencia.id);
+
+  if (erroItem) {
+    await supabase
+      .from("saidas")
+      .update({
+        valor_total: parcela.cobranca.valor_total,
+        valor_parcela: parcela.cobranca.valor_parcela,
+      })
+      .eq("id", parcela.cobranca.id);
+    throw erroItem;
+  }
+
+  return resultado;
 }
 
 export async function carregarItensRenegociacao(renegociacaoId) {
@@ -479,22 +562,6 @@ async function criarParcelasRenegociacao({
   const saldoParcelar = Math.max(Number(valorRenegociado || 0) - Number(valorEntrada || 0), 0);
   const parcelas = Math.max(Number(numeroParcelas || 1), 1);
   const valorParcela = parcelas > 0 ? saldoParcelar / parcelas : saldoParcelar;
-  const produtos = normalizarProdutosRenegociados(itens);
-  const itensParcela = criarItensParcela(
-    { valorPrevisto: valorParcela, valorAtualizado: valorParcela },
-    produtos.map((produto) => ({
-      id: produto.id,
-      nome: produto.titulo,
-      valor: produto.valor,
-    })),
-    credor
-  ).map((item) => ({
-    id: item.id,
-    nome: item.nome,
-    valor_previsto: item.valorPrevisto,
-    valor_atualizado: item.valorAtualizado,
-    observacao: null,
-  }));
 
   if (Number(valorEntrada || 0) > 0) {
     await supabase.from("saidas").insert({
@@ -517,24 +584,36 @@ async function criarParcelasRenegociacao({
 
   if (saldoParcelar <= 0) return;
 
-  const saidas = Array.from({ length: parcelas }).map((_, indice) => ({
-    data_compra: renegociacao.data_renegociacao,
-    data_vencimento: adicionarMeses(primeiroVencimento, indice),
-    valor_total: valorParcela,
-    valor_pago: 0,
-    categoria: "Renegociação",
-    descricao: `Renegociação ${credor} - parcela ${indice + 1}/${parcelas}`,
-    forma_pagamento: formaPagamento,
-    tipo_movimentacao: "conta_pagar",
-    status: "pendente",
-    conta_id: contaDebitoId ? Number(contaDebitoId) : null,
-    ...(cartaoPagamentoId ? { cartao_id: Number(cartaoPagamentoId) } : {}),
-    finalidade: "pessoal",
-    numero_parcelas: parcelas,
-    valor_parcela: valorParcela,
-    renegociacao_id: renegociacao.id,
-    itens_parcela: itensParcela,
-  }));
+  const saidas = Array.from({ length: parcelas }).map((_, indice) => {
+    const composicao = criarComposicaoParcelaRenegociacao({
+      itens,
+      numeroParcela: indice + 1,
+      valorPrevisto: valorParcela,
+      nomePadrao: credor,
+    });
+    const valorAtualizado = composicao.reduce(
+      (total, item) => total + Number(item.valorAtualizado || 0),
+      0
+    );
+
+    return {
+      data_compra: renegociacao.data_renegociacao,
+      data_vencimento: adicionarMeses(primeiroVencimento, indice),
+      valor_total: valorAtualizado,
+      valor_pago: 0,
+      categoria: "Renegociação",
+      descricao: `Renegociação ${credor} - parcela ${indice + 1}/${parcelas}`,
+      forma_pagamento: formaPagamento,
+      tipo_movimentacao: "conta_pagar",
+      status: "pendente",
+      conta_id: contaDebitoId ? Number(contaDebitoId) : null,
+      ...(cartaoPagamentoId ? { cartao_id: Number(cartaoPagamentoId) } : {}),
+      finalidade: "pessoal",
+      numero_parcelas: parcelas,
+      valor_parcela: valorAtualizado,
+      renegociacao_id: renegociacao.id,
+    };
+  });
 
   const { error } = await supabase.from("saidas").insert(saidas);
   if (error) throw error;

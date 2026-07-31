@@ -11,6 +11,8 @@ import {
 } from "../../utils/moeda";
 import {
   criarItensParcela,
+  calcularDiferencaParcela,
+  obterValorExibidoItemParcela,
   obterSaldoParcela,
   parcelaPodeSerEditada,
   parcelaPodeSerPaga,
@@ -30,7 +32,7 @@ export default function TelaParcelaContrato({
     [parcela, itensBase, nomePadrao]
   );
   const valorParcela = itens.reduce(
-    (total, item) => total + Number(item.valorAtualizado || 0),
+    (total, item) => total + obterValorExibidoItemParcela(item),
     0
   );
 
@@ -52,7 +54,8 @@ export default function TelaParcelaContrato({
         <h2 className="text-lg font-black">Composição da parcela</h2>
         <div className="mt-4 space-y-3">
           {itens.map((item) => {
-            const diferenca = Math.round((item.valorAtualizado - item.valorPrevisto) * 100) / 100;
+            const valorExibido = obterValorExibidoItemParcela(item);
+            const diferenca = calcularDiferencaParcela(item);
             const alterado = diferenca !== 0;
             return (
               <article key={item.id} className="rounded-2xl border border-gray-800 bg-[#111827] p-5">
@@ -71,7 +74,7 @@ export default function TelaParcelaContrato({
                 {alterado ? (
                   <div className="mt-4 grid gap-3 sm:grid-cols-3">
                     <Info label="Valor previsto" valor={formatarMoeda(item.valorPrevisto)} />
-                    <Info label="Valor atualizado" valor={formatarMoeda(item.valorAtualizado)} />
+                    <Info label="Valor atualizado" valor={formatarMoeda(valorExibido)} />
                     <Info
                       label="Diferença"
                       valor={`${diferenca > 0 ? "+" : ""}${formatarMoeda(diferenca)}`}
@@ -80,14 +83,8 @@ export default function TelaParcelaContrato({
                   </div>
                 ) : (
                   <div className="mt-4">
-                    <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Valor</p>
-                    <p className="mt-1 text-2xl font-black">{formatarMoeda(item.valorAtualizado)}</p>
-                  </div>
-                )}
-                {alterado && item.observacao && (
-                  <div className="mt-4 rounded-xl border border-gray-800 bg-[#0B1120] p-4">
-                    <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Observação</p>
-                    <p className="mt-1 text-sm text-gray-300">{item.observacao}</p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Valor previsto</p>
+                    <p className="mt-1 text-2xl font-black">{formatarMoeda(item.valorPrevisto)}</p>
                   </div>
                 )}
               </article>
@@ -143,8 +140,7 @@ export function CabecalhoVoltar({ voltar, titulo, descricao, acoes }) {
 }
 
 function EditarItemParcela({ item, onClose, onSalvar }) {
-  const [valor, setValor] = useState(numeroParaMoedaInput(item.valorAtualizado));
-  const [observacao, setObservacao] = useState(item.observacao || "");
+  const [valor, setValor] = useState(numeroParaMoedaInput(obterValorExibidoItemParcela(item)));
   const [erro, setErro] = useState("");
   const [salvando, setSalvando] = useState(false);
 
@@ -156,7 +152,7 @@ function EditarItemParcela({ item, onClose, onSalvar }) {
     }
     setSalvando(true);
     try {
-      await onSalvar({ valorAtualizado: valorNumerico, observacao });
+      await onSalvar({ valorAtualizado: valorNumerico });
     } catch (error) {
       setErro(error.message || "Não foi possível atualizar o item.");
     } finally {
@@ -173,12 +169,9 @@ function EditarItemParcela({ item, onClose, onSalvar }) {
       largura="max-w-lg"
       confirmarAoFecharSeAlterado
       rodape={(
-        <div className="grid grid-cols-2 gap-3">
-          <button type="button" onClick={onClose} disabled={salvando} className="rounded-xl border border-gray-700 p-3 font-bold">Cancelar</button>
-          <button type="button" onClick={salvar} disabled={salvando} className="rounded-xl bg-green-500 p-3 font-black text-black">
-            {salvando ? "Salvando..." : "Salvar"}
-          </button>
-        </div>
+        <button type="button" onClick={salvar} disabled={salvando} className="w-full rounded-xl bg-green-500 p-3 font-black text-black">
+          {salvando ? "Salvando..." : "Salvar"}
+        </button>
       )}
     >
       <div className="space-y-4">
@@ -195,14 +188,6 @@ function EditarItemParcela({ item, onClose, onSalvar }) {
               className="w-full bg-transparent p-3 pl-0 outline-none"
             />
           </div>
-        </Campo>
-        <Campo label="Observação (opcional)">
-          <textarea
-            value={observacao}
-            onChange={(event) => setObservacao(event.target.value)}
-            rows={3}
-            className="mt-2 w-full resize-none rounded-xl border border-gray-700 bg-[#0B1120] p-3 outline-none focus:border-green-400"
-          />
         </Campo>
       </div>
     </ModalBase>

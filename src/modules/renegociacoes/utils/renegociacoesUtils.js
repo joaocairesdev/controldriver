@@ -1,4 +1,5 @@
 export { formatarMoeda } from "../../../shared/utils/moeda.js";
+import { criarItensParcela } from "../../../shared/utils/parcelasContratos.js";
 
 export function formatarMoedaDigitada(valor) {
   const somenteDigitos = String(valor ?? "").replace(/\D/g, "");
@@ -146,4 +147,56 @@ export function normalizarProdutosRenegociados(itens = []) {
   }
 
   return [...produtos.values()];
+}
+
+function itemPertenceAoProduto(item, produtoId) {
+  return String(normalizarProdutosRenegociados([item])[0]?.id) === String(produtoId);
+}
+
+export function encontrarItemRenegociacaoPorProduto(itens = [], produtoId) {
+  return itens
+    .filter((item) => itemPertenceAoProduto(item, produtoId))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id), "pt-BR", { numeric: true }))[0] || null;
+}
+
+function encontrarAjusteParcelaProduto(itens, produtoId, numeroParcela) {
+  const chaveParcela = String(numeroParcela);
+  const itemComAjuste = itens
+    .filter((item) =>
+      itemPertenceAoProduto(item, produtoId)
+      && Object.hasOwn(item?.payload?.ajustes_parcelas || {}, chaveParcela)
+    )
+    .sort((a, b) => String(a.id).localeCompare(String(b.id), "pt-BR", { numeric: true }))[0];
+
+  return itemComAjuste?.payload?.ajustes_parcelas?.[chaveParcela] || null;
+}
+
+export function criarComposicaoParcelaRenegociacao({
+  itens = [],
+  numeroParcela,
+  valorPrevisto,
+  nomePadrao,
+}) {
+  const produtos = normalizarProdutosRenegociados(itens);
+  const composicaoBase = criarItensParcela(
+    { valorPrevisto, valorAtualizado: valorPrevisto },
+    produtos.map((produto) => ({
+      id: produto.id,
+      nome: produto.titulo,
+      valor: produto.valor,
+    })),
+    nomePadrao
+  );
+
+  return composicaoBase.map((item) => {
+    const ajuste = encontrarAjusteParcelaProduto(itens, item.id, numeroParcela);
+
+    return ajuste
+      ? {
+          ...item,
+          valorPrevisto: Number(ajuste.valorPrevisto ?? item.valorPrevisto),
+          valorAtualizado: Number(ajuste.valorAtualizado ?? item.valorAtualizado),
+        }
+      : item;
+  });
 }

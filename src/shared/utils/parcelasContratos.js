@@ -21,6 +21,10 @@ export function obterValorAtualizadoParcela(parcela) {
   );
 }
 
+export function obterValorExibidoItemParcela(item) {
+  return arredondarMoeda(item?.valorAtualizado ?? item?.valorPrevisto ?? 0);
+}
+
 export function calcularDiferencaParcela(parcela) {
   return arredondarMoeda(
     obterValorAtualizadoParcela(parcela) - obterValorPrevistoParcela(parcela)
@@ -78,14 +82,13 @@ function distribuirCentavos(total, pesos) {
 }
 
 export function criarItensParcela(parcela, itensBase = [], nomePadrao = "Contrato financeiro") {
-  const persistidos = parcela?.cobranca?.itens_parcela;
+  const persistidos = parcela?.composicao;
   if (Array.isArray(persistidos) && persistidos.length > 0) {
     return persistidos.map((item, indice) => ({
       id: String(item.id ?? indice + 1),
       nome: item.nome || nomePadrao,
-      valorPrevisto: arredondarMoeda(item.valor_previsto),
-      valorAtualizado: arredondarMoeda(item.valor_atualizado ?? item.valor_previsto),
-      observacao: item.observacao || "",
+      valorPrevisto: arredondarMoeda(item.valorPrevisto),
+      valorAtualizado: arredondarMoeda(item.valorAtualizado ?? item.valorPrevisto),
     }));
   }
 
@@ -101,17 +104,16 @@ export function criarItensParcela(parcela, itensBase = [], nomePadrao = "Contrat
     nome: item.nome || item.titulo || nomePadrao,
     valorPrevisto: previstos[indice],
     valorAtualizado: atualizados[indice],
-    observacao: "",
   }));
 }
 
-export function criarAtualizacaoItemParcela(parcela, itemId, { valorAtualizado, observacao }, itensBase, nomePadrao) {
+export function criarAtualizacaoItemParcela(parcela, itemId, { valorAtualizado }, itensBase, nomePadrao) {
   const valorNovo = arredondarMoeda(valorAtualizado);
   if (valorNovo <= 0) throw new Error("Informe um valor atualizado maior que zero.");
 
   const itens = criarItensParcela(parcela, itensBase, nomePadrao).map((item) =>
     String(item.id) === String(itemId)
-      ? { ...item, valorAtualizado: valorNovo, observacao: String(observacao || "").trim() }
+      ? { ...item, valorAtualizado: valorNovo }
       : item
   );
   const encontrou = itens.some((item) => String(item.id) === String(itemId));
@@ -124,13 +126,6 @@ export function criarAtualizacaoItemParcela(parcela, itemId, { valorAtualizado, 
   return {
     itens,
     atualizacao: {
-      itens_parcela: itens.map((item) => ({
-        id: item.id,
-        nome: item.nome,
-        valor_previsto: item.valorPrevisto,
-        valor_atualizado: item.valorAtualizado,
-        observacao: item.observacao || null,
-      })),
       valor_total: valorParcela,
       valor_parcela: valorParcela,
     },
