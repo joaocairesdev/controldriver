@@ -10,6 +10,7 @@ import {
 import { supabase } from "../../../services/supabase";
 import ModalBase from "../../../shared/components/modals/ModalBase";
 import ModalExtratoConta from "../components/ModalExtratoConta";
+import PlataformasFinanceiras from "../components/PlataformasFinanceiras";
 import { formatarDataBR } from "../../../shared/utils/data";
 
 export default function Contas() {
@@ -510,6 +511,8 @@ export default function Contas() {
           </div>
         </section>
       )}
+
+      <PlataformasFinanceiras onMovimentacao={carregarContas} />
 
       <section className="mt-10">
         <div className="flex items-center gap-3">

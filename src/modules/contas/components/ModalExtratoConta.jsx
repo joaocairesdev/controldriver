@@ -106,7 +106,7 @@ export default function ModalExtratoConta({
         await supabase
           .from("transferencias")
           .select(
-            "id, data, created_at, valor, descricao, conta_origem_id, conta_destino_id",
+            "id, data, created_at, valor, descricao, conta_origem_id, conta_destino_id, tipo, plataforma_id, plataformas ( nome )",
           )
           .eq("conta_origem_id", contaId);
 
@@ -116,7 +116,7 @@ export default function ModalExtratoConta({
         await supabase
           .from("transferencias")
           .select(
-            "id, data, created_at, valor, descricao, conta_origem_id, conta_destino_id",
+            "id, data, created_at, valor, descricao, conta_origem_id, conta_destino_id, tipo, plataforma_id, plataformas ( nome )",
           )
           .eq("conta_destino_id", contaId);
 
@@ -211,18 +211,40 @@ export default function ModalExtratoConta({
       );
 
       const transferenciasEntrada = (transferenciasDestino || []).map(
-        (transferencia) => ({
-          id: `transferencia-entrada-${transferencia.id}`,
-          tipo: "entrada",
-          data: transferencia.data,
-          created_at: transferencia.created_at,
-          descricao: transferencia.descricao || "Transferência recebida",
-          categoria: "Transferência",
-          valor: Number(transferencia.valor || 0),
-          textoBusca: `entrada transferencia recebida ${transferencia.descricao || ""} de ${
-            nomesContas[String(transferencia.conta_origem_id)] || ""
-          }`,
-        }),
+        (transferencia) => {
+          const nomePlataforma = transferencia.plataformas?.nome || "Plataforma";
+          const creditoDireto = transferencia.tipo === "recebimento_direto_plataforma";
+          const recebimentoAutomatico =
+            transferencia.tipo === "recebimento_automatico_plataforma";
+          const saquePlataforma = transferencia.tipo === "saque_plataforma";
+          const descricao = creditoDireto
+            ? `Ganhos com ${nomePlataforma}`
+            : recebimentoAutomatico
+              ? `Recebimento automático - ${nomePlataforma}`
+              : saquePlataforma
+                ? `Saque - ${nomePlataforma}`
+                : transferencia.descricao || "Transferência recebida";
+          const categoria = creditoDireto
+            ? "Ganhos com Plataformas"
+            : recebimentoAutomatico
+              ? "Recebimento da Plataforma"
+              : saquePlataforma
+                ? "Saque da Plataforma"
+                : "Transferência";
+
+          return {
+            id: `transferencia-entrada-${transferencia.id}`,
+            tipo: "entrada",
+            data: transferencia.data,
+            created_at: transferencia.created_at,
+            descricao,
+            categoria,
+            valor: Number(transferencia.valor || 0),
+            textoBusca: `entrada ${categoria} ${descricao} ${
+              nomesContas[String(transferencia.conta_origem_id)] || ""
+            }`,
+          };
+        },
       );
 
       const lista = [

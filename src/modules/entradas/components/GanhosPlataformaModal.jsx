@@ -19,7 +19,6 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
   const [km, setKm] = useState("");
   const [plataformas, setPlataformas] = useState([]);
   const [selecionadas, setSelecionadas] = useState([]);
-  const [contaPrincipal, setContaPrincipal] = useState(null);
   const [veiculoPrincipal, setVeiculoPrincipal] = useState(null);
   const [salvando, setSalvando] = useState(false);
   const [jornadaUsada, setJornadaUsada] = useState(null);
@@ -64,12 +63,6 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
 
     if (erroPlataformas) console.error("Erro ao carregar plataformas:", erroPlataformas);
 
-    const { data: contaData } = await supabase
-      .from("contas")
-      .select("*")
-      .eq("principal", true)
-      .maybeSingle();
-
     const { data: veiculoData } = await supabase
       .from("veiculos")
       .select("*")
@@ -77,7 +70,6 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
       .maybeSingle();
 
     setPlataformas(plataformasData || []);
-    setContaPrincipal(contaData || null);
     setVeiculoPrincipal(veiculoData || null);
 
     const dataBase = edicao?.data || jornadaInicial?.data || data || hoje;
@@ -314,11 +306,6 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
     if (!selecionadas.length) novosErros.plataformas = "Selecione pelo menos uma plataforma.";
     setErros(novosErros); if (Object.keys(novosErros).length) { setShakeKey(Date.now()); return; }
 
-    if (!contaPrincipal?.id) {
-      abrirFeedback("erro", "Conta principal não encontrada", "Defina uma conta principal em Contas antes de salvar.");
-      return;
-    }
-
     if (!veiculoPrincipal?.id) {
       abrirFeedback("erro", "Veículo principal não encontrado", "Defina um veículo principal em Veículos antes de salvar.");
       return;
@@ -366,7 +353,7 @@ export default function GanhosPlataformaModal({ aberto, onClose, jornadaInicial 
           data,
           horas_trabalhadas: tempoPicker.hora ? `${tempoPicker.hora}:${tempoPicker.minuto}:00` : null,
           km_rodados: Number(km),
-          conta_id: contaPrincipal?.id,
+          conta_id: null,
           veiculo_id: veiculoPrincipal?.id,
           custo_estimado_combustivel: custoEstimadoCombustivel,
         })

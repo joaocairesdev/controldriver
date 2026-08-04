@@ -30,6 +30,10 @@ export default function DetalhesLancamentoModal({
   const isSaida = lancamento.tipo === "saida";
   const isSaidaOuConta = isSaida || isContaPagar;
   const pertenceContratoFinanceiro = Boolean(dados.contrato_financeiro_id);
+  const saquePlataforma = isTransferencia && dados.tipo === "saque_plataforma";
+  const recebimentoAutomatico =
+    isTransferencia && dados.tipo === "recebimento_automatico_plataforma";
+  const taxaSaquePlataforma = Boolean(dados.saque_transferencia_id);
 
   const sinalValor = isEntrada || isEntradaAvulsa || isGrupoEntrada ? "+" : isSaida ? "-" : "";
   const corValor = isEntrada || isEntradaAvulsa || isGrupoEntrada
@@ -46,7 +50,8 @@ export default function DetalhesLancamentoModal({
       onClose={fechar}
       largura="max-w-2xl"
       acaoCabecalho={
-        !isGrupoEntrada && !pertenceContratoFinanceiro ? (
+        !isGrupoEntrada && !pertenceContratoFinanceiro && !taxaSaquePlataforma
+          && !recebimentoAutomatico ? (
           <button
             type="button"
             onClick={pedirExclusao}
@@ -134,6 +139,32 @@ export default function DetalhesLancamentoModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <DetalheItem titulo="Origem" valor={lancamento.contaOrigem || "-"} />
             <DetalheItem titulo="Destino" valor={lancamento.contaDestino || "-"} />
+            {saquePlataforma ? (
+              <>
+                <DetalheItem titulo="Valor bruto" valor={formatarMoeda(dados.valor_bruto || 0)} />
+                <DetalheItem titulo="Taxa" valor={formatarMoeda(dados.taxa || 0)} />
+                <DetalheItem titulo="Valor recebido" valor={formatarMoeda(dados.valor || 0)} destaque="green" />
+                <DetalheItem
+                  titulo="Tipo do saque"
+                  valor={
+                    dados.tipo_saque === "instantaneo"
+                      ? "Instantâneo"
+                      : dados.tipo_saque === "agendado"
+                        ? "Agendado"
+                        : "Outro"
+                  }
+                />
+              </>
+            ) : null}
+            {recebimentoAutomatico ? (
+              <>
+                <DetalheItem
+                  titulo="Ciclo"
+                  valor={`${formatarData(dados.ciclo_operacional_inicio)} a ${formatarData(dados.ciclo_operacional_fim)}`}
+                />
+                <DetalheItem titulo="Taxa" valor={formatarMoeda(0)} />
+              </>
+            ) : null}
             <DetalheItem titulo="Descrição" valor={dados.descricao || lancamento.descricao || "-"} />
           </div>
         )}
@@ -229,8 +260,21 @@ export default function DetalhesLancamentoModal({
           </p>
         )}
 
+        {taxaSaquePlataforma && (
+          <p className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-300">
+            Esta taxa pertence a um saque de plataforma. Exclua o saque para remover as duas movimentações com consistência.
+          </p>
+        )}
+
+        {recebimentoAutomatico && (
+          <p className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-300">
+            Este recebimento foi gerado automaticamente pelo ciclo financeiro da plataforma.
+          </p>
+        )}
+
         <div className="grid grid-cols-2 gap-3 pt-2">
-          {!isGrupoEntrada && !pertenceContratoFinanceiro ? (
+          {!isGrupoEntrada && !pertenceContratoFinanceiro && !saquePlataforma
+            && !taxaSaquePlataforma && !recebimentoAutomatico ? (
             <button
               type="button"
               onClick={editar}
@@ -270,6 +314,7 @@ function textoFormaPagamentoDetalhe(pagamento) {
     credito_avista: "Crédito à vista",
     credito_parcelado: "Crédito parcelado",
     boleto: "Boleto",
+    desconto_transferencia: "Desconto no recebimento",
   };
 
   return nomes[pagamento.forma_pagamento] || pagamento.forma_pagamento || "-";

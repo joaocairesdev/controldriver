@@ -15,6 +15,7 @@ export const CATEGORIAS_SISTEMA_FIXAS = [
   { nome: "Estacionamento (Pessoal)", tipo_uso: "pessoal" },
   { nome: "Estacionamento (Trabalho)", tipo_uso: "trabalho" },
   { nome: "Mensalidade da TAG", tipo_uso: "proporcional" },
+  { nome: "Taxa de Saque da Plataforma", tipo_uso: "trabalho" },
 ];
 
 export function normalizarCategoria(valor) {
@@ -57,4 +58,3 @@ export function corTextoTipoUsoCategoria(valor) {
   if (valor === "proporcional") return "text-cyan-400";
   return "text-yellow-400";
 }
-

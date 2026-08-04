@@ -17,7 +17,6 @@ export default function NovaEntrada({ setPagina }) {
   const [km, setKm] = useState("");
   const [plataformas, setPlataformas] = useState([]);
   const [selecionadas, setSelecionadas] = useState([]);
-  const [contaPrincipal, setContaPrincipal] = useState(null);
   const [veiculoPrincipal, setVeiculoPrincipal] = useState(null);
   const [lancamentosDoDia, setLancamentosDoDia] = useState({});
   const [salvando, setSalvando] = useState(false);
@@ -52,12 +51,6 @@ export default function NovaEntrada({ setPagina }) {
       console.error("Erro ao carregar plataformas:", erroPlataformas);
     }
 
-    const { data: contaData } = await supabase
-      .from("contas")
-      .select("*")
-      .eq("principal", true)
-      .single();
-
     const { data: veiculoData } = await supabase
       .from("veiculos")
       .select("*")
@@ -65,7 +58,6 @@ export default function NovaEntrada({ setPagina }) {
       .single();
 
     setPlataformas(plataformasData || []);
-    setContaPrincipal(contaData);
     setVeiculoPrincipal(veiculoData);
     await carregarLancamentosDoDia(data || hoje);
   }
@@ -185,7 +177,7 @@ export default function NovaEntrada({ setPagina }) {
         data,
         horas_trabalhadas: `${tempoPicker.hora}:${tempoPicker.minuto}:00`,
         km_rodados: Number(km),
-        conta_id: contaPrincipal?.id,
+        conta_id: null,
         veiculo_id: veiculoPrincipal?.id,
         custo_estimado_combustivel: custoEstimadoCombustivel,
       })

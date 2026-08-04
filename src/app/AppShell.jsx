@@ -18,6 +18,7 @@ import Metas from "../modules/metas/pages/Metas";
 import Configuracoes from "../modules/categorias/pages/Configuracoes";
 import Renegociacoes from "../modules/renegociacoes/pages/Renegociacoes";
 import Emprestimos from "../modules/contratos/pages/Emprestimos";
+import { processarRecebimentosAutomaticos } from "../modules/contas/services/plataformasFinanceiroService";
 
 export default function App() {
   const [pagina, setPagina] = useState(() => {
@@ -38,6 +39,12 @@ export default function App() {
   const historicoPaginasRef = useRef([pagina]);
   const paginaAtualRef = useRef(pagina);
   const menuAbertoRef = useRef(false);
+
+  useEffect(() => {
+    processarRecebimentosAutomaticos().catch((error) => {
+      console.error("Erro ao processar recebimentos automáticos das plataformas:", error);
+    });
+  }, []);
 
   useEffect(() => {
     paginaAtualRef.current = pagina;

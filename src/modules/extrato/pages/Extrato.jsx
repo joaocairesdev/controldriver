@@ -116,6 +116,7 @@ export default function Extrato() {
     boleto: "Boleto",
     boleto_parcelado: "Boleto Parcelado",
     tag: "TAG",
+    desconto_transferencia: "Desconto no recebimento",
   };
 
   return nomes[saida.forma_pagamento] || saida.forma_pagamento || "-";
@@ -147,6 +148,8 @@ export default function Extrato() {
         valor_reembolso,
         numero_corridas,
         houve_pedagio,
+        destino_financeiro,
+        conta_destino_id,
         plataformas ( nome )
       )
     `);
@@ -174,8 +177,15 @@ export default function Extrato() {
         conta_origem_id,
         conta_destino_id,
         valor,
+        valor_bruto,
         descricao,
-        tipo
+        tipo,
+        tipo_saque,
+        plataforma_id,
+        entrada_plataforma_id,
+        ciclo_operacional_inicio,
+        ciclo_operacional_fim,
+        plataformas ( nome )
       `);
 
     const { data: saidasData } = await supabase.from("saidas").select(`
@@ -201,6 +211,7 @@ export default function Extrato() {
       fatura_pagamento_id,
       contrato_financeiro_id,
       contrato_financeiro_parcela_id,
+      saque_transferencia_id,
       contas ( nome ),
       cartoes ( nome, final_cartao, tipo_cartao )
     `);
@@ -256,6 +267,20 @@ export default function Extrato() {
         .map((item) => item.plataformas?.nome)
         .filter(Boolean)
         .join(", ");
+      const destinos = [
+        ...new Set(
+          (entrada.entrada_plataformas || []).map((item) =>
+            item.destino_financeiro === "conta"
+              ? nomeContaPorId[String(item.conta_destino_id)] || "Conta configurada"
+              : `Saldo da ${item.plataformas?.nome || "plataforma"}`,
+          ),
+        ),
+      ];
+      const contaDestino = destinos.length === 1
+        ? destinos[0]
+        : destinos.length > 1
+          ? "Destinos configurados das plataformas"
+          : entrada.contas?.nome || "Saldo das plataformas";
 
       return {
         id: `entrada-${entrada.id}`,
@@ -266,10 +291,10 @@ export default function Extrato() {
         titulo: "Ganhos com Plataformas",
         descricao: plataformas || "Plataformas",
         valor: total,
-        contaDestino: entrada.contas?.nome || "Conta",
+        contaDestino,
         categoria: "Entrada",
         formaPagamento: "entrada",
-        textoBusca: `Ganhos com Plataformas ${plataformas} ${entrada.contas?.nome || ""}`,
+        textoBusca: `Ganhos com Plataformas ${plataformas} ${contaDestino}`,
         dadosOriginais: entrada,
       };
     });
@@ -293,10 +318,17 @@ export default function Extrato() {
       })
     );
 
-    const transferenciasFormatadas = (transferenciasData || []).map(
+    const transferenciasFormatadas = (transferenciasData || [])
+      .filter((transferencia) => transferencia.tipo !== "recebimento_direto_plataforma")
+      .map(
       (transferencia) => {
-        const contaOrigem =
-          nomeContaPorId[String(transferencia.conta_origem_id)] || "Origem";
+        const saquePlataforma = transferencia.tipo === "saque_plataforma";
+        const recebimentoAutomatico =
+          transferencia.tipo === "recebimento_automatico_plataforma";
+        const movimentacaoPlataforma = saquePlataforma || recebimentoAutomatico;
+        const contaOrigem = movimentacaoPlataforma
+          ? transferencia.plataformas?.nome || "Plataforma"
+          : nomeContaPorId[String(transferencia.conta_origem_id)] || "Origem";
         const contaDestino =
           nomeContaPorId[String(transferencia.conta_destino_id)] || "Destino";
 
@@ -306,18 +338,29 @@ export default function Extrato() {
           tipo: "transferencia",
           data: transferencia.data,
           created_at: transferencia.created_at,
-          titulo: "Transferência",
+          titulo: saquePlataforma
+            ? "Saque da Plataforma"
+            : recebimentoAutomatico
+              ? "Recebimento Automático da Plataforma"
+              : "Transferência",
           descricao:
             transferencia.descricao ||
             `${contaOrigem} → ${contaDestino}`,
           valor: Number(transferencia.valor || 0),
           contaOrigem,
           contaDestino,
-          categoria: "Transferência",
+          categoria: saquePlataforma
+            ? "Saque da Plataforma"
+            : recebimentoAutomatico
+              ? "Recebimento da Plataforma"
+              : "Transferência",
           formaPagamento: "transferencia",
-          textoBusca: `Transferência ${transferencia.descricao || ""} ${contaOrigem} ${contaDestino}`,
+          textoBusca: `${saquePlataforma ? "Saque da Plataforma" : "Transferência"} ${transferencia.descricao || ""} ${contaOrigem} ${contaDestino}`,
           dadosOriginais: {
             ...transferencia,
+            taxa: saquePlataforma
+              ? Number(transferencia.valor_bruto || 0) - Number(transferencia.valor || 0)
+              : 0,
             contaOrigem,
             contaDestino,
           },
@@ -751,6 +794,10 @@ export default function Extrato() {
 
   function editarLancamento(lancamento) {
     if (lancamento?.dadosOriginais?.contrato_financeiro_id) return;
+    if (["saque_plataforma", "recebimento_automatico_plataforma"].includes(
+      lancamento?.dadosOriginais?.tipo,
+    )) return;
+    if (lancamento?.dadosOriginais?.saque_transferencia_id) return;
     setLancamentoSelecionado(null);
     setEdicaoLancamento(lancamento);
   }
@@ -759,6 +806,12 @@ export default function Extrato() {
     if (!lancamentoAlvo) return;
     if (lancamentoAlvo.dadosOriginais?.contrato_financeiro_id) {
       throw new Error("Movimentações de empréstimos devem ser alteradas no módulo Empréstimos.");
+    }
+    if (lancamentoAlvo.dadosOriginais?.saque_transferencia_id) {
+      throw new Error("Exclua o saque da plataforma para remover também a taxa vinculada.");
+    }
+    if (lancamentoAlvo.dadosOriginais?.tipo === "recebimento_automatico_plataforma") {
+      throw new Error("Recebimentos automáticos são controlados pelo ciclo financeiro da plataforma.");
     }
 
     if (lancamentoAlvo.tipo === "entrada") {
