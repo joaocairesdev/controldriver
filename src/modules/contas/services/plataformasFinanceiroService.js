@@ -1,6 +1,11 @@
 import { supabase } from "../../../services/supabase";
 import { hojeBrasil } from "../../../shared/utils/data";
-import { calcularSaldosPlataformas } from "../utils/plataformasFinanceiro";
+import {
+  calcularSaldosPlataformas,
+  montarMovimentacoesPlataforma,
+  obterDataPagamentoCiclo,
+  obterProximoRecebimentoAutomatico,
+} from "../utils/plataformasFinanceiro";
 
 export async function processarRecebimentosAutomaticos(dataReferencia = hojeBrasil()) {
   const { data, error } = await supabase.rpc("processar_recebimentos_automaticos", {
@@ -51,6 +56,153 @@ export async function carregarContasDestinoSaque() {
   return data || [];
 }
 
+export async function carregarExtratoPlataforma(plataformaId) {
+  await processarRecebimentosAutomaticos();
+
+  const [plataformaRes, ganhosRes, transferenciasRes, contasRes] = await Promise.all([
+    supabase.from("plataformas").select("*").eq("id", plataformaId).single(),
+    supabase
+      .from("entrada_plataformas")
+      .select(`
+        id,
+        entrada_id,
+        plataforma_id,
+        faturamento,
+        valor_reembolso,
+        numero_corridas,
+        houve_pedagio,
+        destino_financeiro,
+        conta_destino_id,
+        ciclo_operacional_inicio,
+        ciclo_operacional_fim,
+        created_at,
+        entradas!inner ( id, data, created_at )
+      `)
+      .eq("plataforma_id", plataformaId),
+    supabase
+      .from("transferencias")
+      .select(`
+        id,
+        data,
+        created_at,
+        conta_destino_id,
+        valor,
+        valor_bruto,
+        descricao,
+        tipo,
+        tipo_saque,
+        plataforma_id,
+        entrada_plataforma_id,
+        ciclo_operacional_inicio,
+        ciclo_operacional_fim
+      `)
+      .eq("plataforma_id", plataformaId),
+    supabase.from("contas").select("id, nome"),
+  ]);
+
+  if (plataformaRes.error) throw plataformaRes.error;
+  if (ganhosRes.error) throw ganhosRes.error;
+  if (transferenciasRes.error) throw transferenciasRes.error;
+  if (contasRes.error) throw contasRes.error;
+
+  const transferencias = transferenciasRes.data || [];
+  const idsSaques = transferencias
+    .filter((item) => item.tipo === "saque_plataforma")
+    .map((item) => item.id);
+  let taxas = [];
+
+  if (idsSaques.length > 0) {
+    const { data, error } = await supabase
+      .from("saidas")
+      .select(`
+        id,
+        data_compra,
+        data_efetivacao,
+        created_at,
+        valor_total,
+        descricao,
+        saque_transferencia_id
+      `)
+      .in("saque_transferencia_id", idsSaques);
+
+    if (error) throw error;
+    taxas = data || [];
+  }
+
+  const contasPorId = Object.fromEntries(
+    (contasRes.data || []).map((conta) => [String(conta.id), conta.nome]),
+  );
+  const taxaPorSaqueId = Object.fromEntries(
+    taxas.map((taxa) => [String(taxa.saque_transferencia_id), Number(taxa.valor_total || 0)]),
+  );
+  const transferenciasComTaxa = transferencias.map((transferencia) => ({
+    ...transferencia,
+    taxa: taxaPorSaqueId[String(transferencia.id)] || 0,
+  }));
+  const plataforma = plataformaRes.data;
+  const movimentacoes = montarMovimentacoesPlataforma({
+    plataforma,
+    ganhos: ganhosRes.data || [],
+    transferencias: transferenciasComTaxa,
+    taxas,
+    contasPorId,
+  });
+  const recebimentosAutomaticos = transferenciasComTaxa.filter(
+    (item) => item.tipo === "recebimento_automatico_plataforma",
+  );
+  const transferenciaUltimoCiclo = recebimentosAutomaticos.find(
+    (item) => item.ciclo_operacional_fim === plataforma.ultimo_ciclo_liquidado_fim,
+  );
+  const ultimaLiquidacao = transferenciaUltimoCiclo || (
+    plataforma.ultimo_ciclo_liquidado_fim
+      ? {
+          data: obterDataPagamentoCiclo(
+            plataforma.ultimo_ciclo_liquidado_fim,
+            plataforma.dia_recebimento_automatico,
+          ),
+          ciclo_operacional_inicio: plataforma.ultimo_ciclo_liquidado_inicio,
+          ciclo_operacional_fim: plataforma.ultimo_ciclo_liquidado_fim,
+        }
+      : null
+  );
+
+  return {
+    plataforma,
+    movimentacoes,
+    ultimaLiquidacao,
+    proximoRecebimento: obterProximoRecebimentoAutomatico(plataforma, hojeBrasil()),
+    contasPorId,
+  };
+}
+
+export async function carregarEntradaPlataformaParaEdicao(entradaId) {
+  const { data, error } = await supabase
+    .from("entradas")
+    .select(`
+      id,
+      data,
+      created_at,
+      km_rodados,
+      horas_trabalhadas,
+      veiculo_id,
+      custo_estimado_combustivel,
+      entrada_plataformas (
+        id,
+        plataforma_id,
+        faturamento,
+        valor_reembolso,
+        numero_corridas,
+        houve_pedagio,
+        plataformas ( id, nome )
+      )
+    `)
+    .eq("id", entradaId)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
 export async function salvarConfiguracaoPlataforma(plataformaId, configuracao) {
   const { error } = await supabase.rpc("configurar_financeiro_plataforma", {
     p_plataforma_id: Number(plataformaId),
@@ -91,4 +243,24 @@ export async function registrarSaquePlataforma({
 
   if (error) throw error;
   return transferenciaId;
+}
+
+export async function editarSaquePlataforma({
+  transferenciaId,
+  contaDestinoId,
+  valorBruto,
+  tipoSaque,
+  taxa,
+  data,
+}) {
+  const { error } = await supabase.rpc("editar_saque_plataforma", {
+    p_transferencia_id: Number(transferenciaId),
+    p_conta_destino_id: Number(contaDestinoId),
+    p_valor_bruto: Number(valorBruto),
+    p_tipo_saque: tipoSaque,
+    p_taxa: Number(taxa || 0),
+    p_data: data,
+  });
+
+  if (error) throw error;
 }

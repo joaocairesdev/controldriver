@@ -9,6 +9,10 @@ import {
   obterTipoSaquePadrao,
   obterTiposSaqueDisponiveis,
   obterUltimoCicloDevido,
+  obterProximoRecebimentoAutomatico,
+  montarMovimentacoesPlataforma,
+  calcularSaldoExtratoPlataforma,
+  filtrarMovimentacoesPlataforma,
 } from "./plataformasFinanceiro.js";
 
 const plataformas = [
@@ -208,4 +212,102 @@ test("respeita tipos disponíveis e corrige padrão incompatível", () => {
     }),
     "outro",
   );
+});
+
+test("calcula o próximo recebimento pelo ciclo liquidado sem mover a semana", () => {
+  assert.equal(
+    obterProximoRecebimentoAutomatico({
+      modo_recebimento: "retido",
+      dia_recebimento_automatico: 3,
+      ultimo_ciclo_liquidado_fim: "2026-08-02",
+    }, "2026-08-05"),
+    "2026-08-12",
+  );
+});
+
+test("extrato mantém saldo da carteira e relaciona taxas e conciliações ao saque e ganho", () => {
+  const movimentos = montarMovimentacoesPlataforma({
+    plataforma: {
+      modo_recebimento: "retido",
+      dia_recebimento_automatico: 1,
+      ultimo_ciclo_liquidado_fim: "2026-08-02",
+    },
+    ganhos: [
+      {
+        id: 10,
+        entrada_id: 20,
+        faturamento: 100,
+        numero_corridas: 4,
+        destino_financeiro: "plataforma",
+        ciclo_operacional_fim: "2026-08-09",
+        entradas: { data: "2026-08-04" },
+      },
+      {
+        id: 11,
+        entrada_id: 21,
+        faturamento: 40,
+        destino_financeiro: "conta",
+        ciclo_operacional_fim: "2026-08-02",
+        created_at: "2026-08-03T22:00:00Z",
+        entradas: { data: "2026-08-03" },
+      },
+    ],
+    transferencias: [
+      {
+        id: 30,
+        tipo: "saque_plataforma",
+        data: "2026-08-05",
+        valor: 26,
+        valor_bruto: 30,
+        conta_destino_id: 1,
+      },
+      {
+        id: 31,
+        tipo: "recebimento_direto_plataforma",
+        data: "2026-08-03",
+        valor: 40,
+        valor_bruto: 40,
+        entrada_plataforma_id: 11,
+      },
+    ],
+    taxas: [{
+      id: 40,
+      saque_transferencia_id: 30,
+      data_compra: "2026-08-05",
+      valor_total: 4,
+    }],
+    contasPorId: { 1: "Inter PJ" },
+  });
+
+  assert.deepEqual(
+    movimentos.map((item) => item.tipo),
+    ["saque", "taxa", "ganho", "ganho", "conciliacao"],
+  );
+  assert.equal(
+    calcularSaldoExtratoPlataforma(movimentos),
+    70,
+  );
+  assert.equal(movimentos.find((item) => item.tipo === "taxa").saqueId, 30);
+  assert.equal(movimentos.find((item) => item.tipo === "conciliacao").entradaId, 21);
+  assert.equal(movimentos.find((item) => item.tipo === "saque").statusTaxa, "lancada");
+  assert.equal(filtrarMovimentacoesPlataforma(movimentos, "saque").length, 1);
+  assert.equal(filtrarMovimentacoesPlataforma(movimentos, "taxa").length, 1);
+  assert.equal(filtrarMovimentacoesPlataforma(movimentos, "todos").length, 5);
+});
+
+test("saque histórico sem despesa vinculada é identificado como sem taxa", () => {
+  const movimentos = montarMovimentacoesPlataforma({
+    plataforma: { modo_recebimento: "retido" },
+    transferencias: [{
+      id: 50,
+      tipo: "saque_plataforma",
+      data: "2026-07-20",
+      valor: 100,
+      valor_bruto: 100,
+    }],
+  });
+
+  assert.equal(movimentos[0].statusTaxa, "sem_taxa");
+  assert.equal(movimentos[0].statusTaxaTexto, "Sem taxa");
+  assert.equal(movimentos[0].impactoSaldo, -100);
 });

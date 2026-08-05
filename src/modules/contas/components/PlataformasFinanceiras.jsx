@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { FiSettings, FiTrendingUp } from "react-icons/fi";
 
 import FeedbackModal from "../../../shared/components/modals/FeedbackModal";
+import DatePickerModal from "../../../shared/components/modals/DatePickerModal";
 import ModalBase from "../../../shared/components/modals/ModalBase";
 import SelecionarContaModal from "../../../shared/components/modals/SelecionarContaModal";
 import SelecionarOpcaoModal from "../../../shared/components/modals/SelecionarOpcaoModal";
@@ -13,11 +14,15 @@ import {
   moedaParaNumero,
   numeroParaMoedaInput,
 } from "../../../shared/utils/moeda";
-import { hojeBrasil } from "../../../shared/utils/data";
+import { formatarDataBR, hojeBrasil } from "../../../shared/utils/data";
+import GanhosPlataformaModal from "../../entradas/components/GanhosPlataformaModal";
 import { obterConfigPlataforma } from "../../entradas/utils/plataformasIcons";
+import ExtratoPlataformaModal from "./ExtratoPlataformaModal";
 import {
+  carregarEntradaPlataformaParaEdicao,
   carregarContasDestinoSaque,
   carregarPlataformasFinanceiras,
+  editarSaquePlataforma,
   registrarSaquePlataforma,
   salvarConfiguracaoPlataforma,
 } from "../services/plataformasFinanceiroService";
@@ -74,6 +79,10 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
   const [contasDestino, setContasDestino] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [plataformaSaque, setPlataformaSaque] = useState(null);
+  const [plataformaExtrato, setPlataformaExtrato] = useState(null);
+  const [entradaEdicao, setEntradaEdicao] = useState(null);
+  const [saqueEdicao, setSaqueEdicao] = useState(null);
+  const [atualizacaoExtratoKey, setAtualizacaoExtratoKey] = useState(0);
   const [plataformaConfig, setPlataformaConfig] = useState(null);
   const [modalSelecionarConfig, setModalSelecionarConfig] = useState(false);
   const [feedback, setFeedback] = useState({
@@ -118,6 +127,27 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
     setFeedback({ aberto: true, tipo, titulo, mensagem });
   }
 
+  async function abrirEdicaoGanho(movimentacao) {
+    try {
+      setEntradaEdicao(
+        await carregarEntradaPlataformaParaEdicao(movimentacao.entradaId),
+      );
+    } catch (error) {
+      console.error("Erro ao carregar ganho para edição:", error);
+      abrirFeedback(
+        "erro",
+        "Erro ao abrir ganho",
+        error.message || "Não foi possível carregar o lançamento original.",
+      );
+    }
+  }
+
+  async function atualizarAposEdicao() {
+    await carregarDados();
+    await onMovimentacao?.();
+    setAtualizacaoExtratoKey((atual) => atual + 1);
+  }
+
   const plataformasComSaldo = plataformas.filter(
     (plataforma) =>
       plataforma.modo_recebimento === "retido"
@@ -158,6 +188,7 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
               <PlataformaCard
                 key={plataforma.id}
                 plataforma={plataforma}
+                onAbrirExtrato={() => setPlataformaExtrato(plataforma)}
                 onSacar={() => setPlataformaSaque(plataforma)}
                 onConfigurar={() => setPlataformaConfig(plataforma)}
               />
@@ -224,6 +255,49 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
         />
       ) : null}
 
+      {plataformaExtrato ? (
+        <ExtratoPlataformaModal
+          aberto={true}
+          plataforma={plataformaExtrato}
+          atualizacaoKey={atualizacaoExtratoKey}
+          onClose={() => setPlataformaExtrato(null)}
+          onEditarGanho={abrirEdicaoGanho}
+          onEditarSaque={(movimentacao) => {
+            if (movimentacao.dadosOriginais?.id) {
+              setSaqueEdicao(movimentacao.dadosOriginais);
+            }
+          }}
+        />
+      ) : null}
+
+      {entradaEdicao ? (
+        <GanhosPlataformaModal
+          aberto={true}
+          edicao={entradaEdicao}
+          onClose={() => setEntradaEdicao(null)}
+          onSalvo={atualizarAposEdicao}
+        />
+      ) : null}
+
+      {saqueEdicao && plataformaExtrato ? (
+        <SaquePlataformaModal
+          key={`editar-${saqueEdicao.id}`}
+          plataforma={plataformaExtrato}
+          contas={contasDestino}
+          saque={saqueEdicao}
+          onClose={() => setSaqueEdicao(null)}
+          onSalvo={async () => {
+            setSaqueEdicao(null);
+            await atualizarAposEdicao();
+            abrirFeedback(
+              "sucesso",
+              "Saque atualizado",
+              "O saque, a transferência e a taxa foram atualizados com consistência.",
+            );
+          }}
+        />
+      ) : null}
+
       <FeedbackModal
         aberto={feedback.aberto}
         tipo={feedback.tipo}
@@ -235,13 +309,22 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
   );
 }
 
-function PlataformaCard({ plataforma, onSacar, onConfigurar }) {
+function PlataformaCard({ plataforma, onAbrirExtrato, onSacar, onConfigurar }) {
   const config = obterConfigPlataforma(plataforma.nome);
   const pendente = Number(plataforma.saldo || 0) < 0;
   const permiteSaque = obterTiposSaqueDisponiveis(plataforma).length > 0;
 
   return (
     <article
+      role="button"
+      tabIndex={0}
+      onClick={onAbrirExtrato}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onAbrirExtrato?.();
+        }
+      }}
       className={`rounded-2xl border p-4 ${
         pendente
           ? "border-yellow-500/35 bg-yellow-500/10"
@@ -262,7 +345,10 @@ function PlataformaCard({ plataforma, onSacar, onConfigurar }) {
 
         <button
           type="button"
-          onClick={onConfigurar}
+          onClick={(event) => {
+            event.stopPropagation();
+            onConfigurar();
+          }}
           className="w-9 h-9 rounded-xl border border-gray-700 text-gray-500 hover:border-green-400 hover:text-green-400 flex items-center justify-center transition shrink-0"
           title={`Configurar ${plataforma.nome}`}
           aria-label={`Configurar ${plataforma.nome}`}
@@ -283,7 +369,10 @@ function PlataformaCard({ plataforma, onSacar, onConfigurar }) {
       {permiteSaque ? (
         <button
           type="button"
-          onClick={onSacar}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSacar();
+          }}
           className="w-full mt-4 rounded-xl bg-green-500 hover:bg-green-600 text-black font-black p-2.5 transition"
         >
           Sacar
@@ -293,18 +382,31 @@ function PlataformaCard({ plataforma, onSacar, onConfigurar }) {
   );
 }
 
-function SaquePlataformaModal({ plataforma, contas, onClose, onSalvo }) {
+function SaquePlataformaModal({ plataforma, contas, saque = null, onClose, onSalvo }) {
+  const emEdicao = Boolean(saque?.id);
   const [valor, setValor] = useState(() =>
-    numeroParaMoedaInput(Math.max(Number(plataforma.saldo || 0), 0)),
+    numeroParaMoedaInput(
+      emEdicao
+        ? Number(saque.valor_bruto || 0)
+        : Math.max(Number(plataforma.saldo || 0), 0),
+    ),
   );
   const [contaDestinoId, setContaDestinoId] = useState(
-    plataforma.conta_destino_id ? String(plataforma.conta_destino_id) : "",
+    saque?.conta_destino_id
+      ? String(saque.conta_destino_id)
+      : plataforma.conta_destino_id
+        ? String(plataforma.conta_destino_id)
+        : "",
   );
-  const tipoInicial = obterTipoSaquePadrao(plataforma);
+  const tipoInicial = saque?.tipo_saque || obterTipoSaquePadrao(plataforma);
   const [tipoSaque, setTipoSaque] = useState(tipoInicial);
   const [taxa, setTaxa] = useState(() =>
-    numeroParaMoedaInput(obterTaxaPadraoSaque(plataforma, tipoInicial)),
+    numeroParaMoedaInput(
+      emEdicao ? Number(saque.taxa || 0) : obterTaxaPadraoSaque(plataforma, tipoInicial),
+    ),
   );
+  const [dataSaque, setDataSaque] = useState(saque?.data || hojeBrasil());
+  const [modalData, setModalData] = useState(false);
   const [modalConta, setModalConta] = useState(false);
   const [modalTipo, setModalTipo] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -312,8 +414,10 @@ function SaquePlataformaModal({ plataforma, contas, onClose, onSalvo }) {
   const [shakeKey, setShakeKey] = useState(0);
   const [erroGeral, setErroGeral] = useState("");
 
+  const tiposConfigurados = obterTiposSaqueDisponiveis(plataforma);
   const tiposDisponiveis = TIPOS_SAQUE.filter((tipo) =>
-    obterTiposSaqueDisponiveis(plataforma).includes(tipo.valor),
+    tiposConfigurados.includes(tipo.valor)
+      || (emEdicao && tipo.valor === tipoInicial),
   );
 
   const contaDestino = contas.find(
@@ -357,14 +461,25 @@ function SaquePlataformaModal({ plataforma, contas, onClose, onSalvo }) {
     setErroGeral("");
 
     try {
-      await registrarSaquePlataforma({
-        plataformaId: plataforma.id,
+      const dadosSaque = {
         contaDestinoId,
         valorBruto,
         tipoSaque,
         taxa: taxaNumero,
-        data: hojeBrasil(),
-      });
+        data: dataSaque,
+      };
+
+      if (emEdicao) {
+        await editarSaquePlataforma({
+          ...dadosSaque,
+          transferenciaId: saque.id,
+        });
+      } else {
+        await registrarSaquePlataforma({
+          ...dadosSaque,
+          plataformaId: plataforma.id,
+        });
+      }
       await onSalvo?.();
     } catch (error) {
       console.error("Erro ao registrar saque da plataforma:", error);
@@ -378,13 +493,21 @@ function SaquePlataformaModal({ plataforma, contas, onClose, onSalvo }) {
     <>
       <ModalBase
         aberto={true}
-        titulo={`Sacar de ${plataforma.nome}`}
+        titulo={emEdicao ? `Editar saque de ${plataforma.nome}` : `Sacar de ${plataforma.nome}`}
         descricao="O valor pode ser maior que o saldo conhecido; a diferença ficará pendente de conciliação."
         onClose={onClose}
         largura="max-w-xl"
         confirmarAoFecharSeAlterado
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {emEdicao ? (
+            <Campo label="Data do saque">
+              <ButtonField onClick={() => setModalData(true)}>
+                {formatarDataBR(dataSaque)}
+              </ButtonField>
+            </Campo>
+          ) : null}
+
           <Campo label="Valor do saque" erro={erros.valor} shakeKey={shakeKey}>
             <MoneyInput
               value={valor}
@@ -440,7 +563,7 @@ function SaquePlataformaModal({ plataforma, contas, onClose, onSalvo }) {
           <div className="mt-5 rounded-2xl border border-gray-800 bg-[#0B1120] p-4 space-y-2">
             <ResumoLinha titulo="Baixa no saldo da plataforma" valor={formatarMoeda(valorBruto)} />
             <ResumoLinha titulo="Taxa registrada separadamente" valor={formatarMoeda(taxaNumero)} />
-            <ResumoLinha titulo="Valor recebido na conta" valor={formatarMoeda(valorLiquido)} destaque />
+            <ResumoLinha titulo="Valor líquido" valor={formatarMoeda(valorLiquido)} destaque />
           </div>
         ) : null}
 
@@ -458,7 +581,7 @@ function SaquePlataformaModal({ plataforma, contas, onClose, onSalvo }) {
             disabled={salvando}
             className="rounded-xl bg-green-500 p-3 font-black text-black hover:bg-green-600 disabled:opacity-50"
           >
-            {salvando ? "Salvando..." : "Confirmar saque"}
+            {salvando ? "Salvando..." : emEdicao ? "Salvar alterações" : "Confirmar saque"}
           </button>
         </div>
       </ModalBase>
@@ -482,6 +605,15 @@ function SaquePlataformaModal({ plataforma, contas, onClose, onSalvo }) {
         valor={tipoSaque}
         onSelecionar={selecionarTipo}
         onClose={() => setModalTipo(false)}
+      />
+
+      <DatePickerModal
+        aberto={modalData}
+        valor={dataSaque}
+        titulo="Data do saque"
+        descricao="Escolha a data da movimentação e da taxa vinculada."
+        onChange={setDataSaque}
+        onClose={() => setModalData(false)}
       />
     </>
   );
