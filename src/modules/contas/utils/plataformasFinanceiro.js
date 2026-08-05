@@ -58,6 +58,19 @@ function compararMovimentacoes(a, b) {
   return String(b.created_at || "").localeCompare(String(a.created_at || ""));
 }
 
+function tituloTipoSaque(tipoSaque) {
+  if (tipoSaque === "instantaneo") return "Saque Instantâneo";
+  if (tipoSaque === "agendado") return "Saque Agendado";
+  return "Saque";
+}
+
+function normalizarPesquisa(valor) {
+  return String(valor ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 function diaSemanaISO(data) {
   return data.getUTCDay() || 7;
 }
@@ -126,11 +139,6 @@ export function montarMovimentacoesPlataforma({
   contasPorId = {},
 }) {
   const ganhosPorId = new Map(ganhos.map((ganho) => [String(ganho.id), ganho]));
-  const saquesPorId = new Map(
-    transferencias
-      .filter((transferencia) => transferencia.tipo === "saque_plataforma")
-      .map((transferencia) => [String(transferencia.id), transferencia]),
-  );
   const taxasPorSaqueId = new Map(
     taxas.map((taxa) => [String(taxa.saque_transferencia_id), taxa]),
   );
@@ -149,7 +157,7 @@ export function montarMovimentacoesPlataforma({
       descricao: `${Number(ganho.numero_corridas || 0)} corrida(s)`,
       valor,
       sinal: "entrada",
-      impactoSaldo: valor,
+      impactoSaldo: ganho.destino_financeiro === "plataforma" ? valor : 0,
       entradaId: ganho.entrada_id,
       dadosOriginais: ganho,
     };
@@ -161,16 +169,24 @@ export function montarMovimentacoesPlataforma({
 
     if (transferencia.tipo === "saque_plataforma") {
       const taxaRegistrada = taxasPorSaqueId.has(String(transferencia.id));
+      const taxa = Number(
+        taxasPorSaqueId.get(String(transferencia.id))?.valor_total
+          || transferencia.taxa
+          || 0,
+      );
       return [{
         id: `saque-${transferencia.id}`,
         tipo: "saque",
         data: transferencia.data,
         created_at: transferencia.created_at,
-        titulo: "Saque",
+        titulo: tituloTipoSaque(transferencia.tipo_saque),
         descricao: `Para ${contaDestino}`,
         valor: valorBruto,
         sinal: "saida",
         impactoSaldo: -valorBruto,
+        taxa,
+        valorLiquido: calcularValorLiquidoSaque(valorBruto, taxa),
+        contaDestino,
         statusTaxa: taxaRegistrada ? "lancada" : "sem_taxa",
         statusTaxaTexto: taxaRegistrada ? "Taxa lançada" : "Sem taxa",
         saqueId: transferencia.id,
@@ -184,7 +200,7 @@ export function montarMovimentacoesPlataforma({
         tipo: "recebimento",
         data: transferencia.data,
         created_at: transferencia.created_at,
-        titulo: "Recebimento automático",
+        titulo: "Recebimento automático semanal",
         descricao: `Para ${contaDestino}`,
         valor: valorBruto,
         sinal: "saida",
@@ -215,11 +231,11 @@ export function montarMovimentacoesPlataforma({
         tipo: "conciliacao",
         data: dataLancamento,
         created_at: transferencia.created_at,
-        titulo: "Conciliação automática",
-        descricao: "Ganho de ciclo já liquidado",
+        titulo: "Recebimento complementar automático",
+        descricao: "Ganho lançado após o pagamento semanal",
         valor: valorBruto,
         sinal: "saida",
-        impactoSaldo: -valorBruto,
+        impactoSaldo: 0,
         entradaId: ganho?.entrada_id,
         dadosOriginais: { ...transferencia, ganho },
       }];
@@ -228,35 +244,38 @@ export function montarMovimentacoesPlataforma({
     return [];
   });
 
-  const movimentosTaxas = taxas.map((taxa) => {
-    const saque = saquesPorId.get(String(taxa.saque_transferencia_id));
-    return {
-      id: `taxa-${taxa.id}`,
-      tipo: "taxa",
-      data: taxa.data_efetivacao || taxa.data_compra,
-      created_at: taxa.created_at,
-      titulo: "Taxa de saque",
-      descricao: taxa.descricao || "Taxa vinculada ao saque",
-      valor: Number(taxa.valor_total || 0),
-      sinal: "saida",
-      impactoSaldo: 0,
-      saqueId: taxa.saque_transferencia_id,
-      dadosOriginais: saque
-        ? { ...saque, taxa: Number(taxa.valor_total || 0) }
-        : taxa,
-    };
-  });
-
   return [
     ...movimentosGanhos,
     ...movimentosTransferencias,
-    ...movimentosTaxas,
   ].sort(compararMovimentacoes);
 }
 
 export function filtrarMovimentacoesPlataforma(movimentacoes, filtro) {
   if (!filtro || filtro === "todos") return movimentacoes || [];
   return (movimentacoes || []).filter((item) => item.tipo === filtro);
+}
+
+export function pesquisarMovimentacoesPlataforma(movimentacoes, pesquisa) {
+  const termo = normalizarPesquisa(pesquisa).trim();
+  if (!termo) return movimentacoes || [];
+
+  return (movimentacoes || []).filter((item) => {
+    const valor = Number(item.valor || 0);
+    const data = String(item.data || "");
+    const [ano, mes, dia] = data.split("-");
+    const conteudo = [
+      item.titulo,
+      item.descricao,
+      item.tipo,
+      item.contaDestino,
+      data,
+      ano && mes && dia ? `${dia}/${mes}/${ano}` : "",
+      valor.toFixed(2),
+      valor.toFixed(2).replace(".", ","),
+    ].map(normalizarPesquisa).join(" ");
+
+    return conteudo.includes(termo);
+  });
 }
 
 export function calcularSaldoExtratoPlataforma(movimentacoes) {

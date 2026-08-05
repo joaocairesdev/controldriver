@@ -3,7 +3,6 @@ import { hojeBrasil } from "../../../shared/utils/data";
 import {
   calcularSaldosPlataformas,
   montarMovimentacoesPlataforma,
-  obterDataPagamentoCiclo,
   obterProximoRecebimentoAutomatico,
 } from "../utils/plataformasFinanceiro";
 
@@ -147,27 +146,21 @@ export async function carregarExtratoPlataforma(plataformaId) {
     taxas,
     contasPorId,
   });
+  const saldo = calcularSaldosPlataformas(
+    [plataforma],
+    ganhosRes.data || [],
+    transferenciasComTaxa,
+  )[0]?.saldo || 0;
   const recebimentosAutomaticos = transferenciasComTaxa.filter(
     (item) => item.tipo === "recebimento_automatico_plataforma",
   );
-  const transferenciaUltimoCiclo = recebimentosAutomaticos.find(
-    (item) => item.ciclo_operacional_fim === plataforma.ultimo_ciclo_liquidado_fim,
-  );
-  const ultimaLiquidacao = transferenciaUltimoCiclo || (
-    plataforma.ultimo_ciclo_liquidado_fim
-      ? {
-          data: obterDataPagamentoCiclo(
-            plataforma.ultimo_ciclo_liquidado_fim,
-            plataforma.dia_recebimento_automatico,
-          ),
-          ciclo_operacional_inicio: plataforma.ultimo_ciclo_liquidado_inicio,
-          ciclo_operacional_fim: plataforma.ultimo_ciclo_liquidado_fim,
-        }
-      : null
-  );
+  const ultimaLiquidacao = recebimentosAutomaticos
+    .sort((a, b) => String(b.ciclo_operacional_fim || b.data || "")
+      .localeCompare(String(a.ciclo_operacional_fim || a.data || "")))[0] || null;
 
   return {
     plataforma,
+    saldo,
     movimentacoes,
     ultimaLiquidacao,
     proximoRecebimento: obterProximoRecebimentoAutomatico(plataforma, hojeBrasil()),
@@ -219,6 +212,28 @@ export async function salvarConfiguracaoPlataforma(plataformaId, configuracao) {
   });
 
   if (error) throw error;
+}
+
+export async function salvarExibicaoPlataformaNasContas(plataformaId, exibir) {
+  const { error } = await supabase
+    .from("plataformas")
+    .update({ exibir_nas_contas: Boolean(exibir) })
+    .eq("id", Number(plataformaId));
+
+  if (error) throw error;
+}
+
+export async function excluirRecebimentoAutomaticoPlataforma(transferenciaId) {
+  const { data, error } = await supabase
+    .from("transferencias")
+    .delete()
+    .eq("id", Number(transferenciaId))
+    .eq("tipo", "recebimento_automatico_plataforma")
+    .select("id")
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error("Recebimento automático não encontrado.");
 }
 
 export async function registrarSaquePlataforma({

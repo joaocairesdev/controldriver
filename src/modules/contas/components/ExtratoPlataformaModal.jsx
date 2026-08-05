@@ -1,36 +1,36 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { FiSearch, FiTrash2 } from "react-icons/fi";
 
+import ConfirmacaoModal from "../../../shared/components/modals/ConfirmacaoModal";
 import ModalBase from "../../../shared/components/modals/ModalBase";
 import { formatarDataBR } from "../../../shared/utils/data";
 import { formatarMoeda } from "../../../shared/utils/moeda";
-import { carregarExtratoPlataforma } from "../services/plataformasFinanceiroService";
 import {
-  calcularSaldoExtratoPlataforma,
-  filtrarMovimentacoesPlataforma,
+  carregarExtratoPlataforma,
+  excluirRecebimentoAutomaticoPlataforma,
+} from "../services/plataformasFinanceiroService";
+import {
+  pesquisarMovimentacoesPlataforma,
 } from "../utils/plataformasFinanceiro";
 
-const FILTROS = [
-  { valor: "todos", titulo: "Todos" },
-  { valor: "ganho", titulo: "Ganhos" },
-  { valor: "saque", titulo: "Saques" },
-  { valor: "recebimento", titulo: "Recebimentos" },
-  { valor: "taxa", titulo: "Taxas" },
-  { valor: "conciliacao", titulo: "Conciliações" },
-];
+const ITENS_POR_PAGINA = 50;
 
 export default function ExtratoPlataformaModal({
   aberto,
   plataforma,
   atualizacaoKey = 0,
   onClose,
-  onEditarGanho,
   onEditarSaque,
+  onAtualizado,
 }) {
   const [dados, setDados] = useState(null);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
-  const [filtro, setFiltro] = useState("todos");
+  const [pesquisa, setPesquisa] = useState("");
+  const [paginaAtual, setPaginaAtual] = useState(1);
   const [detalhe, setDetalhe] = useState(null);
+  const [confirmarExclusao, setConfirmarExclusao] = useState(null);
+  const [excluindo, setExcluindo] = useState(false);
 
   const carregar = useCallback(async () => {
     if (!aberto || !plataforma?.id) return;
@@ -53,26 +53,46 @@ export default function ExtratoPlataformaModal({
   }, [carregar, atualizacaoKey]);
 
   const movimentacoes = useMemo(() => {
-    return filtrarMovimentacoesPlataforma(dados?.movimentacoes || [], filtro);
-  }, [dados?.movimentacoes, filtro]);
+    return pesquisarMovimentacoesPlataforma(dados?.movimentacoes || [], pesquisa);
+  }, [dados?.movimentacoes, pesquisa]);
 
-  const saldo = useMemo(
-    () => calcularSaldoExtratoPlataforma(dados?.movimentacoes || []),
-    [dados?.movimentacoes],
+  const totalPaginas = Math.max(1, Math.ceil(movimentacoes.length / ITENS_POR_PAGINA));
+  const paginaSegura = Math.min(paginaAtual, totalPaginas);
+  const movimentacoesPagina = movimentacoes.slice(
+    (paginaSegura - 1) * ITENS_POR_PAGINA,
+    paginaSegura * ITENS_POR_PAGINA,
   );
+  const saldo = Number(dados?.saldo ?? plataforma?.saldo ?? 0);
 
   function selecionarMovimentacao(movimentacao) {
-    if (movimentacao.tipo === "ganho") {
-      onEditarGanho?.(movimentacao);
-      return;
-    }
-
-    if (["saque", "taxa"].includes(movimentacao.tipo)) {
+    if (movimentacao.tipo === "saque") {
       onEditarSaque?.(movimentacao);
       return;
     }
 
     setDetalhe(movimentacao);
+  }
+
+  async function excluirRecebimento() {
+    if (!confirmarExclusao?.dadosOriginais?.id) return;
+    setExcluindo(true);
+    setErro("");
+
+    try {
+      await excluirRecebimentoAutomaticoPlataforma(
+        confirmarExclusao.dadosOriginais.id,
+      );
+      setConfirmarExclusao(null);
+      setDetalhe(null);
+      await carregar();
+      await onAtualizado?.();
+    } catch (error) {
+      console.error("Erro ao excluir recebimento automático:", error);
+      setConfirmarExclusao(null);
+      setErro(error.message || "Não foi possível excluir o recebimento automático.");
+    } finally {
+      setExcluindo(false);
+    }
   }
 
   const ultimaLiquidacao = dados?.ultimaLiquidacao;
@@ -104,22 +124,19 @@ export default function ExtratoPlataformaModal({
             />
           </div>
 
-          <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-            {FILTROS.map((opcao) => (
-              <button
-                key={opcao.valor}
-                type="button"
-                onClick={() => setFiltro(opcao.valor)}
-                aria-pressed={filtro === opcao.valor}
-                className={`shrink-0 rounded-xl border px-3 py-2 text-sm font-bold transition ${
-                  filtro === opcao.valor
-                    ? "border-green-400 bg-green-500/10 text-green-400"
-                    : "border-gray-700 text-gray-300 hover:bg-white/5"
-                }`}
-              >
-                {opcao.titulo}
-              </button>
-            ))}
+          <div className="relative">
+            <FiSearch className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-500" />
+            <input
+              type="search"
+              value={pesquisa}
+              onChange={(event) => {
+                setPesquisa(event.target.value);
+                setPaginaAtual(1);
+              }}
+              placeholder="Pesquisar por descrição, tipo, valor ou data..."
+              aria-label="Pesquisar no extrato da plataforma"
+              className="w-full rounded-xl border border-gray-700 bg-[#0B1120] py-3 pl-11 pr-4 outline-none focus:border-green-400"
+            />
           </div>
 
           {carregando ? (
@@ -136,16 +153,23 @@ export default function ExtratoPlataformaModal({
               </button>
             </div>
           ) : movimentacoes.length === 0 ? (
-            <EstadoLista texto="Nenhuma movimentação encontrada para este filtro." />
+            <EstadoLista texto="Nenhuma movimentação encontrada para esta pesquisa." />
           ) : (
             <div className="space-y-3">
-              {movimentacoes.map((movimentacao) => (
+              {movimentacoesPagina.map((movimentacao) => (
                 <MovimentacaoLinha
                   key={movimentacao.id}
                   movimentacao={movimentacao}
                   onClick={() => selecionarMovimentacao(movimentacao)}
                 />
               ))}
+              {totalPaginas > 1 ? (
+                <Paginacao
+                  paginaAtual={paginaSegura}
+                  totalPaginas={totalPaginas}
+                  onMudar={setPaginaAtual}
+                />
+              ) : null}
             </div>
           )}
         </div>
@@ -155,7 +179,19 @@ export default function ExtratoPlataformaModal({
         movimentacao={detalhe}
         plataforma={dados?.plataforma || plataforma}
         contasPorId={dados?.contasPorId || {}}
+        onExcluirRecebimento={() => setConfirmarExclusao(detalhe)}
         onClose={() => setDetalhe(null)}
+      />
+
+      <ConfirmacaoModal
+        aberto={Boolean(confirmarExclusao)}
+        tipo="perigo"
+        titulo="Excluir recebimento automático?"
+        mensagem="O valor voltará imediatamente para a carteira da plataforma. O recebimento não poderá ser editado nem recuperado por esta tela."
+        textoConfirmar={excluindo ? "Excluindo..." : "Excluir recebimento"}
+        carregando={excluindo}
+        onCancelar={() => setConfirmarExclusao(null)}
+        onConfirmar={excluirRecebimento}
       />
     </>
   );
@@ -225,12 +261,15 @@ function DetalhesMovimentacaoPlataformaModal({
   movimentacao,
   plataforma,
   contasPorId,
+  onExcluirRecebimento,
   onClose,
 }) {
   if (!movimentacao) return null;
   const dados = movimentacao.dadosOriginais || {};
   const recebimento = movimentacao.tipo === "recebimento";
   const conciliacao = movimentacao.tipo === "conciliacao";
+  const ganho = movimentacao.tipo === "ganho";
+  const saque = movimentacao.tipo === "saque";
 
   return (
     <ModalBase
@@ -241,6 +280,25 @@ function DetalhesMovimentacaoPlataformaModal({
       largura="max-w-xl"
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {ganho ? (
+          <>
+            <Detalhe titulo="Descrição" valor={movimentacao.descricao} />
+            <Detalhe titulo="Valor" valor={formatarMoeda(movimentacao.valor)} />
+            <Detalhe titulo="Data" valor={formatarDataBR(movimentacao.data)} />
+            <Detalhe titulo="Origem" valor={plataforma?.nome || "Plataforma"} />
+          </>
+        ) : null}
+
+        {saque ? (
+          <>
+            <Detalhe titulo="Valor bruto" valor={formatarMoeda(movimentacao.valor)} />
+            <Detalhe titulo="Taxa" valor={formatarMoeda(movimentacao.taxa)} />
+            <Detalhe titulo="Valor líquido" valor={formatarMoeda(movimentacao.valorLiquido)} />
+            <Detalhe titulo="Conta destino" valor={movimentacao.contaDestino || "Conta"} />
+            <Detalhe titulo="Data" valor={formatarDataBR(movimentacao.data)} />
+          </>
+        ) : null}
+
         {recebimento ? (
           <>
             <Detalhe titulo="Período liquidado" valor={`${formatarDataBR(dados.ciclo_operacional_inicio)} a ${formatarDataBR(dados.ciclo_operacional_fim)}`} />
@@ -254,12 +312,23 @@ function DetalhesMovimentacaoPlataformaModal({
         {conciliacao ? (
           <>
             <Detalhe titulo="Origem" valor={plataforma?.nome || "Plataforma"} />
-            <Detalhe titulo="Motivo" valor="Ganho lançado após a liquidação do ciclo" />
+            <Detalhe titulo="Motivo" valor="Ganho lançado após o pagamento semanal" />
             <Detalhe titulo="Lançamento conciliado" valor={`Entrada #${movimentacao.entradaId || "-"}`} />
             <Detalhe titulo="Data" valor={formatarDataBR(movimentacao.data)} />
           </>
         ) : null}
       </div>
+
+      {recebimento ? (
+        <button
+          type="button"
+          onClick={onExcluirRecebimento}
+          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/50 p-3 font-bold text-red-400 hover:bg-red-500/10"
+        >
+          <FiTrash2 />
+          Excluir recebimento
+        </button>
+      ) : null}
     </ModalBase>
   );
 }
@@ -270,5 +339,58 @@ function Detalhe({ titulo, valor }) {
       <p className="text-xs text-gray-500">{titulo}</p>
       <p className="mt-1 font-bold text-white">{valor}</p>
     </div>
+  );
+}
+
+function paginasVisiveis(paginaAtual, totalPaginas) {
+  const totalVisivel = Math.min(5, totalPaginas);
+  let inicio = Math.max(1, paginaAtual - Math.floor(totalVisivel / 2));
+  let fim = inicio + totalVisivel - 1;
+
+  if (fim > totalPaginas) {
+    fim = totalPaginas;
+    inicio = Math.max(1, fim - totalVisivel + 1);
+  }
+
+  return Array.from({ length: fim - inicio + 1 }, (_, index) => inicio + index);
+}
+
+function Paginacao({ paginaAtual, totalPaginas, onMudar }) {
+  return (
+    <nav className="flex flex-wrap items-center justify-center gap-2 pt-2" aria-label="Paginação do extrato">
+      <button
+        type="button"
+        disabled={paginaAtual === 1}
+        onClick={() => onMudar(paginaAtual - 1)}
+        className="h-10 min-w-10 rounded-xl border border-gray-700 px-3 font-bold hover:bg-white/5 disabled:opacity-40"
+        aria-label="Página anterior"
+      >
+        &lt;
+      </button>
+      {paginasVisiveis(paginaAtual, totalPaginas).map((pagina) => (
+        <button
+          key={pagina}
+          type="button"
+          onClick={() => onMudar(pagina)}
+          aria-current={pagina === paginaAtual ? "page" : undefined}
+          className={`h-10 min-w-10 rounded-xl border px-3 font-black ${
+            pagina === paginaAtual
+              ? "border-green-500 bg-green-500 text-black"
+              : "border-gray-700 text-gray-300 hover:bg-white/5"
+          }`}
+        >
+          {pagina}
+        </button>
+      ))}
+      <button
+        type="button"
+        disabled={paginaAtual === totalPaginas}
+        onClick={() => onMudar(paginaAtual + 1)}
+        className="h-10 min-w-10 rounded-xl border border-gray-700 px-3 font-bold hover:bg-white/5 disabled:opacity-40"
+        aria-label="Próxima página"
+      >
+        &gt;
+      </button>
+    </nav>
   );
 }

@@ -13,6 +13,7 @@ import {
   montarMovimentacoesPlataforma,
   calcularSaldoExtratoPlataforma,
   filtrarMovimentacoesPlataforma,
+  pesquisarMovimentacoesPlataforma,
 } from "./plataformasFinanceiro.js";
 
 const plataformas = [
@@ -259,6 +260,7 @@ test("extrato mantém saldo da carteira e relaciona taxas e conciliações ao sa
         data: "2026-08-05",
         valor: 26,
         valor_bruto: 30,
+        tipo_saque: "instantaneo",
         conta_destino_id: 1,
       },
       {
@@ -281,18 +283,37 @@ test("extrato mantém saldo da carteira e relaciona taxas e conciliações ao sa
 
   assert.deepEqual(
     movimentos.map((item) => item.tipo),
-    ["saque", "taxa", "ganho", "ganho", "conciliacao"],
+    ["saque", "ganho", "ganho", "conciliacao"],
   );
   assert.equal(
     calcularSaldoExtratoPlataforma(movimentos),
     70,
   );
-  assert.equal(movimentos.find((item) => item.tipo === "taxa").saqueId, 30);
   assert.equal(movimentos.find((item) => item.tipo === "conciliacao").entradaId, 21);
+  assert.equal(movimentos.find((item) => item.tipo === "saque").titulo, "Saque Instantâneo");
+  assert.equal(movimentos.find((item) => item.tipo === "saque").taxa, 4);
+  assert.equal(movimentos.find((item) => item.tipo === "saque").valorLiquido, 26);
   assert.equal(movimentos.find((item) => item.tipo === "saque").statusTaxa, "lancada");
   assert.equal(filtrarMovimentacoesPlataforma(movimentos, "saque").length, 1);
-  assert.equal(filtrarMovimentacoesPlataforma(movimentos, "taxa").length, 1);
-  assert.equal(filtrarMovimentacoesPlataforma(movimentos, "todos").length, 5);
+  assert.equal(filtrarMovimentacoesPlataforma(movimentos, "taxa").length, 0);
+  assert.equal(filtrarMovimentacoesPlataforma(movimentos, "todos").length, 4);
+  assert.equal(pesquisarMovimentacoesPlataforma(movimentos, "inter pj").length, 1);
+  assert.equal(pesquisarMovimentacoesPlataforma(movimentos, "05/08/2026").length, 1);
+  assert.equal(pesquisarMovimentacoesPlataforma(movimentos, "30,00").length, 1);
+});
+
+test("identifica saques instantâneo e agendado no extrato", () => {
+  const movimentos = montarMovimentacoesPlataforma({
+    transferencias: [
+      { id: 1, tipo: "saque_plataforma", tipo_saque: "instantaneo", valor_bruto: 10, data: "2026-08-01" },
+      { id: 2, tipo: "saque_plataforma", tipo_saque: "agendado", valor_bruto: 20, data: "2026-08-02" },
+    ],
+  });
+
+  assert.deepEqual(
+    movimentos.map((item) => item.titulo),
+    ["Saque Agendado", "Saque Instantâneo"],
+  );
 });
 
 test("saque histórico sem despesa vinculada é identificado como sem taxa", () => {
