@@ -21,6 +21,12 @@ import {
   resumirFormasPagamento,
   resumirOrigensPagamento,
 } from "../../abastecimentos/utils/abastecimentosPagamentos";
+import {
+  normalizarDescricaoRecebimentoSemanal,
+  obterValorBrutoTransferencia,
+} from "../../contas/utils/plataformasFinanceiro";
+import EditarRecebimentoSemanalModal from "../../contas/components/EditarRecebimentoSemanalModal";
+import { excluirRecebimentoAutomaticoPlataforma } from "../../contas/services/plataformasFinanceiroService";
 
 const ITENS_POR_PAGINA_PADRAO = 30;
 
@@ -47,6 +53,8 @@ export default function Extrato() {
   const [lancamentoSelecionado, setLancamentoSelecionado] = useState(null);
   const [confirmarExclusao, setConfirmarExclusao] = useState(null);
   const [edicaoLancamento, setEdicaoLancamento] = useState(null);
+  const [edicaoRecebimentoSemanal, setEdicaoRecebimentoSemanal] = useState(null);
+  const [contasDestinoRecebimento, setContasDestinoRecebimento] = useState([]);
   const [excluindo, setExcluindo] = useState(false);
 
   const [modoSelecao, setModoSelecao] = useState(false);
@@ -127,7 +135,11 @@ export default function Extrato() {
 
     const { data: contasData } = await supabase
       .from("contas")
-      .select("id, nome");
+      .select("id, nome, ativo, tipo_conta");
+
+    setContasDestinoRecebimento((contasData || []).filter(
+      (conta) => conta.ativo && conta.tipo_conta === "banco",
+    ));
 
     const nomeContaPorId = Object.fromEntries(
       (contasData || []).map((conta) => [String(conta.id), conta.nome])
@@ -318,6 +330,11 @@ export default function Extrato() {
       })
     );
 
+    const taxaPorSaqueId = Object.fromEntries(
+      (saidasData || [])
+        .filter((saida) => saida.saque_transferencia_id)
+        .map((saida) => [String(saida.saque_transferencia_id), Number(saida.valor_total || 0)]),
+    );
     const transferenciasFormatadas = (transferenciasData || [])
       .filter((transferencia) => transferencia.tipo !== "recebimento_direto_plataforma")
       .map(
@@ -325,6 +342,13 @@ export default function Extrato() {
         const saquePlataforma = transferencia.tipo === "saque_plataforma";
         const recebimentoAutomatico =
           transferencia.tipo === "recebimento_automatico_plataforma";
+        const taxaSaque = saquePlataforma
+          ? taxaPorSaqueId[String(transferencia.id)] || 0
+          : 0;
+        const valorBruto = obterValorBrutoTransferencia({
+          ...transferencia,
+          taxa: taxaSaque,
+        });
         const movimentacaoPlataforma = saquePlataforma || recebimentoAutomatico;
         const contaOrigem = movimentacaoPlataforma
           ? transferencia.plataformas?.nome || "Plataforma"
@@ -341,26 +365,33 @@ export default function Extrato() {
           titulo: saquePlataforma
             ? "Saque da Plataforma"
             : recebimentoAutomatico
-              ? "Recebimento Automático da Plataforma"
+              ? "Recebimento semanal automático"
               : "Transferência",
           descricao:
-            transferencia.descricao ||
-            `${contaOrigem} → ${contaDestino}`,
+            recebimentoAutomatico
+              ? normalizarDescricaoRecebimentoSemanal(
+                  transferencia.descricao,
+                  transferencia.plataformas?.nome,
+                )
+              : transferencia.descricao || `${contaOrigem} → ${contaDestino}`,
           valor: Number(transferencia.valor || 0),
           contaOrigem,
           contaDestino,
           categoria: saquePlataforma
             ? "Saque da Plataforma"
             : recebimentoAutomatico
-              ? "Recebimento da Plataforma"
+              ? "Recebimento semanal automático"
               : "Transferência",
           formaPagamento: "transferencia",
-          textoBusca: `${saquePlataforma ? "Saque da Plataforma" : "Transferência"} ${transferencia.descricao || ""} ${contaOrigem} ${contaDestino}`,
+          textoBusca: `${saquePlataforma
+            ? "Saque da Plataforma"
+            : recebimentoAutomatico
+              ? "Recebimento semanal automático"
+              : "Transferência"} ${transferencia.descricao || ""} ${contaOrigem} ${contaDestino}`,
           dadosOriginais: {
             ...transferencia,
-            taxa: saquePlataforma
-              ? Number(transferencia.valor_bruto || 0) - Number(transferencia.valor || 0)
-              : 0,
+            valor_bruto: valorBruto,
+            taxa: taxaSaque,
             contaOrigem,
             contaDestino,
           },
@@ -794,9 +825,12 @@ export default function Extrato() {
 
   function editarLancamento(lancamento) {
     if (lancamento?.dadosOriginais?.contrato_financeiro_id) return;
-    if (["saque_plataforma", "recebimento_automatico_plataforma"].includes(
-      lancamento?.dadosOriginais?.tipo,
-    )) return;
+    if (lancamento?.dadosOriginais?.tipo === "recebimento_automatico_plataforma") {
+      setLancamentoSelecionado(null);
+      setEdicaoRecebimentoSemanal(lancamento);
+      return;
+    }
+    if (lancamento?.dadosOriginais?.tipo === "saque_plataforma") return;
     if (lancamento?.dadosOriginais?.saque_transferencia_id) return;
     setLancamentoSelecionado(null);
     setEdicaoLancamento(lancamento);
@@ -811,7 +845,8 @@ export default function Extrato() {
       throw new Error("Exclua o saque da plataforma para remover também a taxa vinculada.");
     }
     if (lancamentoAlvo.dadosOriginais?.tipo === "recebimento_automatico_plataforma") {
-      throw new Error("Recebimentos automáticos são controlados pelo ciclo financeiro da plataforma.");
+      await excluirRecebimentoAutomaticoPlataforma(lancamentoAlvo.idOriginal);
+      return;
     }
 
     if (lancamentoAlvo.tipo === "entrada") {
@@ -960,6 +995,8 @@ export default function Extrato() {
 
   async function excluirLancamento() {
     if (!confirmarExclusao) return;
+    const recebimentoSemanal =
+      confirmarExclusao.dadosOriginais?.tipo === "recebimento_automatico_plataforma";
 
     setExcluindo(true);
 
@@ -970,7 +1007,13 @@ export default function Extrato() {
       setLancamentoSelecionado(null);
       await carregarExtrato();
 
-      abrirFeedback("sucesso", "Lançamento excluído", "O lançamento foi excluído com sucesso.");
+      abrirFeedback(
+        "sucesso",
+        recebimentoSemanal ? "Recebimento semanal excluído" : "Lançamento excluído",
+        recebimentoSemanal
+          ? "O valor retornou para a carteira da plataforma."
+          : "O lançamento foi excluído com sucesso.",
+      );
     } catch (erro) {
       console.error("Erro ao excluir lançamento:", erro);
       abrirFeedback("erro", "Erro ao excluir", erro.message || "Erro desconhecido.");
@@ -1319,6 +1362,19 @@ export default function Extrato() {
         />
       )}
 
+      {edicaoRecebimentoSemanal ? (
+        <EditarRecebimentoSemanalModal
+          movimentacao={edicaoRecebimentoSemanal}
+          plataforma={edicaoRecebimentoSemanal.dadosOriginais?.plataformas}
+          contas={contasDestinoRecebimento}
+          onClose={() => setEdicaoRecebimentoSemanal(null)}
+          onSalvo={async () => {
+            setEdicaoRecebimentoSemanal(null);
+            await carregarExtrato();
+          }}
+        />
+      ) : null}
+
       {edicaoLancamento?.tipo === "transferencia" && (
         <TransferenciaModal
           aberto={true}
@@ -1388,8 +1444,12 @@ export default function Extrato() {
       <ConfirmacaoModal
         aberto={!!confirmarExclusao}
         tipo="perigo"
-        titulo="Excluir lançamento"
-        mensagem="Tem certeza que deseja excluir este lançamento? Essa ação não poderá ser desfeita."
+        titulo={confirmarExclusao?.dadosOriginais?.tipo === "recebimento_automatico_plataforma"
+          ? "Excluir recebimento semanal automático?"
+          : "Excluir lançamento"}
+        mensagem={confirmarExclusao?.dadosOriginais?.tipo === "recebimento_automatico_plataforma"
+          ? "O valor voltará imediatamente para a carteira da plataforma. Esta ação não poderá ser desfeita."
+          : "Tem certeza que deseja excluir este lançamento? Essa ação não poderá ser desfeita."}
         textoCancelar="Cancelar"
         textoConfirmar={excluindo ? "Excluindo..." : "Excluir"}
         carregando={excluindo}

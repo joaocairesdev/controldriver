@@ -6,6 +6,17 @@ export function calcularValorLiquidoSaque(valorBruto, taxa) {
   return arredondarMoeda(Number(valorBruto || 0) - Number(taxa || 0));
 }
 
+export function obterValorBrutoTransferencia(transferencia = {}) {
+  if (transferencia.valor_bruto !== null && transferencia.valor_bruto !== undefined) {
+    return Number(transferencia.valor_bruto || 0);
+  }
+
+  const valorLiquido = Number(transferencia.valor || 0);
+  return transferencia.tipo === "saque_plataforma"
+    ? arredondarMoeda(valorLiquido + Number(transferencia.taxa || 0))
+    : valorLiquido;
+}
+
 export function obterTaxaPadraoSaque(plataforma, tipoSaque) {
   if (tipoSaque === "instantaneo") {
     return Number(plataforma?.taxa_saque_instantaneo || 0);
@@ -69,6 +80,20 @@ function normalizarPesquisa(valor) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+export function normalizarDescricaoRecebimentoSemanal(descricao, nomePlataforma = "") {
+  const texto = String(descricao || "").trim();
+  if (!texto) {
+    return nomePlataforma
+      ? `Recebimento semanal automático da plataforma ${nomePlataforma}`
+      : "Recebimento semanal automático";
+  }
+
+  return texto.replace(
+    /^Recebimento automático(?: semanal)?/i,
+    "Recebimento semanal automático",
+  );
 }
 
 function diaSemanaISO(data) {
@@ -164,7 +189,7 @@ export function montarMovimentacoesPlataforma({
   });
 
   const movimentosTransferencias = transferencias.flatMap((transferencia) => {
-    const valorBruto = Number(transferencia.valor_bruto || transferencia.valor || 0);
+    const valorBruto = obterValorBrutoTransferencia(transferencia);
     const contaDestino = contasPorId[String(transferencia.conta_destino_id)] || "Conta";
 
     if (transferencia.tipo === "saque_plataforma") {
@@ -200,8 +225,11 @@ export function montarMovimentacoesPlataforma({
         tipo: "recebimento",
         data: transferencia.data,
         created_at: transferencia.created_at,
-        titulo: "Recebimento automático semanal",
-        descricao: `Para ${contaDestino}`,
+        titulo: "Recebimento semanal automático",
+        descricao: normalizarDescricaoRecebimentoSemanal(
+          transferencia.descricao,
+          plataforma?.nome,
+        ),
         valor: valorBruto,
         sinal: "saida",
         impactoSaldo: -valorBruto,
@@ -227,12 +255,15 @@ export function montarMovimentacoesPlataforma({
       if (!cicloLiquidado || plataforma?.modo_recebimento !== "retido") return [];
 
       return [{
-        id: `conciliacao-${transferencia.id}`,
-        tipo: "conciliacao",
-        data: dataLancamento,
+        id: `recebimento-direto-${transferencia.id}`,
+        tipo: "recebimento",
+        data: transferencia.data || dataLancamento,
         created_at: transferencia.created_at,
-        titulo: "Recebimento complementar automático",
-        descricao: "Ganho lançado após o pagamento semanal",
+        titulo: "Recebimento semanal automático",
+        descricao: normalizarDescricaoRecebimentoSemanal(
+          transferencia.descricao,
+          plataforma?.nome,
+        ),
         valor: valorBruto,
         sinal: "saida",
         impactoSaldo: 0,
@@ -320,7 +351,7 @@ export function calcularSaldosPlataformas(
     saldos.set(
       chave,
       arredondarMoeda(
-        (saldos.get(chave) || 0) - Number(transferencia.valor_bruto || 0),
+        (saldos.get(chave) || 0) - obterValorBrutoTransferencia(transferencia),
       ),
     );
   });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FiSearch, FiTrash2 } from "react-icons/fi";
+import { FiEdit2, FiSearch, FiTrash2 } from "react-icons/fi";
 
 import ConfirmacaoModal from "../../../shared/components/modals/ConfirmacaoModal";
 import ModalBase from "../../../shared/components/modals/ModalBase";
@@ -12,12 +12,14 @@ import {
 import {
   pesquisarMovimentacoesPlataforma,
 } from "../utils/plataformasFinanceiro";
+import EditarRecebimentoSemanalModal from "./EditarRecebimentoSemanalModal";
 
 const ITENS_POR_PAGINA = 50;
 
 export default function ExtratoPlataformaModal({
   aberto,
   plataforma,
+  contas = [],
   atualizacaoKey = 0,
   onClose,
   onEditarSaque,
@@ -30,6 +32,7 @@ export default function ExtratoPlataformaModal({
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [detalhe, setDetalhe] = useState(null);
   const [confirmarExclusao, setConfirmarExclusao] = useState(null);
+  const [recebimentoEdicao, setRecebimentoEdicao] = useState(null);
   const [excluindo, setExcluindo] = useState(false);
 
   const carregar = useCallback(async () => {
@@ -87,9 +90,9 @@ export default function ExtratoPlataformaModal({
       await carregar();
       await onAtualizado?.();
     } catch (error) {
-      console.error("Erro ao excluir recebimento automático:", error);
+      console.error("Erro ao excluir recebimento semanal automático:", error);
       setConfirmarExclusao(null);
-      setErro(error.message || "Não foi possível excluir o recebimento automático.");
+      setErro(error.message || "Não foi possível excluir o recebimento semanal automático.");
     } finally {
       setExcluindo(false);
     }
@@ -117,7 +120,7 @@ export default function ExtratoPlataformaModal({
                 : null}
             />
             <ResumoItem
-              titulo="Próximo recebimento automático"
+              titulo="Próximo recebimento semanal automático"
               valor={dados?.proximoRecebimento
                 ? formatarDataBR(dados.proximoRecebimento)
                 : "Não configurado"}
@@ -179,6 +182,7 @@ export default function ExtratoPlataformaModal({
         movimentacao={detalhe}
         plataforma={dados?.plataforma || plataforma}
         contasPorId={dados?.contasPorId || {}}
+        onEditarRecebimento={() => setRecebimentoEdicao(detalhe)}
         onExcluirRecebimento={() => setConfirmarExclusao(detalhe)}
         onClose={() => setDetalhe(null)}
       />
@@ -186,13 +190,28 @@ export default function ExtratoPlataformaModal({
       <ConfirmacaoModal
         aberto={Boolean(confirmarExclusao)}
         tipo="perigo"
-        titulo="Excluir recebimento automático?"
+        titulo="Excluir recebimento semanal automático?"
         mensagem="O valor voltará imediatamente para a carteira da plataforma. O recebimento não poderá ser editado nem recuperado por esta tela."
         textoConfirmar={excluindo ? "Excluindo..." : "Excluir recebimento"}
         carregando={excluindo}
         onCancelar={() => setConfirmarExclusao(null)}
         onConfirmar={excluirRecebimento}
       />
+
+      {recebimentoEdicao ? (
+        <EditarRecebimentoSemanalModal
+          movimentacao={recebimentoEdicao}
+          plataforma={dados?.plataforma || plataforma}
+          contas={contas}
+          onClose={() => setRecebimentoEdicao(null)}
+          onSalvo={async () => {
+            setRecebimentoEdicao(null);
+            setDetalhe(null);
+            await carregar();
+            await onAtualizado?.();
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -261,6 +280,7 @@ function DetalhesMovimentacaoPlataformaModal({
   movimentacao,
   plataforma,
   contasPorId,
+  onEditarRecebimento,
   onExcluirRecebimento,
   onClose,
 }) {
@@ -269,7 +289,6 @@ function DetalhesMovimentacaoPlataformaModal({
   const recebimento = movimentacao.tipo === "recebimento";
   const conciliacao = movimentacao.tipo === "conciliacao";
   const ganho = movimentacao.tipo === "ganho";
-  const saque = movimentacao.tipo === "saque";
 
   return (
     <ModalBase
@@ -286,16 +305,6 @@ function DetalhesMovimentacaoPlataformaModal({
             <Detalhe titulo="Valor" valor={formatarMoeda(movimentacao.valor)} />
             <Detalhe titulo="Data" valor={formatarDataBR(movimentacao.data)} />
             <Detalhe titulo="Origem" valor={plataforma?.nome || "Plataforma"} />
-          </>
-        ) : null}
-
-        {saque ? (
-          <>
-            <Detalhe titulo="Valor bruto" valor={formatarMoeda(movimentacao.valor)} />
-            <Detalhe titulo="Taxa" valor={formatarMoeda(movimentacao.taxa)} />
-            <Detalhe titulo="Valor líquido" valor={formatarMoeda(movimentacao.valorLiquido)} />
-            <Detalhe titulo="Conta destino" valor={movimentacao.contaDestino || "Conta"} />
-            <Detalhe titulo="Data" valor={formatarDataBR(movimentacao.data)} />
           </>
         ) : null}
 
@@ -320,14 +329,24 @@ function DetalhesMovimentacaoPlataformaModal({
       </div>
 
       {recebimento ? (
-        <button
-          type="button"
-          onClick={onExcluirRecebimento}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/50 p-3 font-bold text-red-400 hover:bg-red-500/10"
-        >
-          <FiTrash2 />
-          Excluir recebimento
-        </button>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={onEditarRecebimento}
+            className="flex items-center justify-center gap-2 rounded-xl border border-gray-700 p-3 font-bold text-white hover:bg-white/5"
+          >
+            <FiEdit2 />
+            Editar
+          </button>
+          <button
+            type="button"
+            onClick={onExcluirRecebimento}
+            className="flex items-center justify-center gap-2 rounded-xl border border-red-500/50 p-3 font-bold text-red-400 hover:bg-red-500/10"
+          >
+            <FiTrash2 />
+            Excluir
+          </button>
+        </div>
       ) : null}
     </ModalBase>
   );

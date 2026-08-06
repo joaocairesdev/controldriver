@@ -28,7 +28,7 @@ export async function carregarPlataformasFinanceiras() {
     `),
     supabase
       .from("transferencias")
-      .select("plataforma_id, valor_bruto, tipo")
+      .select("id, plataforma_id, valor, valor_bruto, tipo")
       .in("tipo", ["saque_plataforma", "recebimento_automatico_plataforma"]),
   ]);
 
@@ -36,10 +36,34 @@ export async function carregarPlataformasFinanceiras() {
   if (ganhosRes.error) throw ganhosRes.error;
   if (transferenciasRes.error) throw transferenciasRes.error;
 
+  const transferencias = transferenciasRes.data || [];
+  const idsSaques = transferencias
+    .filter((item) => item.tipo === "saque_plataforma")
+    .map((item) => item.id);
+  let taxasPorSaque = {};
+
+  if (idsSaques.length > 0) {
+    const { data: taxas, error } = await supabase
+      .from("saidas")
+      .select("saque_transferencia_id, valor_total")
+      .in("saque_transferencia_id", idsSaques);
+
+    if (error) throw error;
+    taxasPorSaque = Object.fromEntries(
+      (taxas || []).map((taxa) => [
+        String(taxa.saque_transferencia_id),
+        Number(taxa.valor_total || 0),
+      ]),
+    );
+  }
+
   return calcularSaldosPlataformas(
     plataformasRes.data || [],
     ganhosRes.data || [],
-    transferenciasRes.data || [],
+    transferencias.map((transferencia) => ({
+      ...transferencia,
+      taxa: taxasPorSaque[String(transferencia.id)] || 0,
+    })),
   );
 }
 
@@ -224,16 +248,27 @@ export async function salvarExibicaoPlataformaNasContas(plataformaId, exibir) {
 }
 
 export async function excluirRecebimentoAutomaticoPlataforma(transferenciaId) {
-  const { data, error } = await supabase
-    .from("transferencias")
-    .delete()
-    .eq("id", Number(transferenciaId))
-    .eq("tipo", "recebimento_automatico_plataforma")
-    .select("id")
-    .maybeSingle();
+  const { error } = await supabase.rpc("excluir_recebimento_semanal_plataforma", {
+    p_transferencia_id: Number(transferenciaId),
+  });
 
   if (error) throw error;
-  if (!data) throw new Error("Recebimento automático não encontrado.");
+}
+
+export async function editarRecebimentoSemanalPlataforma({
+  transferenciaId,
+  contaDestinoId,
+  data,
+  descricao,
+}) {
+  const { error } = await supabase.rpc("editar_recebimento_semanal_plataforma", {
+    p_transferencia_id: Number(transferenciaId),
+    p_conta_destino_id: Number(contaDestinoId),
+    p_data: data,
+    p_descricao: String(descricao || "").trim() || null,
+  });
+
+  if (error) throw error;
 }
 
 export async function registrarSaquePlataforma({
@@ -275,6 +310,14 @@ export async function editarSaquePlataforma({
     p_tipo_saque: tipoSaque,
     p_taxa: Number(taxa || 0),
     p_data: data,
+  });
+
+  if (error) throw error;
+}
+
+export async function excluirSaquePlataforma(transferenciaId) {
+  const { error } = await supabase.rpc("excluir_saque_plataforma", {
+    p_transferencia_id: Number(transferenciaId),
   });
 
   if (error) throw error;

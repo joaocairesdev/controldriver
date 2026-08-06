@@ -141,7 +141,10 @@ export default function DetalhesLancamentoModal({
             <DetalheItem titulo="Destino" valor={lancamento.contaDestino || "-"} />
             {saquePlataforma ? (
               <>
-                <DetalheItem titulo="Valor bruto" valor={formatarMoeda(dados.valor_bruto || 0)} />
+                <DetalheItem
+                  titulo="Valor bruto"
+                  valor={formatarMoeda(dados.valor_bruto || dados.valor || 0)}
+                />
                 <DetalheItem titulo="Taxa" valor={formatarMoeda(dados.taxa || 0)} />
                 <DetalheItem titulo="Valor recebido" valor={formatarMoeda(dados.valor || 0)} destaque="green" />
                 <DetalheItem
@@ -268,13 +271,12 @@ export default function DetalhesLancamentoModal({
 
         {recebimentoAutomatico && (
           <p className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-300">
-            Este recebimento foi gerado automaticamente pelo ciclo financeiro da plataforma.
+            Este recebimento semanal foi gerado automaticamente pela plataforma.
           </p>
         )}
 
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          {!isGrupoEntrada && !pertenceContratoFinanceiro && !saquePlataforma
-            && !taxaSaquePlataforma && !recebimentoAutomatico ? (
+        {recebimentoAutomatico ? (
+          <div className="grid grid-cols-2 gap-3 pt-2">
             <button
               type="button"
               onClick={editar}
@@ -282,24 +284,44 @@ export default function DetalhesLancamentoModal({
             >
               <FiEdit2 /> Editar
             </button>
-          ) : (
+            <button
+              type="button"
+              onClick={pedirExclusao}
+              className="border border-red-500/50 text-red-400 hover:bg-red-500/10 font-bold rounded-xl p-3 flex items-center justify-center gap-2"
+            >
+              <FiTrash2 /> Excluir
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            {!isGrupoEntrada && !pertenceContratoFinanceiro && !saquePlataforma
+              && !taxaSaquePlataforma ? (
+              <button
+                type="button"
+                onClick={editar}
+                className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3 flex items-center justify-center gap-2"
+              >
+                <FiEdit2 /> Editar
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={fechar}
+                className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3"
+              >
+                Voltar
+              </button>
+            )}
+
             <button
               type="button"
               onClick={fechar}
-              className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3"
+              className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
             >
-              Voltar
+              Fechar
             </button>
-          )}
-
-          <button
-            type="button"
-            onClick={fechar}
-            className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
-          >
-            Fechar
-          </button>
-        </div>
+          </div>
+        )}
       </div>
     </ModalBase>
   );

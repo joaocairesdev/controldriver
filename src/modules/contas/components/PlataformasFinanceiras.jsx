@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { FiSettings, FiTrendingUp } from "react-icons/fi";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { FiSearch, FiSettings, FiTrash2, FiTrendingUp } from "react-icons/fi";
 
+import ConfirmacaoModal from "../../../shared/components/modals/ConfirmacaoModal";
 import FeedbackModal from "../../../shared/components/modals/FeedbackModal";
 import DatePickerModal from "../../../shared/components/modals/DatePickerModal";
 import ModalBase from "../../../shared/components/modals/ModalBase";
@@ -21,12 +22,14 @@ import {
   carregarContasDestinoSaque,
   carregarPlataformasFinanceiras,
   editarSaquePlataforma,
+  excluirSaquePlataforma,
   registrarSaquePlataforma,
   salvarConfiguracaoPlataforma,
   salvarExibicaoPlataformaNasContas,
 } from "../services/plataformasFinanceiroService";
 import {
   calcularValorLiquidoSaque,
+  obterValorBrutoTransferencia,
   obterTaxaPadraoSaque,
   obterTipoSaquePadrao,
   obterTiposSaqueDisponiveis,
@@ -83,6 +86,7 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
   const [atualizacaoExtratoKey, setAtualizacaoExtratoKey] = useState(0);
   const [plataformaConfig, setPlataformaConfig] = useState(null);
   const [modalSelecionarConfig, setModalSelecionarConfig] = useState(false);
+  const [salvandoExibicaoId, setSalvandoExibicaoId] = useState(null);
   const [feedback, setFeedback] = useState({
     aberto: false,
     tipo: "sucesso",
@@ -131,16 +135,52 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
     setAtualizacaoExtratoKey((atual) => atual + 1);
   }
 
+  async function alternarExibicaoPlataforma(plataforma, exibir) {
+    const saldo = Number(plataforma.saldo || 0);
+
+    if (saldo >= 0.01) {
+      abrirFeedback(
+        "aviso",
+        "Saldo disponível na plataforma",
+        `${plataforma.nome} não pode ser ocultada porque ainda possui saldo disponível.`,
+      );
+      return;
+    }
+
+    if (saldo <= -0.01) {
+      abrirFeedback(
+        "aviso",
+        "Saldo pendente na plataforma",
+        `${plataforma.nome} não pode ser ocultada enquanto existir saldo pendente.`,
+      );
+      return;
+    }
+
+    setSalvandoExibicaoId(plataforma.id);
+
+    try {
+      await salvarExibicaoPlataformaNasContas(plataforma.id, exibir);
+      setPlataformas((atuais) => atuais.map((item) => (
+        item.id === plataforma.id
+          ? { ...item, exibir_nas_contas: exibir }
+          : item
+      )));
+    } catch (error) {
+      console.error("Erro ao atualizar exibição da plataforma:", error);
+      abrirFeedback(
+        "erro",
+        "Erro ao atualizar plataforma",
+        error.message || "Não foi possível atualizar a exibição nas Contas.",
+      );
+    } finally {
+      setSalvandoExibicaoId(null);
+    }
+  }
+
   const plataformasExibidas = plataformas.filter(
     (plataforma) => Math.abs(Number(plataforma.saldo || 0)) >= 0.01
       || plataforma.exibir_nas_contas !== false,
   );
-
-  const opcoesConfig = plataformas.map((plataforma) => ({
-    valor: String(plataforma.id),
-    titulo: plataforma.nome,
-    descricao: "Configurar recebimentos e taxas de saque.",
-  }));
 
   return (
     <>
@@ -165,7 +205,7 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
             <p className="text-sm text-gray-400">Carregando saldos das plataformas...</p>
           </div>
         ) : plataformasExibidas.length > 0 ? (
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-3">
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {plataformasExibidas.map((plataforma) => (
               <PlataformaCard
                 key={plataforma.id}
@@ -185,19 +225,16 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
         )}
       </section>
 
-      <SelecionarOpcaoModal
+      <ListaConfiguracaoPlataformasModal
         aberto={modalSelecionarConfig}
-        titulo="Configurar plataforma"
-        descricao="Escolha a plataforma cujas regras financeiras deseja alterar."
-        opcoes={opcoesConfig}
-        valor=""
-        onSelecionar={(plataformaId) => {
-          setPlataformaConfig(
-            plataformas.find((item) => String(item.id) === String(plataformaId)) || null,
-          );
+        plataformas={plataformas}
+        salvandoId={salvandoExibicaoId}
+        onAlternarExibicao={alternarExibicaoPlataforma}
+        onConfigurar={(plataforma) => {
+          setModalSelecionarConfig(false);
+          setPlataformaConfig(plataforma);
         }}
         onClose={() => setModalSelecionarConfig(false)}
-        pesquisavel={plataformas.length > 8}
       />
 
       {plataformaSaque ? (
@@ -225,13 +262,6 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
           plataforma={plataformaConfig}
           contas={contasDestino}
           onClose={() => setPlataformaConfig(null)}
-          onExibicaoAlterada={(exibir) => {
-            setPlataformas((atuais) => atuais.map((item) => (
-              item.id === plataformaConfig.id
-                ? { ...item, exibir_nas_contas: exibir }
-                : item
-            )));
-          }}
           onSalvo={async () => {
             setPlataformaConfig(null);
             await carregarDados();
@@ -248,6 +278,7 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
         <ExtratoPlataformaModal
           aberto={true}
           plataforma={plataformaExtrato}
+          contas={contasDestino}
           atualizacaoKey={atualizacaoExtratoKey}
           onClose={() => setPlataformaExtrato(null)}
           onEditarSaque={(movimentacao) => {
@@ -278,6 +309,15 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
               "O saque, a transferência e a taxa foram atualizados com consistência.",
             );
           }}
+          onExcluido={async () => {
+            setSaqueEdicao(null);
+            await atualizarAposEdicao();
+            abrirFeedback(
+              "sucesso",
+              "Saque excluído",
+              "O saque e a taxa vinculada foram removidos, e o valor retornou para a carteira.",
+            );
+          }}
         />
       ) : null}
 
@@ -292,8 +332,116 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
   );
 }
 
+function LogoPlataforma({ nome }) {
+  const config = obterConfigPlataforma(nome);
+
+  if (config?.imagem) {
+    return (
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden">
+        <img
+          src={config.imagem}
+          alt=""
+          className="h-10 w-10 object-contain"
+        />
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex h-12 w-12 shrink-0 items-center justify-center text-gray-400">
+      <FiTrendingUp className="h-7 w-7" aria-hidden="true" />
+    </span>
+  );
+}
+
+function ListaConfiguracaoPlataformasModal({
+  aberto,
+  plataformas,
+  salvandoId,
+  onAlternarExibicao,
+  onConfigurar,
+  onClose,
+}) {
+  const [busca, setBusca] = useState("");
+  const plataformasFiltradas = useMemo(() => {
+    const termo = busca.trim().toLocaleLowerCase("pt-BR");
+    if (!termo) return plataformas;
+    return plataformas.filter((plataforma) =>
+      `${plataforma.nome} ${plataforma.id}`.toLocaleLowerCase("pt-BR").includes(termo)
+    );
+  }, [busca, plataformas]);
+
+  function fechar() {
+    setBusca("");
+    onClose();
+  }
+
+  function selecionar(plataforma) {
+    setBusca("");
+    onConfigurar(plataforma);
+  }
+
+  return (
+    <ModalBase
+      aberto={aberto}
+      titulo="Configurar plataforma"
+      descricao="Toque no nome para configurar ou use o switch para controlar a exibição nas Contas."
+      onClose={fechar}
+      largura="max-w-lg"
+    >
+      {plataformas.length > 8 ? (
+        <div className="flex items-center rounded-xl border border-gray-700 bg-[#0B1120] focus-within:border-green-400">
+          <FiSearch className="ml-3 text-gray-400" />
+          <input
+            value={busca}
+            onChange={(event) => setBusca(event.target.value)}
+            placeholder="Buscar..."
+            className="w-full bg-transparent p-3 outline-none"
+            autoFocus
+          />
+        </div>
+      ) : null}
+
+      <div className="mt-4 space-y-3">
+        {plataformasFiltradas.map((plataforma) => {
+          const saldoNaoZerado = Math.abs(Number(plataforma.saldo || 0)) >= 0.01;
+          const ativa = saldoNaoZerado || plataforma.exibir_nas_contas !== false;
+
+          return (
+            <div
+              key={plataforma.id}
+              className="flex min-h-20 items-center gap-3 rounded-2xl border border-gray-800 bg-[#0B1120] p-3"
+            >
+              <button
+                type="button"
+                onClick={() => selecionar(plataforma)}
+                className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                aria-label={`Configurar ${plataforma.nome}`}
+              >
+                <LogoPlataforma nome={plataforma.nome} />
+                <span className="min-w-0 break-words font-bold leading-tight text-white">
+                  {plataforma.nome}
+                </span>
+              </button>
+
+              <ToggleSwitch
+                ativo={ativa}
+                disabled={salvandoId === plataforma.id}
+                onChange={(exibir) => onAlternarExibicao(plataforma, exibir)}
+                ariaLabel={`${ativa ? "Ocultar" : "Exibir"} ${plataforma.nome} nas Contas`}
+              />
+            </div>
+          );
+        })}
+        {plataformasFiltradas.length === 0 ? (
+          <p className="py-8 text-center text-gray-400">Nenhuma opção encontrada.</p>
+        ) : null}
+      </div>
+    </ModalBase>
+  );
+}
+
 function PlataformaCard({ plataforma, onAbrirExtrato, onSacar, onConfigurar }) {
-  const config = obterConfigPlataforma(plataforma.nome);
   const pendente = Number(plataforma.saldo || 0) < 0;
   const permiteSaque = Number(plataforma.saldo || 0) > 0
     && obterTiposSaqueDisponiveis(plataforma).length > 0;
@@ -309,22 +457,18 @@ function PlataformaCard({ plataforma, onAbrirExtrato, onSacar, onConfigurar }) {
           onAbrirExtrato?.();
         }
       }}
-      className={`rounded-2xl border p-4 ${
+      className={`flex h-full min-h-52 flex-col rounded-2xl border p-4 ${
         pendente
           ? "border-yellow-500/35 bg-yellow-500/10"
           : "border-gray-800 bg-[#111827]"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="w-12 h-12 rounded-xl bg-[#0B1120] border border-gray-800 flex items-center justify-center overflow-hidden shrink-0">
-            {config?.imagem ? (
-              <img src={config.imagem} alt="" className="w-10 h-10 object-contain" />
-            ) : (
-              <FiTrendingUp className="h-8 w-8 text-green-400" />
-            )}
-          </span>
-          <h3 className="font-black truncate">{plataforma.nome}</h3>
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <LogoPlataforma nome={plataforma.nome} />
+          <h3 className="min-w-0 break-words text-base font-black leading-tight text-white">
+            {plataforma.nome}
+          </h3>
         </div>
 
         <button
@@ -341,11 +485,11 @@ function PlataformaCard({ plataforma, onAbrirExtrato, onSacar, onConfigurar }) {
         </button>
       </div>
 
-      <div className="mt-4">
+      <div className="mt-5">
         <p className={`text-xs ${pendente ? "text-yellow-400" : "text-gray-500"}`}>
           {pendente ? "Saldo pendente de conciliação" : "Saldo disponível"}
         </p>
-        <p className={`text-2xl font-black mt-1 ${pendente ? "text-yellow-300" : "text-white"}`}>
+        <p className={`mt-1 text-[1.75rem] font-black leading-none ${pendente ? "text-yellow-300" : "text-white"}`}>
           {formatarMoeda(plataforma.saldo)}
         </p>
       </div>
@@ -357,7 +501,7 @@ function PlataformaCard({ plataforma, onAbrirExtrato, onSacar, onConfigurar }) {
           event.stopPropagation();
           if (permiteSaque) onSacar();
         }}
-        className={`w-full mt-4 rounded-xl font-black p-2.5 transition ${
+        className={`mt-auto h-9 w-full rounded-xl text-sm font-black transition ${
           permiteSaque
             ? "bg-green-500 hover:bg-green-600 text-black"
             : "bg-gray-700 text-gray-400 cursor-not-allowed"
@@ -369,12 +513,19 @@ function PlataformaCard({ plataforma, onAbrirExtrato, onSacar, onConfigurar }) {
   );
 }
 
-function SaquePlataformaModal({ plataforma, contas, saque = null, onClose, onSalvo }) {
+function SaquePlataformaModal({
+  plataforma,
+  contas,
+  saque = null,
+  onClose,
+  onSalvo,
+  onExcluido,
+}) {
   const emEdicao = Boolean(saque?.id);
   const [valor, setValor] = useState(() =>
     numeroParaMoedaInput(
       emEdicao
-        ? Number(saque.valor_bruto || 0)
+        ? obterValorBrutoTransferencia(saque)
         : Math.max(Number(plataforma.saldo || 0), 0),
     ),
   );
@@ -397,15 +548,16 @@ function SaquePlataformaModal({ plataforma, contas, saque = null, onClose, onSal
   const [modalConta, setModalConta] = useState(false);
   const [modalTipo, setModalTipo] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [confirmarExclusao, setConfirmarExclusao] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
   const [erros, setErros] = useState({});
   const [shakeKey, setShakeKey] = useState(0);
   const [erroGeral, setErroGeral] = useState("");
 
   const tiposConfigurados = obterTiposSaqueDisponiveis(plataforma);
-  const tiposDisponiveis = TIPOS_SAQUE.filter((tipo) =>
-    tiposConfigurados.includes(tipo.valor)
-      || (emEdicao && tipo.valor === tipoInicial),
-  );
+  const tiposDisponiveis = emEdicao
+    ? TIPOS_SAQUE
+    : TIPOS_SAQUE.filter((tipo) => tiposConfigurados.includes(tipo.valor));
 
   const contaDestino = contas.find(
     (conta) => String(conta.id) === String(contaDestinoId),
@@ -432,6 +584,8 @@ function SaquePlataformaModal({ plataforma, contas, saque = null, onClose, onSal
 
   function validar() {
     const novos = {};
+    if (!dataSaque) novos.dataSaque = "Selecione a data do saque.";
+    if (dataSaque > hojeBrasil()) novos.dataSaque = "A data do saque não pode ser futura.";
     if (valorBruto <= 0) novos.valor = "Informe um valor de saque maior que zero.";
     if (!contaDestinoId) novos.contaDestinoId = "Selecione a conta de destino.";
     if (!tipoSaque) novos.tipoSaque = "Selecione o tipo do saque.";
@@ -476,6 +630,24 @@ function SaquePlataformaModal({ plataforma, contas, saque = null, onClose, onSal
     }
   }
 
+  async function excluir() {
+    if (!emEdicao || !saque?.id) return;
+    setExcluindo(true);
+    setErroGeral("");
+
+    try {
+      await excluirSaquePlataforma(saque.id);
+      setConfirmarExclusao(false);
+      setExcluindo(false);
+      await onExcluido?.();
+    } catch (error) {
+      console.error("Erro ao excluir saque da plataforma:", error);
+      setConfirmarExclusao(false);
+      setExcluindo(false);
+      setErroGeral(error.message || "Não foi possível excluir o saque.");
+    }
+  }
+
   return (
     <>
       <ModalBase
@@ -483,17 +655,20 @@ function SaquePlataformaModal({ plataforma, contas, saque = null, onClose, onSal
         titulo={emEdicao ? `Editar saque de ${plataforma.nome}` : `Sacar de ${plataforma.nome}`}
         descricao="O valor pode ser maior que o saldo conhecido; a diferença ficará pendente de conciliação."
         onClose={onClose}
+        z={emEdicao ? "z-[200]" : "z-[100]"}
         largura="max-w-xl"
         confirmarAoFecharSeAlterado
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {emEdicao ? (
-            <Campo label="Data do saque">
-              <ButtonField onClick={() => setModalData(true)}>
-                {formatarDataBR(dataSaque)}
-              </ButtonField>
-            </Campo>
-          ) : null}
+          <Campo label="Data do saque" erro={erros.dataSaque} shakeKey={shakeKey}>
+            <ButtonField
+              erro={erros.dataSaque}
+              shakeKey={shakeKey}
+              onClick={() => setModalData(true)}
+            >
+              {dataSaque ? formatarDataBR(dataSaque) : "Selecionar data"}
+            </ButtonField>
+          </Campo>
 
           <Campo label="Valor bruto" erro={erros.valor} shakeKey={shakeKey}>
             <MoneyInput
@@ -554,6 +729,18 @@ function SaquePlataformaModal({ plataforma, contas, saque = null, onClose, onSal
           </div>
         ) : null}
 
+        {emEdicao ? (
+          <button
+            type="button"
+            onClick={() => setConfirmarExclusao(true)}
+            disabled={salvando || excluindo}
+            className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/50 p-3 font-bold text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+          >
+            <FiTrash2 />
+            Excluir saque
+          </button>
+        ) : null}
+
         <div className="sticky bottom-0 z-10 grid grid-cols-2 gap-3 mt-6 -mx-1 pt-4 pb-1 bg-[#111827]">
           <button
             type="button"
@@ -565,7 +752,7 @@ function SaquePlataformaModal({ plataforma, contas, saque = null, onClose, onSal
           <button
             type="button"
             onClick={salvar}
-            disabled={salvando}
+            disabled={salvando || excluindo}
             className="rounded-xl bg-green-500 p-3 font-black text-black hover:bg-green-600 disabled:opacity-50"
           >
             {salvando ? "Salvando..." : emEdicao ? "Salvar alterações" : "Confirmar saque"}
@@ -597,10 +784,25 @@ function SaquePlataformaModal({ plataforma, contas, saque = null, onClose, onSal
       <DatePickerModal
         aberto={modalData}
         valor={dataSaque}
+        maxDate={hojeBrasil()}
         titulo="Data do saque"
         descricao="Escolha a data da movimentação e da taxa vinculada."
-        onChange={setDataSaque}
+        onChange={(data) => {
+          limparErro("dataSaque");
+          setDataSaque(data);
+        }}
         onClose={() => setModalData(false)}
+      />
+
+      <ConfirmacaoModal
+        aberto={confirmarExclusao}
+        tipo="perigo"
+        titulo="Excluir saque?"
+        mensagem="O saque e a taxa vinculada serão removidos. O valor bruto retornará para a carteira da plataforma."
+        textoConfirmar={excluindo ? "Excluindo..." : "Excluir saque"}
+        carregando={excluindo}
+        onCancelar={() => setConfirmarExclusao(false)}
+        onConfirmar={excluir}
       />
     </>
   );
@@ -611,7 +813,6 @@ function ConfiguracaoPlataformaModal({
   contas,
   onClose,
   onSalvo,
-  onExibicaoAlterada,
 }) {
   const [modoRecebimento, setModoRecebimento] = useState(
     plataforma.modo_recebimento || "instantaneo",
@@ -644,11 +845,6 @@ function ConfiguracaoPlataformaModal({
   const [erros, setErros] = useState({});
   const [shakeKey, setShakeKey] = useState(0);
   const [erroGeral, setErroGeral] = useState("");
-  const saldoNaoZerado = Math.abs(Number(plataforma.saldo || 0)) >= 0.01;
-  const [exibirNasContas, setExibirNasContas] = useState(
-    saldoNaoZerado || plataforma.exibir_nas_contas !== false,
-  );
-  const [salvandoExibicao, setSalvandoExibicao] = useState(false);
 
   const contaDestino = contas.find(
     (conta) => String(conta.id) === String(contaDestinoId),
@@ -706,23 +902,6 @@ function ConfiguracaoPlataformaModal({
     return Object.keys(novos).length === 0;
   }
 
-  async function alternarExibicao(exibir) {
-    if (saldoNaoZerado || salvandoExibicao) return;
-    setSalvandoExibicao(true);
-    setErroGeral("");
-
-    try {
-      await salvarExibicaoPlataformaNasContas(plataforma.id, exibir);
-      setExibirNasContas(exibir);
-      onExibicaoAlterada?.(exibir);
-    } catch (error) {
-      console.error("Erro ao atualizar exibição da plataforma:", error);
-      setErroGeral(error.message || "Não foi possível atualizar a exibição nas Contas.");
-    } finally {
-      setSalvandoExibicao(false);
-    }
-  }
-
   async function salvar() {
     if (!validar()) return;
     setSalvando(true);
@@ -777,23 +956,6 @@ function ConfiguracaoPlataformaModal({
               {contaDestino?.nome || "Selecionar conta bancária"}
             </ButtonField>
           </Campo>
-        </div>
-
-        <div className="mt-5 rounded-2xl border border-gray-800 bg-[#0B1120] p-4 flex items-center justify-between gap-4">
-          <div>
-            <p className="font-black">Exibir nas Contas</p>
-            <p className="mt-1 text-xs text-gray-500">
-              {saldoNaoZerado
-                ? "Plataformas com saldo não podem ser ocultadas."
-                : "A preferência é salva imediatamente enquanto o saldo estiver zerado."}
-            </p>
-          </div>
-          <ToggleSwitch
-            ativo={saldoNaoZerado || exibirNasContas}
-            disabled={saldoNaoZerado || salvandoExibicao}
-            onChange={alternarExibicao}
-            ariaLabel="Exibir plataforma nas Contas"
-          />
         </div>
 
         {modoRecebimento === "retido" ? (

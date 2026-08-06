@@ -3,6 +3,7 @@ import { FiFilter, FiSearch } from "react-icons/fi";
 import { supabase } from "../../../services/supabase";
 import ModalBase from "../../../shared/components/modals/ModalBase";
 import { rotuloEntradaAvulsa } from "../../contratos/utils/contratosFinanceiros";
+import { normalizarDescricaoRecebimentoSemanal } from "../utils/plataformasFinanceiro";
 
 const ITENS_POR_PAGINA_CONTA = 50;
 
@@ -220,14 +221,17 @@ export default function ModalExtratoConta({
           const descricao = creditoDireto
             ? `Ganhos com ${nomePlataforma}`
             : recebimentoAutomatico
-              ? `Recebimento automático - ${nomePlataforma}`
+              ? normalizarDescricaoRecebimentoSemanal(
+                  transferencia.descricao,
+                  nomePlataforma,
+                )
               : saquePlataforma
                 ? `Saque - ${nomePlataforma}`
                 : transferencia.descricao || "Transferência recebida";
           const categoria = creditoDireto
             ? "Ganhos com Plataformas"
             : recebimentoAutomatico
-              ? "Recebimento da Plataforma"
+              ? "Recebimento semanal automático"
               : saquePlataforma
                 ? "Saque da Plataforma"
                 : "Transferência";
