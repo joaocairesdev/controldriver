@@ -98,8 +98,6 @@ export default function ExtratoPlataformaModal({
     }
   }
 
-  const ultimaLiquidacao = dados?.ultimaLiquidacao;
-
   return (
     <>
       <ModalBase
@@ -110,21 +108,8 @@ export default function ExtratoPlataformaModal({
         largura="max-w-4xl"
       >
         <div className="space-y-5">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             <ResumoItem titulo="Saldo atual" valor={formatarMoeda(saldo)} destaque />
-            <ResumoItem
-              titulo="Última liquidação"
-              valor={ultimaLiquidacao ? formatarDataBR(ultimaLiquidacao.data) : "Nenhuma"}
-              descricao={ultimaLiquidacao
-                ? `${formatarDataBR(ultimaLiquidacao.ciclo_operacional_inicio)} a ${formatarDataBR(ultimaLiquidacao.ciclo_operacional_fim)}`
-                : null}
-            />
-            <ResumoItem
-              titulo="Próximo recebimento semanal automático"
-              valor={dados?.proximoRecebimento
-                ? formatarDataBR(dados.proximoRecebimento)
-                : "Não configurado"}
-            />
           </div>
 
           <div className="relative">
@@ -287,7 +272,6 @@ function DetalhesMovimentacaoPlataformaModal({
   if (!movimentacao) return null;
   const dados = movimentacao.dadosOriginais || {};
   const recebimento = movimentacao.tipo === "recebimento";
-  const conciliacao = movimentacao.tipo === "conciliacao";
   const ganho = movimentacao.tipo === "ganho";
 
   return (
@@ -318,14 +302,6 @@ function DetalhesMovimentacaoPlataformaModal({
           </>
         ) : null}
 
-        {conciliacao ? (
-          <>
-            <Detalhe titulo="Origem" valor={plataforma?.nome || "Plataforma"} />
-            <Detalhe titulo="Motivo" valor="Ganho lançado após o pagamento semanal" />
-            <Detalhe titulo="Lançamento conciliado" valor={`Entrada #${movimentacao.entradaId || "-"}`} />
-            <Detalhe titulo="Data" valor={formatarDataBR(movimentacao.data)} />
-          </>
-        ) : null}
       </div>
 
       {recebimento ? (

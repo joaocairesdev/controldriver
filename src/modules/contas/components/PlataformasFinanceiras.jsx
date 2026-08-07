@@ -31,27 +31,31 @@ import {
   calcularValorLiquidoSaque,
   obterValorBrutoTransferencia,
   obterTaxaPadraoSaque,
-  obterTipoSaquePadrao,
-  obterTiposSaqueDisponiveis,
 } from "../utils/plataformasFinanceiro";
 
 const TIPOS_SAQUE = [
   {
+    valor: "semanal",
+    titulo: "Recebimento semanal",
+    descricao: "Recebimento semanal sem cobrança de taxa.",
+  },
+  {
     valor: "instantaneo",
-    titulo: "Instantâneo",
+    titulo: "Saque instantâneo",
     descricao: "Recebimento imediato, quando permitido pela plataforma.",
   },
   {
     valor: "agendado",
-    titulo: "Agendado",
+    titulo: "Saque agendado",
     descricao: "Recebimento conforme o processamento da plataforma.",
   },
-  {
-    valor: "outro",
-    titulo: "Outro",
-    descricao: "Outro formato de recebimento informado pela plataforma.",
-  },
 ];
+
+const TIPO_SAQUE_LEGADO = {
+  valor: "outro",
+  titulo: "Outro",
+  descricao: "Modalidade preservada apenas para saques já registrados.",
+};
 
 const DIAS_RECEBIMENTO = [
   { valor: "1", titulo: "Segunda-feira" },
@@ -61,19 +65,6 @@ const DIAS_RECEBIMENTO = [
   { valor: "5", titulo: "Sexta-feira" },
   { valor: "6", titulo: "Sábado" },
   { valor: "7", titulo: "Domingo" },
-];
-
-const MODOS_RECEBIMENTO = [
-  {
-    valor: "instantaneo",
-    titulo: "Recebimento instantâneo",
-    descricao: "Cada ganho entra diretamente na conta bancária configurada.",
-  },
-  {
-    valor: "retido",
-    titulo: "Saldo retido",
-    descricao: "Os ganhos permanecem na plataforma até o pagamento ou saque.",
-  },
 ];
 
 export default function PlataformasFinanceiras({ onMovimentacao }) {
@@ -443,8 +434,7 @@ function ListaConfiguracaoPlataformasModal({
 
 function PlataformaCard({ plataforma, onAbrirExtrato, onSacar, onConfigurar }) {
   const pendente = Number(plataforma.saldo || 0) < 0;
-  const permiteSaque = Number(plataforma.saldo || 0) > 0
-    && obterTiposSaqueDisponiveis(plataforma).length > 0;
+  const permiteSaque = Number(plataforma.saldo || 0) > 0;
 
   return (
     <article
@@ -536,11 +526,15 @@ function SaquePlataformaModal({
         ? String(plataforma.conta_destino_id)
         : "",
   );
-  const tipoInicial = saque?.tipo_saque || obterTipoSaquePadrao(plataforma);
+  const tipoInicial = saque?.tipo_saque || "semanal";
   const [tipoSaque, setTipoSaque] = useState(tipoInicial);
   const [taxa, setTaxa] = useState(() =>
     numeroParaMoedaInput(
-      emEdicao ? Number(saque.taxa || 0) : obterTaxaPadraoSaque(plataforma, tipoInicial),
+      tipoInicial === "semanal"
+        ? 0
+        : emEdicao
+          ? Number(saque.taxa || 0)
+          : obterTaxaPadraoSaque(plataforma, tipoInicial),
     ),
   );
   const [dataSaque, setDataSaque] = useState(saque?.data || hojeBrasil());
@@ -553,11 +547,9 @@ function SaquePlataformaModal({
   const [erros, setErros] = useState({});
   const [shakeKey, setShakeKey] = useState(0);
   const [erroGeral, setErroGeral] = useState("");
-
-  const tiposConfigurados = obterTiposSaqueDisponiveis(plataforma);
-  const tiposDisponiveis = emEdicao
-    ? TIPOS_SAQUE
-    : TIPOS_SAQUE.filter((tipo) => tiposConfigurados.includes(tipo.valor));
+  const tiposDisponiveis = emEdicao && saque?.tipo_saque === "outro"
+    ? [...TIPOS_SAQUE, TIPO_SAQUE_LEGADO]
+    : TIPOS_SAQUE;
 
   const contaDestino = contas.find(
     (conta) => String(conta.id) === String(contaDestinoId),
@@ -685,6 +677,7 @@ function SaquePlataformaModal({
           <Campo label="Taxa" erro={erros.taxa} shakeKey={shakeKey}>
             <MoneyInput
               value={taxa}
+              disabled={tipoSaque === "semanal"}
               onChange={(novaTaxa) => {
                 limparErro("taxa");
                 setTaxa(formatarMoedaDigitada(novaTaxa));
@@ -710,7 +703,7 @@ function SaquePlataformaModal({
               shakeKey={shakeKey}
               onClick={() => setModalTipo(true)}
             >
-              {TIPOS_SAQUE.find((tipo) => tipo.valor === tipoSaque)?.titulo || "Selecionar"}
+              {tiposDisponiveis.find((tipo) => tipo.valor === tipoSaque)?.titulo || "Selecionar"}
             </ButtonField>
           </Campo>
         </div>
@@ -814,9 +807,6 @@ function ConfiguracaoPlataformaModal({
   onClose,
   onSalvo,
 }) {
-  const [modoRecebimento, setModoRecebimento] = useState(
-    plataforma.modo_recebimento || "instantaneo",
-  );
   const [contaDestinoId, setContaDestinoId] = useState(
     plataforma.conta_destino_id ? String(plataforma.conta_destino_id) : "",
   );
@@ -825,22 +815,14 @@ function ConfiguracaoPlataformaModal({
       ? String(plataforma.dia_recebimento_automatico)
       : "1",
   );
-  const [tiposSaque, setTiposSaque] = useState(() =>
-    obterTiposSaqueDisponiveis(plataforma),
-  );
-  const [tipoPadrao, setTipoPadrao] = useState(() =>
-    obterTipoSaquePadrao(plataforma),
-  );
   const [taxaInstantanea, setTaxaInstantanea] = useState(() =>
     numeroParaMoedaInput(plataforma.taxa_saque_instantaneo || 0),
   );
   const [taxaAgendada, setTaxaAgendada] = useState(() =>
     numeroParaMoedaInput(plataforma.taxa_saque_agendado || 0),
   );
-  const [modalModo, setModalModo] = useState(false);
   const [modalConta, setModalConta] = useState(false);
   const [modalDia, setModalDia] = useState(false);
-  const [modalTipoPadrao, setModalTipoPadrao] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erros, setErros] = useState({});
   const [shakeKey, setShakeKey] = useState(0);
@@ -849,14 +831,8 @@ function ConfiguracaoPlataformaModal({
   const contaDestino = contas.find(
     (conta) => String(conta.id) === String(contaDestinoId),
   );
-  const modoSelecionado = MODOS_RECEBIMENTO.find(
-    (modo) => modo.valor === modoRecebimento,
-  );
   const diaSelecionado = DIAS_RECEBIMENTO.find(
     (dia) => dia.valor === diaRecebimento,
-  );
-  const tiposPadraoDisponiveis = TIPOS_SAQUE.filter((tipo) =>
-    tiposSaque.includes(tipo.valor),
   );
 
   function limparErro(campo) {
@@ -869,34 +845,16 @@ function ConfiguracaoPlataformaModal({
     setErroGeral("");
   }
 
-  function alternarTipoSaque(tipo, ativo) {
-    const proximos = ativo
-      ? [...new Set([...tiposSaque, tipo])]
-      : tiposSaque.filter((item) => item !== tipo);
-
-    setTiposSaque(proximos);
-    if (proximos.length > 0 && !proximos.includes(tipoPadrao)) {
-      setTipoPadrao(proximos[0]);
-    }
-  }
-
   function validar() {
     const novos = {};
-    if (!modoRecebimento) novos.modoRecebimento = "Selecione o modo de recebimento.";
     if (!contaDestinoId) novos.contaDestinoId = "Selecione a conta de destino.";
-    if (modoRecebimento === "retido" && !diaRecebimento) {
-      novos.diaRecebimento = "Selecione o dia do pagamento automático.";
-    }
+    if (!diaRecebimento) novos.diaRecebimento = "Selecione o dia do recebimento semanal.";
     if (moedaParaNumero(taxaInstantanea) < 0) {
       novos.taxaInstantanea = "A taxa não pode ser negativa.";
     }
     if (moedaParaNumero(taxaAgendada) < 0) {
       novos.taxaAgendada = "A taxa não pode ser negativa.";
     }
-    if (tiposSaque.length > 0 && !tiposSaque.includes(tipoPadrao)) {
-      novos.tipoPadrao = "Selecione um tipo padrão disponível.";
-    }
-
     setErros(novos);
     if (Object.keys(novos).length) setShakeKey((atual) => atual + 1);
     return Object.keys(novos).length === 0;
@@ -909,13 +867,10 @@ function ConfiguracaoPlataformaModal({
 
     try {
       await salvarConfiguracaoPlataforma(plataforma.id, {
-        modoRecebimento,
         contaDestinoId,
         diaRecebimentoAutomatico: diaRecebimento,
         taxaSaqueInstantaneo: moedaParaNumero(taxaInstantanea),
         taxaSaqueAgendado: moedaParaNumero(taxaAgendada),
-        tiposSaqueDisponiveis: tiposSaque,
-        tipoSaquePadrao: tipoPadrao,
       });
       await onSalvo?.();
     } catch (error) {
@@ -937,16 +892,6 @@ function ConfiguracaoPlataformaModal({
         confirmarAoFecharSeAlterado
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Campo label="Modo de recebimento" erro={erros.modoRecebimento} shakeKey={shakeKey}>
-            <ButtonField
-              erro={erros.modoRecebimento}
-              shakeKey={shakeKey}
-              onClick={() => setModalModo(true)}
-            >
-              {modoSelecionado?.titulo || "Selecionar modo"}
-            </ButtonField>
-          </Campo>
-
           <Campo label="Conta de destino" erro={erros.contaDestinoId} shakeKey={shakeKey}>
             <ButtonField
               erro={erros.contaDestinoId}
@@ -956,92 +901,50 @@ function ConfiguracaoPlataformaModal({
               {contaDestino?.nome || "Selecionar conta bancária"}
             </ButtonField>
           </Campo>
-        </div>
 
-        {modoRecebimento === "retido" ? (
-          <div className="mt-5 space-y-5">
-            <Campo
-              label="Dia do pagamento automático"
+          <Campo
+            label="Dia do recebimento semanal"
+            erro={erros.diaRecebimento}
+            shakeKey={shakeKey}
+          >
+            <ButtonField
               erro={erros.diaRecebimento}
               shakeKey={shakeKey}
+              onClick={() => setModalDia(true)}
             >
-              <ButtonField
-                erro={erros.diaRecebimento}
-                shakeKey={shakeKey}
-                onClick={() => setModalDia(true)}
-              >
-                {diaSelecionado?.titulo || "Selecionar dia da semana"}
-              </ButtonField>
-            </Campo>
+              {diaSelecionado?.titulo || "Selecionar dia da semana"}
+            </ButtonField>
+          </Campo>
+        </div>
 
-            <p className="text-xs text-gray-500 -mt-3">
-              O ciclo financeiro permanece sempre de segunda a domingo; este dia define apenas o pagamento.
-            </p>
+        <p className="mt-3 text-xs text-gray-500">
+          O dia é apenas uma informação da plataforma e não cria movimentações automaticamente.
+        </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Campo label="Taxa padrão instantânea" erro={erros.taxaInstantanea} shakeKey={shakeKey}>
-                <MoneyInput
-                  value={taxaInstantanea}
-                  onChange={(valor) => {
-                    limparErro("taxaInstantanea");
-                    setTaxaInstantanea(formatarMoedaDigitada(valor));
-                  }}
-                  erro={erros.taxaInstantanea}
-                  shakeKey={shakeKey}
-                />
-              </Campo>
-              <Campo label="Taxa padrão agendada" erro={erros.taxaAgendada} shakeKey={shakeKey}>
-                <MoneyInput
-                  value={taxaAgendada}
-                  onChange={(valor) => {
-                    limparErro("taxaAgendada");
-                    setTaxaAgendada(formatarMoedaDigitada(valor));
-                  }}
-                  erro={erros.taxaAgendada}
-                  shakeKey={shakeKey}
-                />
-              </Campo>
-            </div>
-
-            <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4 space-y-4">
-              <div>
-                <p className="font-black">Tipos de saque disponíveis</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  Ative apenas as modalidades oferecidas pela plataforma.
-                </p>
-              </div>
-              {TIPOS_SAQUE.map((tipo) => (
-                <div key={tipo.valor} className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-bold">{tipo.titulo}</p>
-                    <p className="text-xs text-gray-500">{tipo.descricao}</p>
-                  </div>
-                  <ToggleSwitch
-                    ativo={tiposSaque.includes(tipo.valor)}
-                    onChange={(ativo) => alternarTipoSaque(tipo.valor, ativo)}
-                    ariaLabel={`${ativoLabel(tiposSaque.includes(tipo.valor))} saque ${tipo.titulo.toLowerCase()}`}
-                  />
-                </div>
-              ))}
-            </div>
-
-            {tiposSaque.length > 0 ? (
-              <Campo label="Tipo de saque padrão" erro={erros.tipoPadrao} shakeKey={shakeKey}>
-                <ButtonField
-                  erro={erros.tipoPadrao}
-                  shakeKey={shakeKey}
-                  onClick={() => setModalTipoPadrao(true)}
-                >
-                  {TIPOS_SAQUE.find((tipo) => tipo.valor === tipoPadrao)?.titulo || "Selecionar tipo"}
-                </ButtonField>
-              </Campo>
-            ) : null}
-          </div>
-        ) : (
-          <div className="mt-5 rounded-2xl border border-green-500/20 bg-green-500/10 p-4 text-sm text-gray-300">
-            Os ganhos serão creditados diretamente na conta escolhida, sem saldo ou saque na plataforma.
-          </div>
-        )}
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Campo label="Taxa padrão instantânea" erro={erros.taxaInstantanea} shakeKey={shakeKey}>
+            <MoneyInput
+              value={taxaInstantanea}
+              onChange={(valor) => {
+                limparErro("taxaInstantanea");
+                setTaxaInstantanea(formatarMoedaDigitada(valor));
+              }}
+              erro={erros.taxaInstantanea}
+              shakeKey={shakeKey}
+            />
+          </Campo>
+          <Campo label="Taxa padrão agendada" erro={erros.taxaAgendada} shakeKey={shakeKey}>
+            <MoneyInput
+              value={taxaAgendada}
+              onChange={(valor) => {
+                limparErro("taxaAgendada");
+                setTaxaAgendada(formatarMoedaDigitada(valor));
+              }}
+              erro={erros.taxaAgendada}
+              shakeKey={shakeKey}
+            />
+          </Campo>
+        </div>
 
         {erroGeral ? (
           <p className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-400">
@@ -1068,19 +971,6 @@ function ConfiguracaoPlataformaModal({
         </div>
       </ModalBase>
 
-      <SelecionarOpcaoModal
-        aberto={modalModo}
-        titulo="Modo de recebimento"
-        descricao="Escolha como esta plataforma repassa os ganhos."
-        opcoes={MODOS_RECEBIMENTO}
-        valor={modoRecebimento}
-        onSelecionar={(modo) => {
-          limparErro("modoRecebimento");
-          setModoRecebimento(modo);
-        }}
-        onClose={() => setModalModo(false)}
-      />
-
       <SelecionarContaModal
         aberto={modalConta}
         contas={contas}
@@ -1094,8 +984,8 @@ function ConfiguracaoPlataformaModal({
 
       <SelecionarOpcaoModal
         aberto={modalDia}
-        titulo="Dia do pagamento automático"
-        descricao="O ciclo continua de segunda a domingo, independentemente desta escolha."
+        titulo="Dia do recebimento semanal"
+        descricao="Esta informação não cria movimentações automaticamente."
         opcoes={DIAS_RECEBIMENTO}
         valor={diaRecebimento}
         onSelecionar={(dia) => {
@@ -1104,28 +994,11 @@ function ConfiguracaoPlataformaModal({
         }}
         onClose={() => setModalDia(false)}
       />
-
-      <SelecionarOpcaoModal
-        aberto={modalTipoPadrao}
-        titulo="Tipo de saque padrão"
-        descricao="Este tipo será preenchido ao abrir um novo saque."
-        opcoes={tiposPadraoDisponiveis}
-        valor={tipoPadrao}
-        onSelecionar={(tipo) => {
-          limparErro("tipoPadrao");
-          setTipoPadrao(tipo);
-        }}
-        onClose={() => setModalTipoPadrao(false)}
-      />
     </>
   );
 }
 
-function ativoLabel(ativo) {
-  return ativo ? "Desativar" : "Ativar";
-}
-
-function MoneyInput({ value, onChange, erro, shakeKey }) {
+function MoneyInput({ value, onChange, erro, shakeKey, disabled = false }) {
   return (
     <div
       key={erro ? shakeKey : "ok"}
@@ -1138,8 +1011,9 @@ function MoneyInput({ value, onChange, erro, shakeKey }) {
         type="text"
         inputMode="numeric"
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full bg-transparent p-3 outline-none"
+        className="w-full bg-transparent p-3 outline-none disabled:text-gray-500"
       />
     </div>
   );

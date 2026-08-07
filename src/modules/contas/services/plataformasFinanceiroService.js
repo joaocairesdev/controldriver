@@ -1,23 +1,10 @@
 import { supabase } from "../../../services/supabase";
-import { hojeBrasil } from "../../../shared/utils/data";
 import {
   calcularSaldosPlataformas,
   montarMovimentacoesPlataforma,
-  obterProximoRecebimentoAutomatico,
 } from "../utils/plataformasFinanceiro";
 
-export async function processarRecebimentosAutomaticos(dataReferencia = hojeBrasil()) {
-  const { data, error } = await supabase.rpc("processar_recebimentos_automaticos", {
-    p_data_referencia: dataReferencia,
-  });
-
-  if (error) throw error;
-  return Number(data || 0);
-}
-
 export async function carregarPlataformasFinanceiras() {
-  await processarRecebimentosAutomaticos();
-
   const [plataformasRes, ganhosRes, transferenciasRes] = await Promise.all([
     supabase.from("plataformas").select("*").order("nome"),
     supabase.from("entrada_plataformas").select(`
@@ -80,8 +67,6 @@ export async function carregarContasDestinoSaque() {
 }
 
 export async function carregarExtratoPlataforma(plataformaId) {
-  await processarRecebimentosAutomaticos();
-
   const [plataformaRes, ganhosRes, transferenciasRes, contasRes] = await Promise.all([
     supabase.from("plataformas").select("*").eq("id", plataformaId).single(),
     supabase
@@ -175,19 +160,10 @@ export async function carregarExtratoPlataforma(plataformaId) {
     ganhosRes.data || [],
     transferenciasComTaxa,
   )[0]?.saldo || 0;
-  const recebimentosAutomaticos = transferenciasComTaxa.filter(
-    (item) => item.tipo === "recebimento_automatico_plataforma",
-  );
-  const ultimaLiquidacao = recebimentosAutomaticos
-    .sort((a, b) => String(b.ciclo_operacional_fim || b.data || "")
-      .localeCompare(String(a.ciclo_operacional_fim || a.data || "")))[0] || null;
-
   return {
     plataforma,
     saldo,
     movimentacoes,
-    ultimaLiquidacao,
-    proximoRecebimento: obterProximoRecebimentoAutomatico(plataforma, hojeBrasil()),
     contasPorId,
   };
 }
@@ -223,16 +199,12 @@ export async function carregarEntradaPlataformaParaEdicao(entradaId) {
 export async function salvarConfiguracaoPlataforma(plataformaId, configuracao) {
   const { error } = await supabase.rpc("configurar_financeiro_plataforma", {
     p_plataforma_id: Number(plataformaId),
-    p_modo_recebimento: configuracao.modoRecebimento,
     p_conta_destino_id: Number(configuracao.contaDestinoId),
-    p_dia_recebimento_automatico:
-      configuracao.modoRecebimento === "retido"
-        ? Number(configuracao.diaRecebimentoAutomatico)
-        : null,
+    p_dia_recebimento_automatico: Number(
+      configuracao.diaRecebimentoAutomatico,
+    ),
     p_taxa_saque_instantaneo: Number(configuracao.taxaSaqueInstantaneo || 0),
     p_taxa_saque_agendado: Number(configuracao.taxaSaqueAgendado || 0),
-    p_tipos_saque_disponiveis: configuracao.tiposSaqueDisponiveis || [],
-    p_tipo_saque_padrao: configuracao.tipoSaquePadrao || "instantaneo",
   });
 
   if (error) throw error;

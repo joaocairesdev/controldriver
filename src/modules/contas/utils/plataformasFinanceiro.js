@@ -29,24 +29,6 @@ export function obterTaxaPadraoSaque(plataforma, tipoSaque) {
   return 0;
 }
 
-export function obterTiposSaqueDisponiveis(plataforma) {
-  const tipos = Array.isArray(plataforma?.tipos_saque_disponiveis)
-    ? plataforma.tipos_saque_disponiveis
-    : [];
-
-  return [...new Set(tipos)].filter((tipo) =>
-    ["instantaneo", "agendado", "outro"].includes(tipo),
-  );
-}
-
-export function obterTipoSaquePadrao(plataforma) {
-  const tipos = obterTiposSaqueDisponiveis(plataforma);
-  if (tipos.includes(plataforma?.tipo_saque_padrao)) {
-    return plataforma.tipo_saque_padrao;
-  }
-  return tipos[0] || "";
-}
-
 function dataUTC(data) {
   const [ano, mes, dia] = String(data || "").split("-").map(Number);
   return new Date(Date.UTC(ano, mes - 1, dia));
@@ -70,6 +52,7 @@ function compararMovimentacoes(a, b) {
 }
 
 function tituloTipoSaque(tipoSaque) {
+  if (tipoSaque === "semanal") return "Recebimento semanal";
   if (tipoSaque === "instantaneo") return "Saque Instantâneo";
   if (tipoSaque === "agendado") return "Saque Agendado";
   return "Saque";
@@ -94,61 +77,6 @@ export function normalizarDescricaoRecebimentoSemanal(descricao, nomePlataforma 
     /^Recebimento automático(?: semanal)?/i,
     "Recebimento semanal automático",
   );
-}
-
-function diaSemanaISO(data) {
-  return data.getUTCDay() || 7;
-}
-
-export function obterCicloOperacional(data) {
-  const referencia = dataUTC(data);
-  const diaSemana = diaSemanaISO(referencia);
-  return {
-    inicio: dataISO(adicionarDias(referencia, -(diaSemana - 1))),
-    fim: dataISO(adicionarDias(referencia, 7 - diaSemana)),
-  };
-}
-
-export function obterUltimoCicloDevido(dataReferencia, diaPagamento) {
-  const referencia = dataUTC(dataReferencia);
-  const diaSemana = diaSemanaISO(referencia);
-  const dia = Math.min(Math.max(Number(diaPagamento || 1), 1), 7);
-  const dataPagamento = adicionarDias(
-    referencia,
-    -((diaSemana - dia + 7) % 7),
-  );
-  const fim = adicionarDias(dataPagamento, -dia);
-
-  return {
-    inicio: dataISO(adicionarDias(fim, -6)),
-    fim: dataISO(fim),
-    dataPagamento: dataISO(dataPagamento),
-  };
-}
-
-export function obterProximoRecebimentoAutomatico(plataforma, dataReferencia) {
-  if (
-    plataforma?.modo_recebimento !== "retido"
-    || !plataforma?.dia_recebimento_automatico
-  ) return null;
-
-  const diaPagamento = Math.min(
-    Math.max(Number(plataforma.dia_recebimento_automatico), 1),
-    7,
-  );
-  const referencia = dataUTC(dataReferencia);
-
-  if (plataforma.ultimo_ciclo_liquidado_fim) {
-    let proximo = adicionarDias(
-      dataUTC(plataforma.ultimo_ciclo_liquidado_fim),
-      7 + diaPagamento,
-    );
-    while (proximo < referencia) proximo = adicionarDias(proximo, 7);
-    return dataISO(proximo);
-  }
-
-  const diferenca = (diaPagamento - diaSemanaISO(referencia) + 7) % 7;
-  return dataISO(adicionarDias(referencia, diferenca));
 }
 
 export function obterDataPagamentoCiclo(cicloFim, diaPagamento) {
@@ -193,6 +121,7 @@ export function montarMovimentacoesPlataforma({
     const contaDestino = contasPorId[String(transferencia.conta_destino_id)] || "Conta";
 
     if (transferencia.tipo === "saque_plataforma") {
+      const recebimentoSemanal = transferencia.tipo_saque === "semanal";
       const taxaRegistrada = taxasPorSaqueId.has(String(transferencia.id));
       const taxa = Number(
         taxasPorSaqueId.get(String(transferencia.id))?.valor_total
@@ -212,8 +141,16 @@ export function montarMovimentacoesPlataforma({
         taxa,
         valorLiquido: calcularValorLiquidoSaque(valorBruto, taxa),
         contaDestino,
-        statusTaxa: taxaRegistrada ? "lancada" : "sem_taxa",
-        statusTaxaTexto: taxaRegistrada ? "Taxa lançada" : "Sem taxa",
+        statusTaxa: recebimentoSemanal
+          ? null
+          : taxaRegistrada
+            ? "lancada"
+            : "sem_taxa",
+        statusTaxaTexto: recebimentoSemanal
+          ? null
+          : taxaRegistrada
+            ? "Taxa lançada"
+            : "Sem taxa",
         saqueId: transferencia.id,
         dadosOriginais: transferencia,
       }];

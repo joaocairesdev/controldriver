@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FiFilter, FiSearch } from "react-icons/fi";
+import { FiEdit2, FiFilter, FiSearch, FiTrash2 } from "react-icons/fi";
 import { supabase } from "../../../services/supabase";
 import ModalBase from "../../../shared/components/modals/ModalBase";
 import { rotuloEntradaAvulsa } from "../../contratos/utils/contratosFinanceiros";
@@ -11,6 +11,8 @@ export default function ModalExtratoConta({
   aberto,
   conta,
   onClose,
+  onEditarConta,
+  onExcluirConta,
   formatarMoeda,
   formatarData,
 }) {
@@ -383,6 +385,33 @@ export default function ModalExtratoConta({
         onClose={onClose}
         largura="max-w-6xl"
         z="z-50"
+        acaoCabecalho={
+          onEditarConta || onExcluirConta ? (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              {onEditarConta ? (
+                <button
+                  type="button"
+                  onClick={onEditarConta}
+                  className="h-10 rounded-xl border border-gray-700 bg-[#0B1120] px-3 flex items-center justify-center gap-2 text-sm font-bold text-gray-300 hover:text-white hover:border-gray-500 transition"
+                >
+                  <FiEdit2 />
+                  Editar Conta
+                </button>
+              ) : null}
+
+              {onExcluirConta ? (
+                <button
+                  type="button"
+                  onClick={onExcluirConta}
+                  className="h-10 rounded-xl border border-gray-700 bg-[#0B1120] px-3 flex items-center justify-center gap-2 text-sm font-bold text-gray-300 hover:text-red-400 hover:border-red-500/40 transition"
+                >
+                  <FiTrash2 />
+                  Excluir Conta
+                </button>
+              ) : null}
+            </div>
+          ) : null
+        }
       >
         <div className="space-y-5" ref={topoListaRef}>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

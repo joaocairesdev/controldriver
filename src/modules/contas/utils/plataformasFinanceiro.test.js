@@ -4,12 +4,7 @@ import assert from "node:assert/strict";
 import {
   calcularSaldosPlataformas,
   calcularValorLiquidoSaque,
-  obterCicloOperacional,
   obterTaxaPadraoSaque,
-  obterTipoSaquePadrao,
-  obterTiposSaqueDisponiveis,
-  obterUltimoCicloDevido,
-  obterProximoRecebimentoAutomatico,
   montarMovimentacoesPlataforma,
   calcularSaldoExtratoPlataforma,
   filtrarMovimentacoesPlataforma,
@@ -129,7 +124,7 @@ test("taxa reduz o valor recebido, mas não altera o valor bruto do saque", () =
   assert.equal(calcularValorLiquidoSaque(100, 4.5), 95.5);
   assert.equal(obterTaxaPadraoSaque(plataformas[0], "instantaneo"), 4.5);
   assert.equal(obterTaxaPadraoSaque(plataformas[0], "agendado"), 1);
-  assert.equal(obterTaxaPadraoSaque(plataformas[0], "outro"), 0);
+  assert.equal(obterTaxaPadraoSaque(plataformas[0], "semanal"), 0);
   assert.equal(
     obterValorBrutoTransferencia({
       tipo: "saque_plataforma",
@@ -311,56 +306,6 @@ test("mantém saldos independentes para múltiplas plataformas", () => {
   assert.deepEqual(resultado.map((item) => item.saldo), [80, 45]);
 });
 
-test("ciclo operacional é sempre de segunda a domingo", () => {
-  assert.deepEqual(obterCicloOperacional("2026-08-05"), {
-    inicio: "2026-08-03",
-    fim: "2026-08-09",
-  });
-  assert.deepEqual(obterCicloOperacional("2026-08-09"), {
-    inicio: "2026-08-03",
-    fim: "2026-08-09",
-  });
-});
-
-test("dia de pagamento não cria período móvel", () => {
-  assert.deepEqual(obterUltimoCicloDevido("2026-08-10", 1), {
-    inicio: "2026-08-03",
-    fim: "2026-08-09",
-    dataPagamento: "2026-08-10",
-  });
-  assert.deepEqual(obterUltimoCicloDevido("2026-08-12", 3), {
-    inicio: "2026-08-03",
-    fim: "2026-08-09",
-    dataPagamento: "2026-08-12",
-  });
-});
-
-test("respeita tipos disponíveis e corrige padrão incompatível", () => {
-  assert.deepEqual(obterTiposSaqueDisponiveis(plataformas[0]), [
-    "instantaneo",
-    "agendado",
-  ]);
-  assert.equal(obterTipoSaquePadrao(plataformas[0]), "agendado");
-  assert.equal(
-    obterTipoSaquePadrao({
-      tipos_saque_disponiveis: ["outro"],
-      tipo_saque_padrao: "instantaneo",
-    }),
-    "outro",
-  );
-});
-
-test("calcula o próximo recebimento pelo ciclo liquidado sem mover a semana", () => {
-  assert.equal(
-    obterProximoRecebimentoAutomatico({
-      modo_recebimento: "retido",
-      dia_recebimento_automatico: 3,
-      ultimo_ciclo_liquidado_fim: "2026-08-02",
-    }, "2026-08-05"),
-    "2026-08-12",
-  );
-});
-
 test("extrato mantém saldo da carteira e relaciona taxas e conciliações ao saque e ganho", () => {
   const movimentos = montarMovimentacoesPlataforma({
     plataforma: {
@@ -446,18 +391,22 @@ test("extrato mantém saldo da carteira e relaciona taxas e conciliações ao sa
   assert.equal(pesquisarMovimentacoesPlataforma(movimentos, "30,00").length, 1);
 });
 
-test("identifica saques instantâneo e agendado no extrato", () => {
+test("identifica recebimento semanal e saques no extrato", () => {
   const movimentos = montarMovimentacoesPlataforma({
     transferencias: [
       { id: 1, tipo: "saque_plataforma", tipo_saque: "instantaneo", valor_bruto: 10, data: "2026-08-01" },
       { id: 2, tipo: "saque_plataforma", tipo_saque: "agendado", valor_bruto: 20, data: "2026-08-02" },
+      { id: 3, tipo: "saque_plataforma", tipo_saque: "semanal", valor_bruto: 30, data: "2026-08-03" },
     ],
   });
 
   assert.deepEqual(
     movimentos.map((item) => item.titulo),
-    ["Saque Agendado", "Saque Instantâneo"],
+    ["Recebimento semanal", "Saque Agendado", "Saque Instantâneo"],
   );
+  assert.equal(movimentos[0].taxa, 0);
+  assert.equal(movimentos[0].valorLiquido, 30);
+  assert.equal(movimentos[0].statusTaxa, null);
 });
 
 test("saque histórico sem despesa vinculada é identificado como sem taxa", () => {

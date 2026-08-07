@@ -139,7 +139,7 @@ test("saque histórico recupera o bruto e sincroniza criação, edição e remo�
   ]);
 
   assert.match(container, /obterValorBrutoTransferencia\(saque\)/);
-  assert.match(container, /const tiposDisponiveis = emEdicao\s*\? TIPOS_SAQUE/);
+  assert.match(container, /opcoes=\{tiposDisponiveis\}/);
   assert.match(migration, /where transferencia\.tipo = 'saque_plataforma'[\s\S]*valor_bruto is null/);
   assert.match(migration, /taxa\.saque_transferencia_id = transferencia\.id/);
   assert.match(migration, /insert into public\.saidas/);
@@ -149,6 +149,34 @@ test("saque histórico recupera o bruto e sincroniza criação, edição e remo�
     /create or replace function public\.editar_saque_plataforma[\s\S]*?grant execute on function public\.editar_saque_plataforma/,
   )?.[0] || "";
   assert.doesNotMatch(edicaoSaque, /and modo_recebimento = 'retido'/);
+});
+
+test("recebimentos novos são exclusivamente manuais", async () => {
+  const [app, container, extrato, servico, migration] = await Promise.all([
+    ler("../../../app/AppShell.jsx"),
+    ler("../components/PlataformasFinanceiras.jsx"),
+    ler("../components/ExtratoPlataformaModal.jsx"),
+    ler("../services/plataformasFinanceiroService.js"),
+    ler("../../../../supabase/migrations/20260807120000_recebimentos_plataformas_manuais.sql"),
+  ]);
+
+  assert.doesNotMatch(app, /processarRecebimentosAutomaticos/);
+  assert.doesNotMatch(servico, /processar_recebimentos_automaticos/);
+  assert.doesNotMatch(servico, /ultimaLiquidacao|proximoRecebimento/);
+  assert.match(container, /titulo: "Recebimento semanal"/);
+  assert.match(container, /titulo: "Saque instantâneo"/);
+  assert.match(container, /titulo: "Saque agendado"/);
+  assert.match(container, /disabled=\{tipoSaque === "semanal"\}/);
+  assert.match(container, /label="Dia do recebimento semanal"/);
+  assert.doesNotMatch(container, /Modo de recebimento/);
+  assert.doesNotMatch(extrato, /Última liquidação/);
+  assert.doesNotMatch(extrato, /Próximo recebimento semanal automático/);
+  assert.match(migration, /drop function if exists public\.processar_recebimentos_automaticos\(date\)/);
+  assert.match(migration, /drop function if exists public\.processar_recebimento_automatico_plataforma/);
+  assert.match(migration, /new\.destino_financeiro := 'plataforma'/);
+  assert.match(migration, /p_tipo_saque not in \('semanal', 'instantaneo', 'agendado'\)/);
+  assert.match(migration, /when p_tipo_saque = 'semanal' then 0/);
+  assert.match(migration, /'Recebimento semanal da plataforma '/);
 });
 
 test("extrato abre diretamente a manutenção do saque e permite exclusão transacional", async () => {

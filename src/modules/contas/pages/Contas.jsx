@@ -2,9 +2,6 @@ import { useEffect, useState } from "react";
 import {
   FiBriefcase,
   FiCreditCard,
-  FiEdit2,
-  FiStar,
-  FiTrash2,
   FiUser,
 } from "react-icons/fi";
 import { supabase } from "../../../services/supabase";
@@ -12,18 +9,18 @@ import ModalBase from "../../../shared/components/modals/ModalBase";
 import ModalExtratoConta from "../components/ModalExtratoConta";
 import PlataformasFinanceiras from "../components/PlataformasFinanceiras";
 import { formatarDataBR } from "../../../shared/utils/data";
+import TagFinanceiraCard from "../../tag/components/TagFinanceiraCard";
+import { calcularSaldoAbertoFatura } from "../../cartoes/utils/cartoesUtils";
 
 export default function Contas() {
   const [contas, setContas] = useState([]);
+  const [cartoes, setCartoes] = useState([]);
   const [modalAberto, setModalAberto] = useState(false);
   const [contaEditando, setContaEditando] = useState(null);
   const [contaExtrato, setContaExtrato] = useState(null);
 
   const [modalExcluirAberto, setModalExcluirAberto] = useState(false);
   const [contaParaExcluir, setContaParaExcluir] = useState(null);
-
-  const [modalPrincipalAberto, setModalPrincipalAberto] = useState(false);
-  const [contaParaPrincipal, setContaParaPrincipal] = useState(null);
 
   const [modalAviso, setModalAviso] = useState({
     aberto: false,
@@ -42,6 +39,7 @@ export default function Contas() {
 
   useEffect(() => {
     carregarContas();
+    carregarCartoes();
   }, []);
 
   function formatarMoeda(valor) {
@@ -189,7 +187,7 @@ export default function Contas() {
       .from("contas")
       .select("*")
       .eq("ativo", true)
-      .in("tipo_conta", ["banco", "carteira"])
+      .in("tipo_conta", ["banco", "carteira", "tag"])
       .order("id");
 
     if (error) {
@@ -210,6 +208,35 @@ export default function Contas() {
     );
 
     setContas(contasAtualizadas);
+  }
+
+  async function carregarCartoes() {
+    const { data } = await supabase
+      .from("cartoes")
+      .select("*")
+      .eq("ativo", true)
+      .order("id");
+
+    const idsCartoes = (data || []).map((cartao) => cartao.id);
+    const { data: faturasData } = idsCartoes.length
+      ? await supabase
+          .from("faturas_cartao")
+          .select("cartao_id, valor_total, valor_pago, status")
+          .in("cartao_id", idsCartoes)
+          .in("status", ["aberta", "fechada", "parcial"])
+      : { data: [] };
+
+    setCartoes(
+      (data || []).map((cartao) => ({
+        ...cartao,
+        usado: (faturasData || [])
+          .filter((fatura) => String(fatura.cartao_id) === String(cartao.id))
+          .reduce(
+            (total, fatura) => total + calcularSaldoAbertoFatura(fatura),
+            0,
+          ),
+      })),
+    );
   }
 
   function limparFormulario() {
@@ -237,6 +264,7 @@ export default function Contas() {
       return;
     }
 
+    setContaExtrato(null);
     setContaEditando(conta);
     setNomeConta(conta.nome || "");
     setSaldoInicial(numeroParaMoedaInput(conta.saldo_inicial));
@@ -337,13 +365,8 @@ export default function Contas() {
       return;
     }
 
-    const jaExistePrincipal = contas.some(
-      (conta) => conta.principal && isBanco(conta),
-    );
-
     const { error } = await supabase.from("contas").insert({
       ...dadosConta,
-      principal: !jaExistePrincipal,
       ativo: true,
     });
 
@@ -370,31 +393,6 @@ export default function Contas() {
     return Math.min((usado / limite) * 100, 100);
   }
 
-  function solicitarContaPrincipal(conta) {
-    if (conta.principal) return;
-    if (!isBanco(conta)) return;
-    setContaParaPrincipal(conta);
-    setModalPrincipalAberto(true);
-  }
-
-  async function confirmarContaPrincipal() {
-    if (!contaParaPrincipal) return;
-
-    await supabase
-      .from("contas")
-      .update({ principal: false })
-      .eq("tipo_conta", "banco");
-
-    await supabase
-      .from("contas")
-      .update({ principal: true })
-      .eq("id", contaParaPrincipal.id);
-
-    setModalPrincipalAberto(false);
-    setContaParaPrincipal(null);
-    carregarContas();
-  }
-
   function solicitarExclusaoConta(conta) {
     if (isCarteira(conta)) {
       abrirAviso(
@@ -405,15 +403,7 @@ export default function Contas() {
       return;
     }
 
-    if (conta.principal) {
-      abrirAviso(
-        "Conta principal",
-        "Você não pode excluir a conta principal. Defina outra conta como principal antes.",
-        "erro",
-      );
-      return;
-    }
-
+    setContaExtrato(null);
     setContaParaExcluir(conta);
     setModalExcluirAberto(true);
   }
@@ -439,6 +429,7 @@ export default function Contas() {
 
   const carteiras = contas.filter((conta) => isCarteira(conta));
   const bancos = contas.filter((conta) => isBanco(conta));
+  const tags = contas.filter((conta) => conta.tipo_conta === "tag");
 
   return (
     <div>
@@ -458,61 +449,86 @@ export default function Contas() {
         </button>
       </div>
 
-      {carteiras.length > 0 && (
-        <section className="mt-8">
+      <PlataformasFinanceiras onMovimentacao={carregarContas} />
+
+      <div className="mt-10 grid grid-cols-1 xl:grid-cols-2 gap-8">
+        <section>
           <div className="flex items-center gap-3">
             <h2 className="text-xl font-bold">Carteira</h2>
             <div className="h-px flex-1 border-t border-dashed border-gray-700" />
           </div>
 
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {carteiras.map((conta) => {
-              const saldoNegativo = Number(conta.saldo_atual || 0) < 0;
+          {carteiras.length > 0 && (
+            <div className="mt-4 grid grid-cols-1 gap-3">
+              {carteiras.map((conta) => {
+                const saldoNegativo = Number(conta.saldo_atual || 0) < 0;
 
-              return (
-                <div
-                  key={conta.id}
-                  onClick={() => setContaExtrato(conta)}
-                  role="button"
-                  tabIndex={0}
-                  className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-[#111827] to-[#0B1120] p-4 shadow cursor-pointer hover:border-green-400/60 transition"
-                >
-                  <div className="relative flex items-start justify-between gap-4">
-                    <div>
-                      <div className="inline-flex items-center gap-2 rounded-full bg-amber-500/15 text-amber-300 text-[11px] font-bold px-2.5 py-1">
-                        Carteira padrão
+                return (
+                  <div
+                    key={conta.id}
+                    onClick={() => setContaExtrato(conta)}
+                    role="button"
+                    tabIndex={0}
+                    className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-[#111827] to-[#0B1120] p-4 shadow cursor-pointer hover:border-green-400/60 transition"
+                  >
+                    <div className="relative flex items-start justify-between gap-4">
+                      <div>
+                        <div className="inline-flex items-center gap-2 rounded-full bg-amber-500/15 text-amber-300 text-[11px] font-bold px-2.5 py-1">
+                          Carteira padrão
+                        </div>
+
+                        <h2 className="text-lg font-black mt-2">{conta.nome}</h2>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Dinheiro em espécie
+                        </p>
                       </div>
-
-                      <h2 className="text-lg font-black mt-2">{conta.nome}</h2>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        Dinheiro em espécie
-                      </p>
                     </div>
-                  </div>
 
-                  <div className="relative mt-4">
-                    <p className="text-xs text-gray-400">Saldo em dinheiro</p>
-                    <h3
-                      className={`text-2xl font-black mt-1 ${
-                        saldoNegativo ? "text-red-400" : "text-white"
-                      }`}
-                    >
-                      {formatarMoeda(conta.saldo_atual)}
-                    </h3>
-                  </div>
+                    <div className="relative mt-4">
+                      <p className="text-xs text-gray-400">Saldo em dinheiro</p>
+                      <h3
+                        className={`text-2xl font-black mt-1 ${
+                          saldoNegativo ? "text-red-400" : "text-white"
+                        }`}
+                      >
+                        {formatarMoeda(conta.saldo_atual)}
+                      </h3>
+                    </div>
 
-                  <p className="relative text-xs text-gray-500 mt-4 border-t border-amber-500/20 pt-3">
-                    Criada automaticamente pelo sistema. Pagamentos em dinheiro
-                    sempre saem daqui.
-                  </p>
-                </div>
-              );
-            })}
+                    <p className="relative text-xs text-gray-500 mt-4 border-t border-amber-500/20 pt-3">
+                      Criada automaticamente pelo sistema. Pagamentos em dinheiro
+                      sempre saem daqui.
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-bold">TAG&apos;S</h2>
+            <div className="h-px flex-1 border-t border-dashed border-gray-700" />
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {tags.map((tag) => (
+              <TagFinanceiraCard
+                key={tag.id}
+                tag={tag}
+                contasBanco={bancos}
+                cartoes={cartoes}
+                formatarMoeda={formatarMoeda}
+                formatarMoedaDigitada={formatarMoedaDigitada}
+                numeroParaMoedaInput={numeroParaMoedaInput}
+                onAtualizar={carregarContas}
+                onErro={abrirAviso}
+              />
+            ))}
           </div>
         </section>
-      )}
-
-      <PlataformasFinanceiras onMovimentacao={carregarContas} />
+      </div>
 
       <section className="mt-10">
         <div className="flex items-center gap-3">
@@ -544,43 +560,9 @@ export default function Contas() {
                   className={`relative rounded-2xl border p-6 transition cursor-pointer hover:border-green-400/60 ${
                     saldoNegativo
                       ? "border-red-500/60 bg-red-500/10"
-                      : conta.principal
-                        ? "border-green-400 bg-green-500/10"
-                        : "border-gray-800 bg-[#111827]"
+                      : "border-gray-800 bg-[#111827]"
                   }`}
                 >
-                  <div className="absolute top-4 right-4 flex items-center gap-3">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); solicitarContaPrincipal(conta); }}
-                      className={`w-9 h-9 rounded-xl border flex items-center justify-center transition ${
-                        conta.principal
-                          ? "border-yellow-500/40 bg-yellow-500/10 text-yellow-400"
-                          : "border-gray-700 bg-[#0B1120] text-gray-500 hover:text-yellow-400 hover:border-yellow-500/40"
-                      }`}
-                      title="Definir como principal"
-                    >
-                      <FiStar
-                        className={conta.principal ? "fill-current" : ""}
-                      />
-                    </button>
-
-                    <button
-                      onClick={(e) => { e.stopPropagation(); abrirEditarConta(conta); }}
-                      className="w-9 h-9 rounded-xl border border-gray-700 bg-[#0B1120] flex items-center justify-center text-gray-500 hover:text-white hover:border-gray-500 transition"
-                      title="Editar conta"
-                    >
-                      <FiEdit2 />
-                    </button>
-
-                    <button
-                      onClick={(e) => { e.stopPropagation(); solicitarExclusaoConta(conta); }}
-                      className="w-9 h-9 rounded-xl border border-gray-700 bg-[#0B1120] flex items-center justify-center text-gray-500 hover:text-red-400 hover:border-red-500/40 transition"
-                      title="Excluir conta"
-                    >
-                      <FiTrash2 />
-                    </button>
-                  </div>
-
                   <h2 className="text-xl font-bold pr-24">{conta.nome}</h2>
 
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -602,12 +584,6 @@ export default function Contas() {
                       )}
                       {textoFinalidadeConta(conta)}
                     </div>
-
-                    {conta.principal && (
-                      <div className="rounded-full bg-green-500/20 text-green-400 text-xs font-bold px-3 py-1">
-                        Conta Principal
-                      </div>
-                    )}
 
                     {temCheque && (
                       <div
@@ -759,6 +735,16 @@ export default function Contas() {
         aberto={!!contaExtrato}
         conta={contaExtrato}
         onClose={() => setContaExtrato(null)}
+        onEditarConta={
+          contaExtrato && isBanco(contaExtrato)
+            ? () => abrirEditarConta(contaExtrato)
+            : undefined
+        }
+        onExcluirConta={
+          contaExtrato && isBanco(contaExtrato)
+            ? () => solicitarExclusaoConta(contaExtrato)
+            : undefined
+        }
         formatarMoeda={formatarMoeda}
         formatarData={formatarDataBR}
       />
@@ -918,29 +904,6 @@ export default function Contas() {
           </button>
         </div>
       </ModalBase>
-
-      {modalPrincipalAberto && (
-        <ModalConfirmacao
-          titulo="Definir Conta Principal"
-          cor="green"
-          texto={
-            <>
-              Deseja definir{" "}
-              <span className="font-bold text-white">
-                {contaParaPrincipal?.nome}
-              </span>{" "}
-              como conta principal?
-            </>
-          }
-          subtitulo="Os próximos lançamentos usarão esta conta como sugestão inicial."
-          cancelar={() => {
-            setModalPrincipalAberto(false);
-            setContaParaPrincipal(null);
-          }}
-          confirmar={confirmarContaPrincipal}
-          textoConfirmar="Confirmar"
-        />
-      )}
 
       {modalExcluirAberto && (
         <ModalConfirmacao
