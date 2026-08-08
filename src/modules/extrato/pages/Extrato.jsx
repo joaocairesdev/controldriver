@@ -21,6 +21,7 @@ import {
   resumirFormasPagamento,
   resumirOrigensPagamento,
 } from "../../abastecimentos/utils/abastecimentosPagamentos";
+import { sincronizarCronologiaAbastecimentos } from "../../abastecimentos/services/abastecimentosCronologiaService";
 import {
   normalizarDescricaoRecebimentoSemanal,
   obterValorBrutoTransferencia,
@@ -746,43 +747,6 @@ export default function Extrato() {
     return `Mostrando ${inicio}-${fim} de ${lancamentosOrdenados.length} lançamento(s)`;
   }
 
-  async function recalcularOdometroVeiculo(veiculoId) {
-  if (!veiculoId) return;
-
-  const { data: ultimoAbastecimento } = await supabase
-    .from("saidas_abastecimentos")
-    .select("odometro")
-    .eq("veiculo_id", veiculoId)
-    .order("odometro", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (ultimoAbastecimento?.odometro) {
-    await supabase
-      .from("veiculos")
-      .update({
-        odometro_atual: Number(ultimoAbastecimento.odometro || 0),
-      })
-      .eq("id", veiculoId);
-
-    return;
-  }
-
-  const { data: veiculo } = await supabase
-    .from("veiculos")
-    .select("odometro_inicial")
-    .eq("id", veiculoId)
-    .maybeSingle();
-
-  await supabase
-    .from("veiculos")
-    .update({
-      odometro_atual: Number(veiculo?.odometro_inicial || 0),
-    })
-    .eq("id", veiculoId);
-}
-
-
   async function ajustarFaturasAoExcluirParcelasDaSaida(saidaId) {
     return removerParcelasDaSaidaERecalcularFaturas(supabase, saidaId);
   }
@@ -988,7 +952,7 @@ export default function Extrato() {
       if (erroSaida) throw erroSaida;
 
       if (veiculoId) {
-        await recalcularOdometroVeiculo(veiculoId);
+        await sincronizarCronologiaAbastecimentos(supabase, veiculoId);
       }
     }
   }

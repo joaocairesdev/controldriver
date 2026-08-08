@@ -17,6 +17,10 @@ import {
   gerarParcelasEFaturasPadrao,
   nomeCartaoComFinal,
 } from "../../cartoes/utils/cartoesUtils";
+import {
+  sincronizarCronologiaAbastecimentos,
+  validarCronologiaAbastecimento,
+} from "../../abastecimentos/services/abastecimentosCronologiaService";
 
 export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
   const hoje = new Date().toISOString().split("T")[0];
@@ -539,15 +543,6 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
     return total / litro;
   }
 
-  function consumoCalculado() {
-    const km = Number(kmRodados || 0);
-    const litros = litrosCalculados();
-
-    if (km <= 0 || litros <= 0) return 0;
-
-    return km / litros;
-  }
-
   function abrirFeedback(tipo, titulo, mensagem, voltarDepois = false) {
     setFeedback({
       aberto: true,
@@ -654,8 +649,40 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
     return Object.keys(novos).length === 0;
   }
 
+  async function validarSequenciaAbastecimento() {
+    if (!isAbastecimento) return true;
+
+    const resultado = await validarCronologiaAbastecimento(supabase, {
+      veiculoId,
+      dataCompra,
+      odometro,
+    });
+
+    if (resultado.valido) return true;
+
+    let mensagem = "O odômetro deve respeitar a sequência cronológica dos abastecimentos.";
+    if (resultado.valorAnterior !== null && resultado.valorPosterior !== null) {
+      mensagem = `Informe um odômetro maior que ${resultado.valorAnterior.toLocaleString("pt-BR")} km e menor que ${resultado.valorPosterior.toLocaleString("pt-BR")} km.`;
+    } else if (resultado.valorAnterior !== null) {
+      mensagem = `Informe um odômetro maior que ${resultado.valorAnterior.toLocaleString("pt-BR")} km.`;
+    } else if (resultado.valorPosterior !== null) {
+      mensagem = `Informe um odômetro menor que ${resultado.valorPosterior.toLocaleString("pt-BR")} km.`;
+    }
+
+    setErros((atuais) => ({ ...atuais, km: mensagem }));
+    setShakeKey(Date.now());
+    return false;
+  }
+
   async function salvarSaida() {
     if (!validarCampos()) return;
+    try {
+      if (!(await validarSequenciaAbastecimento())) return;
+    } catch (error) {
+      console.error(error);
+      abrirFeedback("erro", "Erro ao validar", "Não foi possível validar a cronologia dos abastecimentos.");
+      return;
+    }
 
     const total = moedaParaNumero(valorTotal);
     const parcelas = isCreditoParcelado ? Number(numeroParcelas || 2) : 1;
@@ -742,75 +769,26 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
     const litros = litrosCalculados();
     const odometroFinal = Number(odometro || 0);
 
-    const abastecimentoAnterior = await supabase
-      .from("saidas_abastecimentos")
-      .select("*")
-      .eq("veiculo_id", Number(veiculoId))
-      .lt("odometro", odometroFinal)
-      .order("odometro", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const odometroAnterior = abastecimentoAnterior.data?.odometro || 0;
-
-    const kmPeriodo = Math.max(odometroFinal - odometroAnterior, 0);
-    const consumoKmLitro = litros > 0 ? kmPeriodo / litros : 0;
-    const custoPorKm = kmPeriodo > 0 ? moedaParaNumero(valorTotal) / kmPeriodo : 0;
-
     const { error: erroAbastecimento } = await supabase
       .from("saidas_abastecimentos")
       .insert({
         saida_id: saidaId,
         veiculo_id: Number(veiculoId),
         odometro: odometroFinal,
-        km_rodados: Number(kmRodados || 0),
-        km_total_periodo: kmPeriodo,
+        km_rodados: 0,
+        km_total_periodo: 0,
         tipo_combustivel: tipoCombustivel,
         litros,
         valor_litro: moedaParaNumero(valorLitro),
         uso: "automatico",
         percentual_trabalho: 0,
-        consumo_km_l: consumoKmLitro,
-        custo_por_km: custoPorKm,
+        consumo_km_l: 0,
+        custo_por_km: 0,
         posto: null,
       });
 
     if (erroAbastecimento) throw erroAbastecimento;
-
-    let campoMedia = null;
-
-    if (tipoCombustivel === "etanol" || tipoCombustivel === "etanol_aditivado") {
-      campoMedia = "media_etanol";
-    }
-
-    if (
-      tipoCombustivel === "gasolina_comum" ||
-      tipoCombustivel === "gasolina_aditivada" ||
-      tipoCombustivel === "gasolina_podium"
-    ) {
-      campoMedia = "media_gasolina";
-    }
-
-    if (tipoCombustivel === "gnv") campoMedia = "media_gnv";
-    if (tipoCombustivel === "diesel") campoMedia = "media_diesel";
-
-    if (campoMedia && consumoKmLitro > 0) {
-      await supabase
-        .from("veiculos")
-        .update({
-          [campoMedia]: consumoKmLitro,
-          custo_medio_km_combustivel: custoPorKm,
-          custo_medio_km_geral: custoPorKm,
-        })
-        .eq("id", Number(veiculoId));
-    }
-
-    if (odometroFinal > Number(veiculoSelecionado?.odometro_atual || 0)) {
-      await supabase
-        .from("veiculos")
-        .update({ odometro_atual: odometroFinal })
-        .eq("id", Number(veiculoId));
-    }
+    await sincronizarCronologiaAbastecimentos(supabase, veiculoId);
   }
 
   async function salvarDetalhesManutencao(saidaId) {
@@ -1032,12 +1010,8 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
 
         </div>
 
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
           <ResumoItem titulo="Litros calculados" valor={`${numeroParaDecimalInput(litrosCalculados(), 3)} L`} />
-          <ResumoItem
-            titulo="Consumo estimado"
-            valor={consumoCalculado() > 0 ? `${numeroParaDecimalInput(consumoCalculado(), 2)} km/L` : "-"}
-          />
           <ResumoItem
             titulo="Odômetro após abastecimento"
             valor={odometro ? `${Number(odometro).toLocaleString("pt-BR")} km` : "-"}
@@ -1045,7 +1019,7 @@ export default function NovaSaida({ categoriaInicial = "Saída", setPagina }) {
         </div>
 
         <p className="text-xs text-gray-500 mt-4">
-          O app calcula litros, consumo e descrição automaticamente. A divisão entre uso pessoal e trabalho será calculada depois cruzando os km das entradas com os km do abastecimento.
+          O app calcula o consumo após salvar, usando a cronologia dos abastecimentos. A divisão entre uso pessoal e trabalho será calculada depois cruzando os km das entradas com os km do abastecimento.
         </p>
       </section>
     );

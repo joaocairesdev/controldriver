@@ -29,10 +29,9 @@ import {
 } from "../../cartoes/utils/cartoesUtils";
 import { FORMA_PAGAMENTO_DEBITO_CONTA } from "../../../shared/constants/formasPagamento";
 import {
-  calcularMetricasConsumo,
-  localizarAbastecimentosVizinhos,
-  validarCrescimentoOdometro,
-} from "../utils/abastecimentosCronologia";
+  sincronizarCronologiaAbastecimentos,
+  validarCronologiaAbastecimento,
+} from "../services/abastecimentosCronologiaService";
 import { criarFeedbackAbastecimento } from "../utils/abastecimentosFeedback";
 import {
   criarPagamentoVazio,
@@ -446,29 +445,13 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
   }
 
   async function validarSequenciaOdometro() {
-    const { data: historico, error } = await supabase
-      .from("saidas_abastecimentos")
-      .select("id, saida_id, veiculo_id, odometro, saidas!inner(data_compra)")
-      .eq("veiculo_id", Number(veiculoId));
-
-    if (error) throw error;
-
     const abastecimentoEditado = edicao?.abastecimento || null;
-    const lancamento = {
-      id: abastecimentoEditado?.id || Number.MAX_SAFE_INTEGER,
-      data_compra: dataCompra,
-      odometro: Number(odometro),
-    };
-    const vizinhos = localizarAbastecimentosVizinhos(
-      historico,
-      lancamento,
-      abastecimentoEditado?.id || null
-    );
-    const resultado = validarCrescimentoOdometro(
+    const resultado = await validarCronologiaAbastecimento(supabase, {
+      veiculoId,
+      abastecimentoId: abastecimentoEditado?.id || null,
+      dataCompra,
       odometro,
-      vizinhos.anterior,
-      vizinhos.posterior
-    );
+    });
 
     if (!resultado.valido) {
       let mensagem = "O odômetro deve respeitar a sequência cronológica dos abastecimentos.";
@@ -486,7 +469,7 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
       return null;
     }
 
-    return vizinhos;
+    return resultado;
   }
 
   async function salvar() {
@@ -496,7 +479,6 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
       const vizinhos = await validarSequenciaOdometro();
       if (!vizinhos) return;
 
-      const total = moedaParaNumero(valorTotal);
       if (!(await verificarLimitesCartoes())) return;
 
       const descricao = `Compra de combustível - ${veiculoSelecionado?.nome || "Veículo"}`;
@@ -625,10 +607,10 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
         await gerarParcelasEFaturas(registro.saidaId, registro.pagamento);
       }
 
-      const metricasSalvas = await salvarDetalhesAbastecimento(saidaId, vizinhos);
+      const metricasSalvas = await salvarDetalhesAbastecimento(saidaId);
       const feedbackSucesso = criarFeedbackAbastecimento({
         consumoKmLitro: metricasSalvas.consumoKmLitro,
-        possuiAbastecimentoAnterior: Boolean(vizinhos.anterior),
+        possuiAbastecimentoAnterior: Boolean(metricasSalvas.anteriorId),
       });
       setFeedback({
         aberto: true,
@@ -643,35 +625,35 @@ export default function AbastecimentoModal({ aberto, onClose, veiculosPermitidos
     } finally { setSalvando(false); }
   }
 
-  async function salvarDetalhesAbastecimento(saidaId, vizinhos) {
+  async function salvarDetalhesAbastecimento(saidaId) {
     const litros = litrosCalculados();
     const odometroFinal = Number(odometro || 0);
-    const { kmPeriodo, consumoKmLitro } = calcularMetricasConsumo({
-      odometro: odometroFinal,
-      litros,
-      anterior: vizinhos.anterior,
-      odometroInicial:
-        veiculoSelecionado?.odometro_inicial
-        ?? veiculoSelecionado?.odometro_atual
-        ?? 0,
-    });
-    const custoPorKm = kmPeriodo > 0 ? moedaParaNumero(valorTotal) / kmPeriodo : 0;
-    const dadosAbastecimento = { saida_id: saidaId, veiculo_id: Number(veiculoId), odometro: odometroFinal, km_rodados: kmPeriodo, km_total_periodo: kmPeriodo, tipo_combustivel: tipoCombustivel, litros, valor_litro: moedaParaNumero(valorLitro), uso: "automatico", percentual_trabalho: 0, consumo_km_l: consumoKmLitro, custo_por_km: custoPorKm, posto: null };
-    const { error } = edicao?.abastecimento?.id
+    const dadosAbastecimento = { saida_id: saidaId, veiculo_id: Number(veiculoId), odometro: odometroFinal, km_rodados: 0, km_total_periodo: 0, tipo_combustivel: tipoCombustivel, litros, valor_litro: moedaParaNumero(valorLitro), uso: "automatico", percentual_trabalho: 0, consumo_km_l: 0, custo_por_km: 0, posto: null };
+    const abastecimentoIdAnterior = edicao?.abastecimento?.id || null;
+    const veiculoIdAnterior = edicao?.abastecimento?.veiculo_id || null;
+    const { data: abastecimentoSalvo, error } = abastecimentoIdAnterior
       ? await supabase
           .from("saidas_abastecimentos")
           .update(dadosAbastecimento)
-          .eq("id", edicao.abastecimento.id)
-      : await supabase.from("saidas_abastecimentos").insert(dadosAbastecimento);
+          .eq("id", abastecimentoIdAnterior)
+          .select("id")
+          .single()
+      : await supabase.from("saidas_abastecimentos").insert(dadosAbastecimento).select("id").single();
     if (error) throw error;
-    let campoMedia = null;
-    if (tipoCombustivel === "etanol" || tipoCombustivel === "etanol_aditivado") campoMedia = "media_etanol";
-    if (["gasolina_comum", "gasolina_aditivada", "gasolina_podium"].includes(tipoCombustivel)) campoMedia = "media_gasolina";
-    if (tipoCombustivel === "gnv") campoMedia = "media_gnv";
-    if (tipoCombustivel === "diesel") campoMedia = "media_diesel";
-    if (campoMedia && consumoKmLitro > 0) await supabase.from("veiculos").update({ [campoMedia]: consumoKmLitro, custo_medio_km_combustivel: custoPorKm, custo_medio_km_geral: custoPorKm }).eq("id", Number(veiculoId));
-    if (odometroFinal > Number(veiculoSelecionado?.odometro_atual || 0)) await supabase.from("veiculos").update({ odometro_atual: odometroFinal }).eq("id", Number(veiculoId));
-    return { consumoKmLitro };
+
+    if (veiculoIdAnterior && Number(veiculoIdAnterior) !== Number(veiculoId)) {
+      await sincronizarCronologiaAbastecimentos(supabase, veiculoIdAnterior);
+    }
+
+    const { abastecimentos } = await sincronizarCronologiaAbastecimentos(supabase, veiculoId);
+    const recalculado = abastecimentos.find(
+      (item) => Number(item.id) === Number(abastecimentoSalvo.id)
+    );
+
+    return {
+      consumoKmLitro: Number(recalculado?.consumoKmLitro || 0),
+      anteriorId: recalculado?.anteriorId || null,
+    };
   }
 
   if (!aberto) return null;

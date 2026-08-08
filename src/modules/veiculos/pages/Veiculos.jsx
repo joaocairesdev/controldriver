@@ -22,6 +22,10 @@ import {
   salvarFinanciamentoVeiculo,
 } from "../services/veiculosFinanceiroService";
 import { somarPagamentosDoAbastecimento } from "../../abastecimentos/utils/abastecimentosPagamentos";
+import {
+  calcularMediaConsumoValido,
+  obterConsumosValidos,
+} from "../../abastecimentos/utils/abastecimentosCronologia";
 
 const criarFinanciamentoPadrao = () => ({
   instituicaoFinanceira: "", valorVeiculo: "", valorFinanciado: "", entrada: "",
@@ -1613,7 +1617,7 @@ function DetalhesVeiculo({
       setCarregandoDashboard(true);
       const [entradas, abastecimentos, recargas, manutencoes, manutencoesLegadas, saidasContratos] = await Promise.all([
         supabase.from("entradas").select("id, data, km_rodados, entrada_plataformas(faturamento, valor_reembolso)").eq("veiculo_id", veiculo.id),
-        supabase.from("saidas_abastecimentos").select("*, saidas(id, data_compra, valor_total, categoria, descricao)").eq("veiculo_id", veiculo.id),
+        supabase.from("saidas_abastecimentos").select("*, saidas(id, data_compra, valor_total, categoria, descricao, status)").eq("veiculo_id", veiculo.id),
         supabase.from("saidas_recargas_eletricas").select("*, saidas(id, data_compra, valor_total, categoria, descricao)").eq("veiculo_id", veiculo.id),
         supabase.from("saidas_manutencoes").select("*, saidas(id, data_compra, valor_total, categoria, descricao)").eq("veiculo_id", veiculo.id),
         supabase.from("manutencoes").select("*").eq("veiculo_id", veiculo.id),
@@ -1663,8 +1667,8 @@ function DetalhesVeiculo({
     .filter((item) => item.finalidade !== "caucao_devolvivel" && (item.conta_pagar_origem_id || (item.cartao_id && item.data_compra <= hojeDashboard)))
     .reduce((total, item) => total + Number(item.valor_total || 0), 0);
   const gastos = gastosAbastecimento + gastosRecarga + gastosManutencao + gastosContratos;
-  const consumos = dadosDashboard.abastecimentos.map((item) => Number(item.consumo_km_l || 0)).filter((valor) => valor > 0);
-  const mediaConsumo = consumos.length ? consumos.reduce((soma, valor) => soma + valor, 0) / consumos.length : 0;
+  const consumos = obterConsumosValidos(dadosDashboard.abastecimentos);
+  const mediaConsumo = calcularMediaConsumoValido(dadosDashboard.abastecimentos);
   const historico = [
     ...dadosDashboard.abastecimentos.map((item) => ({
       id: `a-${item.id}`,

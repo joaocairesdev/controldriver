@@ -65,17 +65,26 @@ test("resumo da renegociação mantém toda a hierarquia em um card", async () =
 });
 
 test("abastecimento usa cronologia e não pergunta se o tanque foi completado", async () => {
-  const [modal, novaSaida, cronologia] = await Promise.all([
+  const [modal, novaSaida, cronologia, servico, extrato] = await Promise.all([
     ler("modules/abastecimentos/components/AbastecimentoModal.jsx"),
     ler("modules/saidas/pages/NovaSaida.jsx"),
     ler("modules/abastecimentos/utils/abastecimentosCronologia.js"),
+    ler("modules/abastecimentos/services/abastecimentosCronologiaService.js"),
+    ler("modules/extrato/pages/Extrato.jsx"),
   ]);
 
   assert.doesNotMatch(modal, /Completou o tanque|tanqueCheio|tanque_cheio|ToggleSwitch/);
   assert.doesNotMatch(modal, /Litros calculados|<ResumoItem|consumoCalculado/);
   assert.doesNotMatch(novaSaida, /Tanque cheio|tanqueCheio|tanque_cheio/);
+  assert.doesNotMatch(novaSaida, /function consumoCalculado/);
   assert.doesNotMatch(cronologia, /tanqueCheio|tanque_cheio/);
-  assert.match(cronologia, /anterior\?\.odometro/);
+  assert.match(cronologia, /if \(!anterior\)/);
+  assert.match(modal, /sincronizarCronologiaAbastecimentos/);
+  assert.match(novaSaida, /sincronizarCronologiaAbastecimentos/);
+  assert.match(extrato, /sincronizarCronologiaAbastecimentos/);
+  assert.match(servico, /recalcularCronologiaAbastecimentos/);
+  assert.doesNotMatch(servico, /odometro_atual/);
+  assert.doesNotMatch(novaSaida, /\.lt\("odometro"/);
 });
 
 test("pagamentos múltiplos alterna entre formulário simples e cards", async () => {
