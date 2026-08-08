@@ -1,79 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { FiArrowLeft, FiInfo, FiSettings } from "react-icons/fi";
-import { useProgressoAnimado, useRevelarAoEntrar, useArrastarScrollHorizontal, useCabecalhoInteligente } from "../hooks/dashboardHooks";
+import { FiInfo, FiSettings } from "react-icons/fi";
+import { useProgressoAnimado, useRevelarAoEntrar, useArrastarScrollHorizontal } from "../hooks/dashboardHooks";
 import { iconePlataforma } from "../utils/dashboardPlataformas";
-
-export { default as DashboardHome } from "./DashboardHome";
-export { iconePlataforma, normalizarNomePlataforma } from "../utils/dashboardPlataformas";
-
-export function DashboardPainelHeader({ painel, voltar, children }) {
-  const cabecalhoRef = useRef(null);
-  const [alturaCabecalho, setAlturaCabecalho] = useState(0);
-  const cabecalhoVisivel = useCabecalhoInteligente();
-
-  useEffect(() => {
-    const elemento = cabecalhoRef.current;
-    if (!elemento) return undefined;
-
-    function atualizarAltura() {
-      setAlturaCabecalho(elemento.getBoundingClientRect().height);
-    }
-
-    atualizarAltura();
-
-    const observador = new ResizeObserver(atualizarAltura);
-    observador.observe(elemento);
-    window.addEventListener("resize", atualizarAltura);
-
-    return () => {
-      observador.disconnect();
-      window.removeEventListener("resize", atualizarAltura);
-    };
-  }, [painel?.id, children]);
-
-  if (!painel) return null;
-  const Icone = painel.Icone;
-
-  return (
-    <div
-      className="-mt-4 sm:-mt-4 md:landscape:-mt-8 lg:-mt-8"
-      style={{ height: alturaCabecalho }}
-    >
-      <div
-        ref={cabecalhoRef}
-        className={`fixed top-16 left-0 right-0 z-30 border-b border-gray-800/90 bg-[#0B1120]/95 shadow-[0_12px_30px_rgba(0,0,0,0.18)] backdrop-blur-xl md:landscape:left-72 lg:left-72 transition-transform duration-200 ease-out motion-reduce:transition-none ${cabecalhoVisivel ? "translate-y-0" : "-translate-y-[calc(100%+1px)]"}`}
-      >
-        <div className="px-4 py-3 sm:px-6 md:landscape:px-10 lg:px-10">
-          <div className="max-w-[1600px] mx-auto flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-3 min-w-0 lg:flex-1">
-              <button
-                type="button"
-                onClick={voltar}
-                className="w-10 h-10 rounded-xl border border-gray-700 hover:border-green-400 hover:bg-white/5 flex items-center justify-center text-gray-300 hover:text-green-400 transition shrink-0"
-                title="Voltar aos painéis"
-                aria-label="Voltar aos painéis"
-              >
-                <FiArrowLeft className="text-lg" />
-              </button>
-
-              <div className="min-w-0">
-  <h2 className="text-xl sm:text-2xl font-black truncate">
-    {painel.titulo}
-  </h2>
-
-  <p className="text-xs sm:text-sm text-gray-400 truncate">
-    {painel.descricao}
-  </p>
-</div>
-            </div>
-
-            {children ? <div className="lg:shrink-0">{children}</div> : null}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export function PeriodoControle({ periodo, setPeriodo, textoPeriodo, abrirPeriodo, compacto = false }) {
   return (
@@ -157,16 +84,40 @@ export function ResultadoOperacionalCard({ faturamento, custos, resultado, forma
   );
 }
 
-export function CustosCategoriaCard({ titulo, dados, baseComparacao, labelBase, rateio, abrirRateio, formatarMoeda }) {
+export function CustosCategoriaCard({
+  titulo,
+  dados,
+  baseComparacao,
+  labelBase,
+  rateio,
+  abrirRateio,
+  formatarMoeda,
+  indicadores = [],
+  tema = "trabalho",
+}) {
   const categorias = dados?.categorias || [];
   const total = Number(dados?.total || 0);
   const percentualBase = Number(baseComparacao || 0) > 0 ? (total / Number(baseComparacao || 0)) * 100 : 0;
+  const temaPessoal = tema === "pessoal";
 
   return (
-    <div className="bg-[#111827] border border-gray-800 rounded-3xl p-5">
+    <div className={`h-full bg-[#111827] border rounded-3xl p-5 ${temaPessoal ? "border-purple-500/35" : "border-green-500/35"}`}>
       <div className="flex items-center justify-between gap-4">
-        <h3 className="text-xl font-bold">{titulo}</h3>
+        <h3 className={`text-xl font-black ${temaPessoal ? "text-purple-300" : "text-green-300"}`}>{titulo}</h3>
       </div>
+
+      {indicadores.length > 0 && (
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3 gap-2">
+          {indicadores.map((indicador) => (
+            <div key={indicador.titulo} className="rounded-2xl border border-gray-800 bg-[#0B1120] p-3 min-w-0">
+              <p className="text-xs text-gray-400">{indicador.titulo}</p>
+              <p className={`text-lg font-black mt-1 truncate ${indicador.destaque || "text-white"}`}>
+                {formatarMoeda(indicador.valor)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="mt-5 flex flex-col items-center">
         <GraficoAnelCategorias
@@ -258,12 +209,26 @@ export function InvestimentosObjetivosCard({ formatarMoeda }) {
   );
 }
 
-export function ContasAtrasadasCard({ contas, total, abrirConfiguracao, formatarMoeda, formatarDataBR }) {
+export function ContasAtrasadasCard({ contas, total, abrirConfiguracao, abrirPagina, formatarMoeda, formatarDataBR }) {
   return (
-    <div className="relative bg-[#111827] border border-gray-800 rounded-3xl p-5">
+    <div
+      className="relative bg-[#111827] border border-gray-800 hover:border-red-500/45 rounded-3xl p-5 cursor-pointer transition"
+      onClick={abrirPagina}
+      onKeyDown={(evento) => {
+        if (evento.target === evento.currentTarget && (evento.key === "Enter" || evento.key === " ")) {
+          evento.preventDefault();
+          abrirPagina?.();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
       <button
         type="button"
-        onClick={abrirConfiguracao}
+        onClick={(evento) => {
+          evento.stopPropagation();
+          abrirConfiguracao();
+        }}
         className="absolute top-4 right-4 w-9 h-9 rounded-xl hover:bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition"
         title="Configurar contas atrasadas e negativas"
         aria-label="Configurar contas atrasadas e negativas"
@@ -272,9 +237,9 @@ export function ContasAtrasadasCard({ contas, total, abrirConfiguracao, formatar
       </button>
 
       <div className="pr-12">
-        <p className="text-sm text-gray-400">Contas atrasadas / negativas</p>
+        <p className="text-sm text-gray-400">Contas vencidas</p>
         <h3 className="text-2xl font-black mt-1 text-red-400">{formatarMoeda(total)}</h3>
-        <p className="text-xs text-gray-500 mt-1">Faturas vencidas, contas em atraso e contas negativas configuradas.</p>
+        <p className="text-xs text-gray-500 mt-1">Faturas e contas vencidas, além de saldos negativos configurados.</p>
       </div>
 
       <div className="mt-4 space-y-3">
@@ -303,12 +268,26 @@ export function ContasAtrasadasCard({ contas, total, abrirConfiguracao, formatar
   );
 }
 
-export function SaldoGeralCard({ saldoGeral, contas, abrirConfiguracao, formatarMoeda }) {
+export function SaldoGeralCard({ saldoGeral, contas, plataformas = [], abrirConfiguracao, abrirPagina, formatarMoeda }) {
   return (
-    <div className="relative bg-green-500 border border-green-400 rounded-3xl p-6 sm:p-7 text-white overflow-hidden">
+    <div
+      className="relative bg-green-500 border border-green-400 hover:border-white rounded-3xl p-6 sm:p-7 text-white overflow-hidden cursor-pointer transition"
+      onClick={abrirPagina}
+      onKeyDown={(evento) => {
+        if (evento.target === evento.currentTarget && (evento.key === "Enter" || evento.key === " ")) {
+          evento.preventDefault();
+          abrirPagina?.();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
       <button
         type="button"
-        onClick={abrirConfiguracao}
+        onClick={(evento) => {
+          evento.stopPropagation();
+          abrirConfiguracao();
+        }}
         className="absolute top-4 right-4 w-9 h-9 rounded-xl bg-black/10 hover:bg-black/20 border border-white/15 flex items-center justify-center text-white/90 transition"
         title="Configurar contas do saldo"
         aria-label="Configurar contas do saldo"
@@ -317,7 +296,7 @@ export function SaldoGeralCard({ saldoGeral, contas, abrirConfiguracao, formatar
       </button>
 
       <div className="pr-12">
-        <p className="text-sm font-black uppercase tracking-wide text-white/80">Saldo Atual Geral</p>
+        <p className="text-sm font-black uppercase tracking-wide text-white/80">Saldo consolidado das contas</p>
         <h2 className="text-4xl sm:text-5xl font-black mt-2">{formatarMoeda(saldoGeral)}</h2>
         <p className="text-sm text-white/80 mt-3">
           {contas.length} conta(s) incluída(s) neste saldo.
@@ -332,6 +311,20 @@ export function SaldoGeralCard({ saldoGeral, contas, abrirConfiguracao, formatar
           </div>
         ))}
       </div>
+
+      {plataformas.length > 0 && (
+        <div className="mt-5 border-t border-white/20 pt-4">
+          <p className="text-xs font-black uppercase tracking-wide text-white/70">Saldos nas plataformas</p>
+          <div className="mt-2 divide-y divide-white/15">
+            {plataformas.map((plataforma) => (
+              <div key={plataforma.id} className="py-2 flex items-center justify-between gap-3 text-sm">
+                <span className="truncate text-white/85">{plataforma.nome}</span>
+                <span className="whitespace-nowrap text-white/90">{formatarMoeda(plataforma.saldo)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -374,13 +367,27 @@ export function MetricCard({ titulo, valor }) {
   );
 }
 
-export function ProximasContasCard({ contas, dias, abrirConfiguracao, formatarMoeda, formatarDataBR, total }) {
+export function ProximasContasCard({ contas, dias, abrirConfiguracao, abrirPagina, formatarMoeda, formatarDataBR, total }) {
 
   return (
-    <div className="relative bg-[#111827] border border-gray-800 rounded-3xl p-5">
+    <div
+      className="relative bg-[#111827] border border-gray-800 hover:border-blue-500/45 rounded-3xl p-5 cursor-pointer transition"
+      onClick={abrirPagina}
+      onKeyDown={(evento) => {
+        if (evento.target === evento.currentTarget && (evento.key === "Enter" || evento.key === " ")) {
+          evento.preventDefault();
+          abrirPagina?.();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
       <button
         type="button"
-        onClick={abrirConfiguracao}
+        onClick={(evento) => {
+          evento.stopPropagation();
+          abrirConfiguracao();
+        }}
         className="absolute top-4 right-4 w-9 h-9 rounded-xl hover:bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition"
         title="Configurar contas a pagar"
         aria-label="Configurar contas a pagar"
@@ -389,7 +396,7 @@ export function ProximasContasCard({ contas, dias, abrirConfiguracao, formatarMo
       </button>
 
       <div className="pr-12">
-        <p className="text-sm text-gray-400">Próximas contas a pagar</p>
+        <p className="text-sm text-gray-400">Próximas contas a vencer</p>
         <h3 className="text-2xl font-black mt-1">{formatarMoeda(total)}</h3>
         <p className="text-xs text-gray-500 mt-1">Vencimentos dos próximos {dias} dias.</p>
       </div>
@@ -468,7 +475,6 @@ export function GraficoAnelCategorias({ categorias, total = 0, percentualBase = 
   const lista = (categorias || []).filter((categoria) => Number(categoria.valor || 0) > 0);
   const totalCategorias = lista.reduce((soma, categoria) => soma + Number(categoria.valor || 0), 0);
   const percentualTotal = Math.max(Number(percentualBase || 0), 0);
-  const voltas = Math.max(Math.ceil(percentualTotal / 100), 1);
   const chaveAnimacao = JSON.stringify({
     percentualTotal: Number(percentualTotal.toFixed(4)),
     total: Number(Number(total || 0).toFixed(2)),
@@ -506,53 +512,56 @@ export function GraficoAnelCategorias({ categorias, total = 0, percentualBase = 
     }
   });
 
-  const raioBase = 124;
-  const espacamentoVolta = voltas > 1 ? 15 : 0;
-  const largura = voltas > 1 ? 11 : 14;
+  const quantidadeVoltasVisiveis = Math.ceil(progressoAnel / 100);
+  const camadasAnel = Array.from({ length: quantidadeVoltasVisiveis }, (_, indice) => quantidadeVoltasVisiveis - indice - 1)
+    .map((volta) => {
+      const fragmentosDaVolta = fragmentos.filter((fragmento) => fragmento.volta === volta);
+      const paradas = ["transparent 0%"];
+      let fimAnterior = 0;
+
+      fragmentosDaVolta.forEach((fragmento) => {
+        const tamanhoVisivel = Math.min(
+          Math.max(progressoAnel - fragmento.inicioGlobal, 0),
+          fragmento.tamanho
+        );
+
+        if (tamanhoVisivel <= 0) return;
+
+        const inicio = fragmento.inicioNaVolta;
+        const fim = Math.min(inicio + tamanhoVisivel, 100);
+        const escurecimento = Number((100 * (1 - Math.pow(0.91, volta))).toFixed(2));
+        const cor = volta > 0
+          ? `color-mix(in srgb, ${fragmento.cor}, black ${escurecimento}%)`
+          : fragmento.cor;
+
+        if (inicio > fimAnterior) {
+          paradas.push(`transparent ${fimAnterior}%`, `transparent ${inicio}%`);
+        }
+
+        paradas.push(`${cor} ${inicio}%`, `${cor} ${fim}%`);
+        fimAnterior = fim;
+      });
+
+      paradas.push(`transparent ${fimAnterior}%`, "transparent 100%");
+      return `conic-gradient(${paradas.join(", ")})`;
+    });
+
+  const fundoAnel = [
+    ...camadasAnel,
+    "conic-gradient(rgba(55,65,81,0.65) 0% 100%)",
+  ].join(", ");
 
   return (
-    <div ref={ref} className="relative w-80 h-80 sm:w-[340px] sm:h-[340px] flex items-center justify-center">
-      <svg className="w-full h-full -rotate-90" viewBox="0 0 300 300" aria-hidden="true">
-        {Array.from({ length: voltas }, (_, volta) => {
-          const raio = Math.max(raioBase - volta * espacamentoVolta, 52);
-          return (
-            <circle
-              key={`trilho-${volta}`}
-              cx="150"
-              cy="150"
-              r={raio}
-              pathLength="100"
-              fill="none"
-              stroke="rgba(55,65,81,0.65)"
-              strokeWidth={largura}
-            />
-          );
-        })}
-
-        {fragmentos.map((fragmento, indice) => {
-          const tamanhoVisivel = Math.min(
-            Math.max(progressoAnel - fragmento.inicioGlobal, 0),
-            fragmento.tamanho
-          );
-          const raio = Math.max(raioBase - fragmento.volta * espacamentoVolta, 52);
-
-          return (
-            <circle
-              key={`${fragmento.nome}-${fragmento.volta}-${indice}`}
-              cx="150"
-              cy="150"
-              r={raio}
-              pathLength="100"
-              fill="none"
-              stroke={fragmento.cor}
-              strokeWidth={largura}
-              strokeLinecap="butt"
-              strokeDasharray={`${tamanhoVisivel} ${100 - tamanhoVisivel}`}
-              strokeDashoffset={-fragmento.inicioNaVolta}
-            />
-          );
-        })}
-      </svg>
+    <div ref={ref} className="relative w-full max-w-80 aspect-square sm:w-[340px] sm:max-w-[340px] flex items-center justify-center">
+      <div
+        className="absolute inset-0"
+        aria-hidden="true"
+        style={{
+          background: fundoAnel,
+          WebkitMaskImage: "radial-gradient(circle closest-side, transparent 0 78%, #000 78.5% 87%, transparent 87.5%)",
+          maskImage: "radial-gradient(circle closest-side, transparent 0 78%, #000 78.5% 87%, transparent 87.5%)",
+        }}
+      />
 
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8">
         <span className="text-3xl sm:text-4xl font-black text-white leading-none">
@@ -565,28 +574,29 @@ export function GraficoAnelCategorias({ categorias, total = 0, percentualBase = 
 }
 
 
-export function GraficoHistoricoFaturamento({ dados, periodo, periodoLabel, formatarMoeda }) {
+export function GraficoHistoricoFaturamento({ dados, periodo, periodoLabel, formatarMoeda, selecionadoIndex, onSelecionar }) {
   const valores = (dados || []).map((item) => Number(item.valor || 0));
   const maximo = Math.max(...valores, 1);
   const { ref: revelarRef, visivel } = useRevelarAoEntrar(0.55, "0px 0px -6% 0px");
-  const arrastar = useArrastarScrollHorizontal();
+  const { ref: arrastarRef, props: arrastarProps } = useArrastarScrollHorizontal();
   const larguraMinima = periodo === "mes"
     ? "min-w-[1180px]"
     : periodo === "ano"
       ? "min-w-[880px]"
       : "min-w-[720px]";
+  const temSelecao = selecionadoIndex !== null && selecionadoIndex !== undefined;
 
   return (
     <div ref={revelarRef} className="rounded-3xl border border-gray-800 bg-[#111827] p-4 sm:p-5 overflow-hidden">
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4">
         <div className="inline-flex items-center rounded-xl border border-gray-700 bg-[#0B1120] px-3 py-2 text-sm font-bold text-gray-200">
           {periodoLabel}
         </div>
       </div>
 
       <div
-        ref={arrastar.ref}
-        {...arrastar.props}
+        ref={arrastarRef}
+        {...arrastarProps}
         className="overflow-x-auto scrollbar-hide cursor-grab touch-pan-y"
         style={{ touchAction: "pan-y pinch-zoom" }}
       >
@@ -594,28 +604,39 @@ export function GraficoHistoricoFaturamento({ dados, periodo, periodoLabel, form
           {(dados || []).map((item, indice) => {
             const valor = Number(item.valor || 0);
             const alturaPercentual = valor > 0 ? Math.max((valor / maximo) * 100, 7) : 2.5;
+            const selecionado = selecionadoIndex === indice;
+            const itemAtenuado = temSelecao && !selecionado;
 
             return (
-              <div key={`${item.label}-${indice}`} className="flex-1 min-w-[58px] h-full flex flex-col items-center justify-end">
-                <span className="text-[11px] sm:text-xs font-medium text-gray-300 mb-2 whitespace-nowrap">
+              <button
+                key={`${item.label}-${indice}`}
+                type="button"
+                onClick={() => onSelecionar?.(item, indice)}
+                aria-pressed={selecionadoIndex === indice}
+                aria-label={`Filtrar indicadores por ${item.label}`}
+                className={`flex-1 min-w-[58px] h-full flex flex-col items-center justify-end transition-opacity ${itemAtenuado ? "opacity-55" : "opacity-100"}`}
+              >
+                <span className={`text-[11px] sm:text-xs font-medium mb-2 whitespace-nowrap ${selecionado ? "text-white" : itemAtenuado ? "text-gray-500" : "text-gray-300"}`}>
                   {formatarMoeda(valor)}
                 </span>
 
                 <div className="w-full max-w-[54px] h-[195px] flex items-end justify-center">
                   <div
-                    className={`w-full rounded-t-lg border-x border-t border-green-400/15 shadow-[0_0_18px_rgba(34,197,94,0.10)] ${visivel ? "dashboard-bar-reveal" : "dashboard-bar-hidden"}`}
+                    className={`w-full rounded-t-lg border-x border-t ${itemAtenuado ? "border-gray-500/15 shadow-none" : "border-green-400/15 shadow-[0_0_18px_rgba(34,197,94,0.10)]"} ${visivel ? "dashboard-bar-reveal" : "dashboard-bar-hidden"}`}
                     style={{
                       height: `${alturaPercentual}%`,
                       animationDelay: `${indice * 55}ms`,
                       opacity: valor > 0 ? 1 : 0.34,
-                      background: "linear-gradient(to top, rgba(34,197,94,0.10) 0%, rgba(34,197,94,0.48) 55%, rgba(74,222,128,0.96) 100%)",
+                      background: itemAtenuado
+                        ? "linear-gradient(to top, rgba(75,85,99,0.10) 0%, rgba(107,114,128,0.38) 55%, rgba(156,163,175,0.72) 100%)"
+                        : "linear-gradient(to top, rgba(34,197,94,0.10) 0%, rgba(34,197,94,0.48) 55%, rgba(74,222,128,0.96) 100%)",
                     }}
                     title={`${item.label}: ${formatarMoeda(valor)}`}
                   />
                 </div>
 
-                <span className="text-xs sm:text-sm font-bold text-gray-400 mt-3">{item.label}</span>
-              </div>
+                <span className={`text-xs sm:text-sm font-bold mt-3 ${selecionado ? "text-white" : itemAtenuado ? "text-gray-500" : "text-gray-400"}`}>{item.label}</span>
+              </button>
             );
           })}
         </div>

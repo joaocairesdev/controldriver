@@ -6,6 +6,8 @@ export function useProgressoAnimado(valorFinal, duracao = 1800, chave = "") {
 
   useEffect(() => {
     cancelAnimationFrame(quadroRef.current);
+    // Reinicia a animação quando o valor ou o período muda.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setValorAtual(0);
 
     const destino = Math.max(Number(valorFinal || 0), 0);
@@ -113,45 +115,3 @@ export function useArrastarScrollHorizontal() {
     },
   };
 }
-
-export function useCabecalhoInteligente(limiarDescida = 14, limiarSubida = 8) {
-  const [visivel, setVisivel] = useState(true);
-
-  useEffect(() => {
-    const container = document.querySelector('main[data-scroll-container="true"]');
-    if (!container) return undefined;
-
-    let ultimaPosicao = container.scrollTop;
-    let acumuladoDescida = 0;
-    let acumuladoSubida = 0;
-
-    function aoRolar() {
-      const atual = Math.max(container.scrollTop, 0);
-      const delta = atual - ultimaPosicao;
-      ultimaPosicao = atual;
-
-      if (atual <= 8) {
-        acumuladoDescida = 0;
-        acumuladoSubida = 0;
-        setVisivel(true);
-        return;
-      }
-
-      if (delta > 0) {
-        acumuladoDescida += delta;
-        acumuladoSubida = 0;
-        if (acumuladoDescida >= limiarDescida) setVisivel(false);
-      } else if (delta < 0) {
-        acumuladoSubida += Math.abs(delta);
-        acumuladoDescida = 0;
-        if (acumuladoSubida >= limiarSubida) setVisivel(true);
-      }
-    }
-
-    container.addEventListener("scroll", aoRolar, { passive: true });
-    return () => container.removeEventListener("scroll", aoRolar);
-  }, [limiarDescida, limiarSubida]);
-
-  return visivel;
-}
-

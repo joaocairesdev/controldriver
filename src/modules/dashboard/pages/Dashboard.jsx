@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { FiActivity, FiDollarSign, FiEye, FiEyeOff, FiTruck, FiUser } from "react-icons/fi";
+import { FiEye, FiEyeOff } from "react-icons/fi";
 import { supabase } from "../../../services/supabase";
 import {
   calcularSaldoAbertoFatura,
   detalheCartao,
 } from "../../cartoes/utils/cartoesUtils";
+import { carregarPlataformasFinanceiras } from "../../contas/services/plataformasFinanceiroService";
 
 import {
-  DashboardHome, DashboardPainelHeader, PeriodoControle, ResumoFinanceiroCard,
-  ResultadoOperacionalCard, CustosCategoriaCard, InvestimentosObjetivosCard,
+  PeriodoControle, CustosCategoriaCard,
   ContasAtrasadasCard, SaldoGeralCard, FaturamentoCard, MetaCard, MetricCard,
   ProximasContasCard, PlataformasCard, GraficoHistoricoFaturamento, DashboardAnimations,
 } from "../components/DashboardComponentes";
@@ -22,16 +22,14 @@ import {
 } from "../utils/dashboardCalculos";
 import {
   carregarPreferenciasDashboardLocalStorage, salvarPreferenciasDashboardLocalStorage,
-  criarMetricasPessoaisVazias, diasDoMesCalendarioGenerico, entradaAvulsaPessoal,
+  criarMetricasPessoaisVazias, entradaAvulsaPessoal,
 } from "../utils/dashboardHelpers";
 
 
 const CONTAS_DASHBOARD_KEY = "controldriver_dashboard_contas_ativas_v1";
 const CONTAS_PAGAR_DIAS_KEY = "controldriver_dashboard_contas_pagar_dias_v1";
 const CONTAS_ATRASADAS_CONFIG_KEY = "controldriver_dashboard_contas_atrasadas_config_v1";
-const DASHBOARD_PREFERENCIAS_KEY = "controldriver_dashboard_preferencias_v1";
-
-export default function Dashboard({ entradaKey = 0 }) {
+export default function Dashboard({ navegarPara }) {
   const hoje = new Date();
   const hojeISO = dataISO(hoje);
   const preferenciasDashboard = useMemo(() => carregarPreferenciasDashboardLocalStorage(), []);
@@ -42,14 +40,7 @@ export default function Dashboard({ entradaKey = 0 }) {
   const [mesSelecionado, setMesSelecionado] = useState(preferenciasDashboard.mesSelecionado || String(hoje.getMonth() + 1));
   const [anoSelecionado, setAnoSelecionado] = useState(preferenciasDashboard.anoSelecionado || hoje.getFullYear());
 
-  const [periodoPessoal, setPeriodoPessoal] = useState(preferenciasDashboard.periodoPessoal || "mes");
-  const [dataPessoalSelecionada, setDataPessoalSelecionada] = useState(preferenciasDashboard.dataPessoalSelecionada || hojeISO);
-  const [semanaPessoalSelecionada, setSemanaPessoalSelecionada] = useState(preferenciasDashboard.semanaPessoalSelecionada || getSemanaDoAno(hoje));
-  const [mesPessoalSelecionado, setMesPessoalSelecionado] = useState(preferenciasDashboard.mesPessoalSelecionado || String(hoje.getMonth() + 1));
-  const [anoPessoalSelecionado, setAnoPessoalSelecionado] = useState(preferenciasDashboard.anoPessoalSelecionado || hoje.getFullYear());
-
   const [modalPeriodoAberto, setModalPeriodoAberto] = useState(false);
-  const [modalPeriodoPessoalAberto, setModalPeriodoPessoalAberto] = useState(false);
   const [modalContasAberto, setModalContasAberto] = useState(false);
   const [modalContasPagarAberto, setModalContasPagarAberto] = useState(false);
   const [modalAnoAberto, setModalAnoAberto] = useState(false);
@@ -58,6 +49,7 @@ export default function Dashboard({ entradaKey = 0 }) {
 
   const [carregando, setCarregando] = useState(true);
   const [contas, setContas] = useState([]);
+  const [plataformasFinanceiras, setPlataformasFinanceiras] = useState([]);
   const [contasSelecionadas, setContasSelecionadas] = useState([]);
   const [datasComMovimento, setDatasComMovimento] = useState([]);
   const [metaAtiva, setMetaAtiva] = useState(null);
@@ -69,9 +61,12 @@ export default function Dashboard({ entradaKey = 0 }) {
   const [configContasAtrasadas, setConfigContasAtrasadas] = useState(carregarConfigContasAtrasadasLocalStorage());
   const [modalContasAtrasadasAberto, setModalContasAtrasadasAberto] = useState(false);
   const [modalRateioAberto, setModalRateioAberto] = useState(false);
+  const [tipoRateioModal, setTipoRateioModal] = useState("trabalho");
 
   const [valoresFinanceirosVisiveis, setValoresFinanceirosVisiveis] = useState(preferenciasDashboard.valoresFinanceirosVisiveis !== false);
-  const [abaDashboard, setAbaDashboard] = useState(null);
+  const [selecaoGrafico, setSelecaoGrafico] = useState(null);
+  const contextoGrafico = `${periodo}:${dataSelecionada}:${semanaSelecionada}:${mesSelecionado}:${anoSelecionado}`;
+  const selecaoGraficoAtiva = selecaoGrafico?.contexto === contextoGrafico ? selecaoGrafico : null;
 
   const meses = [
     "Janeiro",
@@ -90,79 +85,32 @@ export default function Dashboard({ entradaKey = 0 }) {
 
   const diasSemana = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-  useEffect(() => {
-    carregarTudo();
-  }, []);
-
-  useEffect(() => {
-    setAbaDashboard(null);
-    setModalRateioAberto(false);
-    setModalPeriodoAberto(false);
-    setModalPeriodoPessoalAberto(false);
-  }, [entradaKey]);
-
-  useEffect(() => {
-    const containerRolagem = document.querySelector('[data-scroll-container="true"]');
-    if (!containerRolagem) return;
-
-    containerRolagem.scrollTo({ top: 0, behavior: "auto" });
-  }, [abaDashboard]);
-
-  useEffect(() => {
-    carregarPerformance();
-  }, [periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado, metaAtiva]);
-
-  useEffect(() => {
-    carregarFinancasPessoais();
-  }, [periodoPessoal, dataPessoalSelecionada, semanaPessoalSelecionada, mesPessoalSelecionado, anoPessoalSelecionado]);
-
-  useEffect(() => {
-    if (!carregando) {
-      carregarProximasContas();
-      carregarContasAtrasadas();
-    }
-  }, [diasContasPagar]);
-
-  useEffect(() => {
-    salvarPreferenciasDashboardLocalStorage({
-      periodo,
-      dataSelecionada,
-      semanaSelecionada,
-      mesSelecionado,
-      anoSelecionado,
-      periodoPessoal,
-      dataPessoalSelecionada,
-      semanaPessoalSelecionada,
-      mesPessoalSelecionado,
-      anoPessoalSelecionado,
-      valoresFinanceirosVisiveis,
-      abaDashboard,
-    });
-  }, [
-    periodo,
-    dataSelecionada,
-    semanaSelecionada,
-    mesSelecionado,
-    anoSelecionado,
-    periodoPessoal,
-    dataPessoalSelecionada,
-    semanaPessoalSelecionada,
-    mesPessoalSelecionado,
-    anoPessoalSelecionado,
-    valoresFinanceirosVisiveis,
-    abaDashboard,
-  ]);
-
   async function carregarTudo() {
     setCarregando(true);
     await Promise.all([
       carregarContasComSaldo(),
+      carregarSaldosPlataformas(),
       carregarDatasComMovimento(),
       carregarMetaAtiva(),
       carregarProximasContas(),
       carregarContasAtrasadas(),
     ]);
     setCarregando(false);
+  }
+
+  async function carregarSaldosPlataformas() {
+    try {
+      const plataformasData = await carregarPlataformasFinanceiras();
+      setPlataformasFinanceiras(
+        plataformasData.filter(
+          (plataforma) => Math.abs(Number(plataforma.saldo || 0)) >= 0.01
+            || plataforma.exibir_nas_contas !== false,
+        ),
+      );
+    } catch (error) {
+      console.error("Erro ao carregar saldos das plataformas no dashboard:", error);
+      setPlataformasFinanceiras([]);
+    }
   }
 
   async function carregarContasComSaldo() {
@@ -497,30 +445,35 @@ export default function Dashboard({ entradaKey = 0 }) {
   async function carregarPerformance() {
     const { inicio, fim } = intervaloDatas();
     const { resumoBase, entradasData } = await buscarDadosOperacao(inicio, fim);
-
-
-    const metaPeriodo = await calcularMetaPeriodo(metaAtiva, periodo, {
+    const historicoFaturamento = construirHistoricoFaturamento(entradasData, periodo, {
       dataSelecionada,
       semanaSelecionada,
       mesSelecionado,
       anoSelecionado,
     });
 
-    resumoBase.meta = metaPeriodo;
-    resumoBase.percentualMeta = metaPeriodo > 0 ? Math.min((resumoBase.faturamento / metaPeriodo) * 100, 999) : 0;
-    resumoBase.faltaMeta = Math.max(metaPeriodo - resumoBase.faturamento, 0);
-    resumoBase.historicoFaturamento = construirHistoricoFaturamento(entradasData, periodo, {
+    const metricasIndicadores = selecaoGraficoAtiva
+      ? (await buscarDadosOperacao(selecaoGraficoAtiva.inicio, selecaoGraficoAtiva.fim)).resumoBase
+      : resumoBase;
+    const periodoMeta = selecaoGraficoAtiva?.periodoMeta || periodo;
+    const filtrosMeta = selecaoGraficoAtiva?.filtrosMeta || {
       dataSelecionada,
       semanaSelecionada,
       mesSelecionado,
       anoSelecionado,
-    });
+    };
+    const metaPeriodo = await calcularMetaPeriodo(metaAtiva, periodoMeta, filtrosMeta);
 
-    setMetricas(resumoBase);
+    metricasIndicadores.meta = metaPeriodo;
+    metricasIndicadores.percentualMeta = metaPeriodo > 0 ? Math.min((metricasIndicadores.faturamento / metaPeriodo) * 100, 999) : 0;
+    metricasIndicadores.faltaMeta = Math.max(metaPeriodo - metricasIndicadores.faturamento, 0);
+    metricasIndicadores.historicoFaturamento = historicoFaturamento;
+
+    setMetricas(metricasIndicadores);
   }
 
   async function carregarFinancasPessoais() {
-    const { inicio, fim } = intervaloDatasPessoais();
+    const { inicio, fim } = intervaloIndicadores();
     const { resumoBase } = await buscarDadosOperacao(inicio, fim);
 
     const { data: entradasAvulsasData = [] } = await supabase
@@ -548,7 +501,7 @@ export default function Dashboard({ entradaKey = 0 }) {
   function carregarContasSelecionadasLocalStorage() {
     try {
       return JSON.parse(localStorage.getItem(CONTAS_DASHBOARD_KEY) || "[]").map(String);
-    } catch (_) {
+    } catch {
       return [];
     }
   }
@@ -569,7 +522,7 @@ export default function Dashboard({ entradaKey = 0 }) {
         mostrarAtrasadas: config.mostrarAtrasadas !== false,
         mostrarNegativas: config.mostrarNegativas === true,
       };
-    } catch (_) {
+    } catch {
       return { mostrarAtrasadas: true, mostrarNegativas: false };
     }
   }
@@ -635,8 +588,10 @@ export default function Dashboard({ entradaKey = 0 }) {
     return intervaloPorSelecao(periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado);
   }
 
-  function intervaloDatasPessoais() {
-    return intervaloPorSelecao(periodoPessoal, dataPessoalSelecionada, semanaPessoalSelecionada, mesPessoalSelecionado, anoPessoalSelecionado);
+  function intervaloIndicadores() {
+    return selecaoGraficoAtiva
+      ? { inicio: selecaoGraficoAtiva.inicio, fim: selecaoGraficoAtiva.fim }
+      : intervaloDatas();
   }
 
   function intervaloPorSelecao(periodoAtual, dataAtual, semanaAtual, mesAtual, anoAtual) {
@@ -657,10 +612,6 @@ export default function Dashboard({ entradaKey = 0 }) {
 
   function textoPeriodoSelecionado() {
     return textoPeriodo(periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado);
-  }
-
-  function textoPeriodoPessoalSelecionado() {
-    return textoPeriodo(periodoPessoal, dataPessoalSelecionada, semanaPessoalSelecionada, mesPessoalSelecionado, anoPessoalSelecionado);
   }
 
   function textoPeriodo(periodoAtual, dataAtual, semanaAtual, mesAtual, anoAtual) {
@@ -794,6 +745,102 @@ export default function Dashboard({ entradaKey = 0 }) {
     setDataSelecionada(data);
   }
 
+  function criarSelecaoGrafico(indice) {
+    if (periodo === "semana") {
+      const semana = pegarSemanaPorNumero(Number(anoSelecionado), Number(semanaSelecionada));
+      const data = new Date(`${semana.inicio}T12:00:00`);
+      data.setDate(data.getDate() + indice);
+      const dataSelecionadaGrafico = dataISO(data);
+      return {
+        chave: `${periodo}-${dataSelecionadaGrafico}`,
+        contexto: contextoGrafico,
+        indice,
+        inicio: dataSelecionadaGrafico,
+        fim: dataSelecionadaGrafico,
+        periodoMeta: "dia",
+        filtrosMeta: { dataSelecionada: dataSelecionadaGrafico },
+        rotulo: formatarDataBR(dataSelecionadaGrafico),
+      };
+    }
+
+    if (periodo === "mes") {
+      const dataSelecionadaGrafico = `${anoSelecionado}-${String(mesSelecionado).padStart(2, "0")}-${String(indice + 1).padStart(2, "0")}`;
+      return {
+        chave: `${periodo}-${dataSelecionadaGrafico}`,
+        contexto: contextoGrafico,
+        indice,
+        inicio: dataSelecionadaGrafico,
+        fim: dataSelecionadaGrafico,
+        periodoMeta: "dia",
+        filtrosMeta: { dataSelecionada: dataSelecionadaGrafico },
+        rotulo: formatarDataBR(dataSelecionadaGrafico),
+      };
+    }
+
+    const mesGrafico = indice + 1;
+    const inicio = `${anoSelecionado}-${String(mesGrafico).padStart(2, "0")}-01`;
+    const fim = dataISO(new Date(Number(anoSelecionado), mesGrafico, 0));
+    return {
+      chave: `${periodo}-${anoSelecionado}-${mesGrafico}`,
+      contexto: contextoGrafico,
+      indice,
+      inicio,
+      fim,
+      periodoMeta: "mes",
+      filtrosMeta: { mesSelecionado: String(mesGrafico), anoSelecionado },
+      rotulo: `${meses[mesGrafico - 1]} / ${anoSelecionado}`,
+    };
+  }
+
+  function alternarSelecaoGrafico(_, indice) {
+    if (periodo === "dia") return;
+    const novaSelecao = criarSelecaoGrafico(indice);
+    setSelecaoGrafico((atual) => atual?.chave === novaSelecao.chave ? null : novaSelecao);
+  }
+
+  useEffect(() => {
+    // Consulta inicial: o estado é atualizado pelas respostas assíncronas do Supabase.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    carregarTudo();
+  }, []);
+
+  useEffect(() => {
+    // Sincroniza os indicadores com o filtro principal e a seleção rápida do gráfico.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    carregarPerformance();
+  }, [periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado, metaAtiva, selecaoGraficoAtiva]);
+
+  useEffect(() => {
+    // Mantém o card pessoal no mesmo intervalo visual dos demais indicadores.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    carregarFinancasPessoais();
+  }, [periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado, selecaoGraficoAtiva]);
+
+  useEffect(() => {
+    if (!carregando) {
+      carregarProximasContas();
+      carregarContasAtrasadas();
+    }
+  }, [diasContasPagar]);
+
+  useEffect(() => {
+    salvarPreferenciasDashboardLocalStorage({
+      periodo,
+      dataSelecionada,
+      semanaSelecionada,
+      mesSelecionado,
+      anoSelecionado,
+      valoresFinanceirosVisiveis,
+    });
+  }, [
+    periodo,
+    dataSelecionada,
+    semanaSelecionada,
+    mesSelecionado,
+    anoSelecionado,
+    valoresFinanceirosVisiveis,
+  ]);
+
   const contasAtivasDashboard = contas.filter((conta) => contasSelecionadas.includes(String(conta.id)));
   const saldoGeral = contasAtivasDashboard.reduce((total, conta) => total + Number(conta.saldo_atual || 0), 0);
   const horasDecimal = metricas.minutosTrabalhados / 60;
@@ -825,194 +872,159 @@ export default function Dashboard({ entradaKey = 0 }) {
   const resultadoOperacional = metricas.faturamento - Number(custoTrabalho.total || 0);
   const formatarValorFinanceiro = (valor) => valoresFinanceirosVisiveis ? formatarMoeda(valor) : "••••";
 
-  const paineisDashboard = [
-    {
-      id: "performance",
-      titulo: "Performance",
-      descricao: "Acompanhe faturamento, metas, produtividade e custos da sua operação.",
-      Icone: FiActivity,
-      destaque: "green",
-    },
-    {
-      id: "financeiro",
-      titulo: "Financeiro",
-      descricao: "Visualize saldos, contas, cartões, investimentos e compromissos financeiros.",
-      Icone: FiDollarSign,
-      destaque: "blue",
-    },
-    {
-      id: "veiculo",
-      titulo: "Veículo",
-      descricao: "Gerencie custos, abastecimentos, manutenções, documentos e uso do veículo.",
-      Icone: FiTruck,
-      destaque: "orange",
-    },
-    {
-      id: "pessoal",
-      titulo: "Pessoal",
-      descricao: "Acompanhe receitas, despesas e a evolução da sua vida financeira pessoal.",
-      Icone: FiUser,
-      destaque: "purple",
-    },
-  ];
-
-  const painelAtual = paineisDashboard.find((painel) => painel.id === abaDashboard) || null;
-
   return (
-    <div className="space-y-6 pb-10">
+    <div className="max-w-[1600px] mx-auto space-y-10 pb-10">
       <DashboardAnimations />
 
-      {!abaDashboard ? (
-        <DashboardHome paineis={paineisDashboard} abrirPainel={setAbaDashboard} />
-      ) : (
-        <>
-          <DashboardPainelHeader
-            painel={painelAtual}
-            voltar={() => setAbaDashboard(null)}
-          >
-            {!carregando && abaDashboard === "performance" && (
-              <PeriodoControle
+      <section className="space-y-4">
+        <PeriodoControle
+          periodo={periodo}
+          setPeriodo={setPeriodo}
+          textoPeriodo={textoPeriodoSelecionado()}
+          abrirPeriodo={() => setModalPeriodoAberto(true)}
+        />
+
+        {carregando ? (
+          <div className="bg-[#111827] border border-gray-800 rounded-2xl p-6">
+            <p className="text-gray-400">Carregando dashboard...</p>
+          </div>
+        ) : (
+          <>
+            {periodo !== "dia" && (
+              <GraficoHistoricoFaturamento
+                dados={metricas.historicoFaturamento || []}
                 periodo={periodo}
-                setPeriodo={setPeriodo}
-                textoPeriodo={textoPeriodoSelecionado()}
-                abrirPeriodo={() => setModalPeriodoAberto(true)}
-                compacto
+                periodoLabel={textoPeriodoSelecionado()}
+                formatarMoeda={formatarMoeda}
+                selecionadoIndex={selecaoGraficoAtiva?.indice ?? null}
+                onSelecionar={alternarSelecaoGrafico}
               />
             )}
-          </DashboardPainelHeader>
 
-          {carregando ? (
-            <div className="bg-[#111827] border border-gray-800 rounded-2xl p-6">
-              <p className="text-gray-400">Carregando dashboard...</p>
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 items-stretch xl:min-h-[286px]">
+              <div className="xl:col-span-5 grid grid-rows-2 gap-3 h-full min-h-0">
+                <FaturamentoCard titulo={`Faturamento bruto ${selecaoGraficoAtiva ? "da seleção" : periodoTexto}`} valor={formatarMoeda(metricas.faturamento)} />
+                <MetaCard
+                  metaLabel={selecaoGraficoAtiva ? "Meta da seleção" : metaTexto}
+                  metaValor={formatarMoeda(metricas.meta)}
+                  percentual={metricas.percentualMeta}
+                  faltaMeta={metricas.faltaMeta}
+                  formatarMoeda={formatarMoeda}
+                />
+              </div>
+
+              <div className="xl:col-span-7 grid grid-cols-2 xl:grid-cols-4 xl:grid-rows-2 gap-3 h-full min-h-0">
+                <MetricCard titulo={`KM rodados ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarNumero(metricas.km)} />
+                <MetricCard titulo={`Horas ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarHoras(metricas.minutosTrabalhados)} />
+                <MetricCard titulo={`Corridas ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarNumero(metricas.corridas)} />
+                <MetricCard titulo={`Ganho/KM ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarMoeda(ganhoPorKm)} />
+                <MetricCard titulo={`Ganho/Hora ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarMoeda(ganhoPorHora)} />
+                <MetricCard titulo={`Ganho/Corrida ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarMoeda(ganhoPorCorrida)} />
+                {mostrarMetricasPorDia && (
+                  <>
+                    <MetricCard titulo={`Dias trabalhados ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarNumero(metricas.diasTrabalhados)} />
+                    <MetricCard titulo={`Média por dia trabalhado ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarMoeda(mediaPorDiaTrabalhado)} />
+                  </>
+                )}
+              </div>
             </div>
-          ) : (
-            <>
-              {abaDashboard === "performance" && (
-                <section className="space-y-4">
-                  {periodo !== "dia" && (
-                    <GraficoHistoricoFaturamento
-                      dados={metricas.historicoFaturamento || []}
-                      periodo={periodo}
-                      periodoLabel={textoPeriodoSelecionado()}
-                      formatarMoeda={formatarMoeda}
-                    />
-                  )}
 
-                  <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 items-stretch xl:min-h-[286px]">
-                    <div className="xl:col-span-5 grid grid-rows-2 gap-3 h-full min-h-0">
-                      <FaturamentoCard titulo={`Faturamento bruto ${periodoTexto}`} valor={formatarMoeda(metricas.faturamento)} />
-                      <MetaCard
-                        metaLabel={metaTexto}
-                        metaValor={formatarMoeda(metricas.meta)}
-                        percentual={metricas.percentualMeta}
-                        faltaMeta={metricas.faltaMeta}
-                        formatarMoeda={formatarMoeda}
-                      />
-                    </div>
+            <PlataformasCard plataformas={plataformas} total={metricas.faturamento} formatarMoeda={formatarMoeda} />
+          </>
+        )}
+      </section>
 
-                    <div className="xl:col-span-7 grid grid-cols-2 xl:grid-cols-4 xl:grid-rows-2 gap-3 h-full min-h-0">
-                      <MetricCard titulo={`KM rodados ${periodoTexto}`} valor={formatarNumero(metricas.km)} />
-                      <MetricCard titulo={`Horas ${periodoTexto}`} valor={formatarHoras(metricas.minutosTrabalhados)} />
-                      <MetricCard titulo={`Corridas ${periodoTexto}`} valor={formatarNumero(metricas.corridas)} />
-                      <MetricCard titulo={`Ganho/KM ${periodoTexto}`} valor={formatarMoeda(ganhoPorKm)} />
-                      <MetricCard titulo={`Ganho/Hora ${periodoTexto}`} valor={formatarMoeda(ganhoPorHora)} />
-                      <MetricCard titulo={`Ganho/Corrida ${periodoTexto}`} valor={formatarMoeda(ganhoPorCorrida)} />
-                      {mostrarMetricasPorDia && (
-                        <>
-                          <MetricCard titulo={`Dias trabalhados ${periodoTexto}`} valor={formatarNumero(metricas.diasTrabalhados)} />
-                          <MetricCard titulo={`Média por dia trabalhado ${periodoTexto}`} valor={formatarMoeda(mediaPorDiaTrabalhado)} />
-                        </>
-                      )}
-                    </div>
-                  </div>
+      {!carregando && (
+        <section className="space-y-4">
+          <div className="grid grid-cols-1 xl:grid-cols-2 auto-rows-fr gap-4 items-stretch">
+            <CustosCategoriaCard
+              titulo="Custos do Trabalho"
+              dados={custoTrabalho}
+              baseComparacao={metricas.faturamento}
+              labelBase="do faturamento"
+              rateio={metricas.rateioUsoVeiculo}
+              abrirRateio={() => {
+                setTipoRateioModal("trabalho");
+                setModalRateioAberto(true);
+              }}
+              formatarMoeda={formatarMoeda}
+              tema="trabalho"
+              indicadores={[
+                { titulo: "Faturamento Bruto", valor: metricas.faturamento, destaque: "text-green-400" },
+                { titulo: "Custos do Trabalho", valor: custoTrabalho.total, destaque: "text-red-400" },
+                { titulo: "Resultado Operacional", valor: resultadoOperacional, destaque: resultadoOperacional >= 0 ? "text-green-400" : "text-red-400" },
+              ]}
+            />
 
-                  <PlataformasCard plataformas={plataformas} total={metricas.faturamento} formatarMoeda={formatarMoeda} />
+            <CustosCategoriaCard
+              titulo="Custos Pessoais"
+              dados={metricasPessoais.custos}
+              baseComparacao={metricasPessoais.entradas}
+              labelBase="das entradas pessoais"
+              rateio={metricasPessoais.rateioUsoVeiculo}
+              abrirRateio={() => {
+                setTipoRateioModal("pessoal");
+                setModalRateioAberto(true);
+              }}
+              formatarMoeda={formatarMoeda}
+              tema="pessoal"
+              indicadores={[
+                { titulo: "Entradas Pessoais", valor: metricasPessoais.entradas, destaque: "text-purple-300" },
+                { titulo: "Custos Pessoais", valor: metricasPessoais.custos.total, destaque: "text-red-400" },
+                { titulo: "Resultado Pessoal", valor: metricasPessoais.resultado, destaque: metricasPessoais.resultado >= 0 ? "text-purple-300" : "text-red-400" },
+              ]}
+            />
+          </div>
+        </section>
+      )}
 
-                  <CustosCategoriaCard
-                    titulo="Custos de trabalho"
-                    dados={custoTrabalho}
-                    baseComparacao={metricas.faturamento}
-                    labelBase="do faturamento"
-                    rateio={metricas.rateioUsoVeiculo}
-                    abrirRateio={() => setModalRateioAberto(true)}
-                    formatarMoeda={formatarMoeda}
-                  />
+      {!carregando && (
+        <section className="space-y-4">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setValoresFinanceirosVisiveis((valor) => !valor)}
+              className="w-10 h-10 rounded-xl border border-gray-700 hover:border-green-400 hover:bg-white/5 flex items-center justify-center text-gray-300 hover:text-green-400 transition shrink-0"
+              title={valoresFinanceirosVisiveis ? "Ocultar valores" : "Mostrar valores"}
+              aria-label={valoresFinanceirosVisiveis ? "Ocultar valores" : "Mostrar valores"}
+            >
+              {valoresFinanceirosVisiveis ? <FiEyeOff /> : <FiEye />}
+            </button>
+          </div>
 
-                  <ResultadoOperacionalCard
-                    faturamento={metricas.faturamento}
-                    custos={custoTrabalho.total}
-                    resultado={resultadoOperacional}
-                    formatarMoeda={formatarMoeda}
-                  />
-                </section>
-              )}
-
-              {abaDashboard === "financeiro" && (
-                <section className="space-y-4">
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setValoresFinanceirosVisiveis((valor) => !valor)}
-                      className="w-10 h-10 rounded-xl border border-gray-700 hover:border-green-400 hover:bg-white/5 flex items-center justify-center text-gray-300 hover:text-green-400 transition"
-                      title={valoresFinanceirosVisiveis ? "Ocultar valores" : "Mostrar valores"}
-                      aria-label={valoresFinanceirosVisiveis ? "Ocultar valores" : "Mostrar valores"}
-                    >
-                      {valoresFinanceirosVisiveis ? <FiEyeOff /> : <FiEye />}
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch">
-                    <SaldoGeralCard saldoGeral={saldoGeral} contas={contasAtivasDashboard} abrirConfiguracao={() => setModalContasAberto(true)} formatarMoeda={formatarValorFinanceiro} />
-                    <ContasAtrasadasCard contas={itensContasAtrasadasCard} total={totalContasAtrasadas} abrirConfiguracao={() => setModalContasAtrasadasAberto(true)} formatarMoeda={formatarValorFinanceiro} formatarDataBR={formatarDataBR} />
-                    <ProximasContasCard contas={proximasContas} dias={diasContasPagar} abrirConfiguracao={() => setModalContasPagarAberto(true)} formatarMoeda={formatarValorFinanceiro} formatarDataBR={formatarDataBR} total={totalProximasContas} />
-                    <InvestimentosObjetivosCard formatarMoeda={formatarValorFinanceiro} />
-                  </div>
-                </section>
-              )}
-
-              {abaDashboard === "veiculo" && (
-                <section>
-                  <div className="rounded-2xl border border-gray-800 bg-[#111827] p-6">
-                    <h3 className="text-xl font-bold">Área do veículo</h3>
-                    <p className="text-gray-400 mt-2">Aqui vamos concentrar km, custos por km, abastecimentos, manutenções, TAG e indicadores do carro.</p>
-                  </div>
-                </section>
-              )}
-
-              {abaDashboard === "pessoal" && (
-                <section className="space-y-4">
-                  <PeriodoControle
-                    periodo={periodoPessoal}
-                    setPeriodo={setPeriodoPessoal}
-                    textoPeriodo={textoPeriodoPessoalSelecionado()}
-                    abrirPeriodo={() => setModalPeriodoPessoalAberto(true)}
-                  />
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <ResumoFinanceiroCard titulo="Entradas pessoais" valor={metricasPessoais.entradas} destaque="green" formatarMoeda={formatarMoeda} />
-                    <ResumoFinanceiroCard titulo="Custos pessoais" valor={metricasPessoais.custos.total} destaque="red" formatarMoeda={formatarMoeda} />
-                    <ResumoFinanceiroCard titulo="Resultado pessoal" valor={metricasPessoais.resultado} destaque={metricasPessoais.resultado >= 0 ? "green" : "red"} formatarMoeda={formatarMoeda} />
-                  </div>
-
-                  <CustosCategoriaCard
-                    titulo="Custos pessoais"
-                    dados={metricasPessoais.custos}
-                    baseComparacao={metricasPessoais.entradas}
-                    labelBase="das entradas pessoais"
-                    rateio={metricasPessoais.rateioUsoVeiculo}
-                    abrirRateio={() => setModalRateioAberto(true)}
-                    formatarMoeda={formatarMoeda}
-                  />
-                </section>
-              )}
-            </>
-          )}
-        </>
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 items-stretch">
+            <SaldoGeralCard
+              saldoGeral={saldoGeral}
+              contas={contasAtivasDashboard}
+              plataformas={plataformasFinanceiras}
+              abrirConfiguracao={() => setModalContasAberto(true)}
+              abrirPagina={() => navegarPara?.("contas")}
+              formatarMoeda={formatarValorFinanceiro}
+            />
+            <ContasAtrasadasCard
+              contas={itensContasAtrasadasCard}
+              total={totalContasAtrasadas}
+              abrirConfiguracao={() => setModalContasAtrasadasAberto(true)}
+              abrirPagina={() => navegarPara?.("contas-pagar")}
+              formatarMoeda={formatarValorFinanceiro}
+              formatarDataBR={formatarDataBR}
+            />
+            <ProximasContasCard
+              contas={proximasContas}
+              dias={diasContasPagar}
+              abrirConfiguracao={() => setModalContasPagarAberto(true)}
+              abrirPagina={() => navegarPara?.("contas-pagar")}
+              formatarMoeda={formatarValorFinanceiro}
+              formatarDataBR={formatarDataBR}
+              total={totalProximasContas}
+            />
+          </div>
+        </section>
       )}
 
       {modalRateioAberto && (
         <ModalRateioDashboard
-          rateio={abaDashboard === "pessoal" ? metricasPessoais.rateioUsoVeiculo : metricas.rateioUsoVeiculo}
+          rateio={tipoRateioModal === "pessoal" ? metricasPessoais.rateioUsoVeiculo : metricas.rateioUsoVeiculo}
           fechar={() => setModalRateioAberto(false)}
         />
       )}
@@ -1078,69 +1090,6 @@ export default function Dashboard({ entradaKey = 0 }) {
         />
       )}
 
-      {modalPeriodoPessoalAberto && (
-        <ModalPeriodo
-          periodo={periodoPessoal}
-          setPeriodo={setPeriodoPessoal}
-          meses={meses}
-          diasSemana={diasSemana}
-          dataSelecionada={dataPessoalSelecionada}
-          mesSelecionado={mesPessoalSelecionado}
-          anoSelecionado={anoPessoalSelecionado}
-          semanaSelecionada={semanaPessoalSelecionada}
-          setMesSelecionado={setMesPessoalSelecionado}
-          setAnoSelecionado={setAnoPessoalSelecionado}
-          setSemanaSelecionada={setSemanaPessoalSelecionada}
-          alterarMes={(delta) => {
-            let novoMes = Number(mesPessoalSelecionado) + delta;
-            let novoAno = Number(anoPessoalSelecionado);
-            if (novoMes < 1) {
-              novoMes = 12;
-              novoAno -= 1;
-            }
-            if (novoMes > 12) {
-              novoMes = 1;
-              novoAno += 1;
-            }
-            setMesPessoalSelecionado(String(novoMes));
-            setAnoPessoalSelecionado(novoAno);
-          }}
-          selecionarHoje={() => {
-            const agora = new Date();
-            setDataPessoalSelecionada(dataISO(agora));
-            setMesPessoalSelecionado(String(agora.getMonth() + 1));
-            setAnoPessoalSelecionado(agora.getFullYear());
-          }}
-          selecionarSemanaAtual={() => {
-            const agora = new Date();
-            setSemanaPessoalSelecionada(getSemanaDoAno(agora));
-            setAnoPessoalSelecionado(agora.getFullYear());
-          }}
-          selecionarMesAtual={() => {
-            const agora = new Date();
-            setMesPessoalSelecionado(String(agora.getMonth() + 1));
-            setAnoPessoalSelecionado(agora.getFullYear());
-          }}
-          selecionarAnoAtual={() => setAnoPessoalSelecionado(new Date().getFullYear())}
-          diasDoMesCalendario={() => diasDoMesCalendarioGenerico(anoPessoalSelecionado, mesPessoalSelecionado)}
-          diaTemMovimento={diaTemMovimento}
-          semanaTemMovimento={semanaTemMovimento}
-          mesTemMovimento={mesTemMovimento}
-          anoTemMovimento={anoTemMovimento}
-          selecionarDia={(dia) => {
-            const data = `${anoPessoalSelecionado}-${String(mesPessoalSelecionado).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
-            setDataPessoalSelecionada(data);
-          }}
-          anosComDados={anosComDados}
-          pegarSemanaPorNumero={pegarSemanaPorNumero}
-          formatarDataBR={formatarDataBR}
-          setModalAnoAberto={setModalAnoAberto}
-          setModalMesAnoAberto={setModalMesAnoAberto}
-          setEtapaMesAno={setEtapaMesAno}
-          fechar={() => setModalPeriodoPessoalAberto(false)}
-        />
-      )}
-
       {modalAnoAberto && (
         <ModalAno
           anos={anosComDados()}
@@ -1167,7 +1116,3 @@ export default function Dashboard({ entradaKey = 0 }) {
     </div>
   );
 }
-
-
-
-

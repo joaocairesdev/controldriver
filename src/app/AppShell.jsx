@@ -196,7 +196,7 @@ export default function App() {
   return (
     <div className="h-dvh bg-[#0B1120] text-white flex overflow-hidden" onClickCapture={reiniciarAnimacoesDeValidacao}>
       <div className="hidden lg:block md:landscape:block h-dvh shrink-0">
-        <Sidebar setPagina={navegarPara} paginaAtual={pagina} />
+        <Sidebar key={pagina} setPagina={navegarPara} paginaAtual={pagina} />
       </div>
 
       {menuAberto && (
@@ -233,7 +233,7 @@ export default function App() {
               }
             }}
           >
-            <Sidebar setPagina={navegarPara} paginaAtual={pagina} />
+            <Sidebar key={pagina} setPagina={navegarPara} paginaAtual={pagina} />
           </div>
         </div>
       )}
@@ -251,7 +251,9 @@ export default function App() {
         />
 
         <main data-scroll-container="true" className="flex-1 min-w-0 overflow-y-auto scrollbar-hide pt-20 p-4 pb-28 sm:p-6 sm:pt-20 sm:pb-10 md:landscape:p-10 md:landscape:pt-24 lg:p-10 lg:pt-24">
-          {pagina === "dashboard" && <Dashboard entradaKey={dashboardEntradaKey} />}
+          {pagina === "dashboard" && (
+            <Dashboard key={dashboardEntradaKey} navegarPara={navegarPara} />
+          )}
 
           {pagina === "novo-lancamento" && (
             <NovoLancamento
