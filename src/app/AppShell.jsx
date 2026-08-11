@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import Sidebar from "./layout/Sidebar";
 import Topbar from "./layout/Topbar";
@@ -18,6 +18,18 @@ import Metas from "../modules/metas/pages/Metas";
 import Configuracoes from "../modules/categorias/pages/Configuracoes";
 import Renegociacoes from "../modules/renegociacoes/pages/Renegociacoes";
 import Emprestimos from "../modules/contratos/pages/Emprestimos";
+import { supabase } from "../services/supabase";
+
+const TAGS_SESSAO_STORAGE_KEY = "controlDriver.tagsSessao";
+
+function lerTagsSessao() {
+  try {
+    const dados = JSON.parse(sessionStorage.getItem(TAGS_SESSAO_STORAGE_KEY) || "[]");
+    return Array.isArray(dados) ? dados : [];
+  } catch {
+    return [];
+  }
+}
 
 export default function App() {
   const [pagina, setPagina] = useState(() => {
@@ -27,6 +39,7 @@ export default function App() {
   const [dashboardEntradaKey, setDashboardEntradaKey] = useState(0);
   const [modalAbertoNaTela, setModalAbertoNaTela] = useState(false);
   const [jornadaParaGanhos, setJornadaParaGanhos] = useState(null);
+  const [tagsSessao, setTagsSessao] = useState(lerTagsSessao);
   const [cronometroEstado, setCronometroEstado] = useState({
     status: "sem_jornada",
     tempoFormatado: "00:00:00",
@@ -38,6 +51,31 @@ export default function App() {
   const historicoPaginasRef = useRef([pagina]);
   const paginaAtualRef = useRef(pagina);
   const menuAbertoRef = useRef(false);
+
+  const atualizarTagsSessao = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("contas")
+      .select("*")
+      .eq("ativo", true)
+      .eq("tipo_conta", "tag")
+      .not("veiculo_id", "is", null)
+      .order("id");
+
+    if (error) {
+      console.error("Erro ao carregar configuração da TAG:", error);
+      return;
+    }
+
+    const tags = data || [];
+    sessionStorage.setItem(TAGS_SESSAO_STORAGE_KEY, JSON.stringify(tags));
+    setTagsSessao(tags);
+  }, []);
+
+  useEffect(() => {
+    // A consulta inicial hidrata o cache da sessão; a navegação usa apenas o estado em memória.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    atualizarTagsSessao();
+  }, [atualizarTagsSessao]);
 
   useEffect(() => {
     paginaAtualRef.current = pagina;
@@ -268,6 +306,7 @@ export default function App() {
               abrirOutros={() => navegarPara("nova-outra-saida")}
               jornadaParaGanhos={jornadaParaGanhos}
               limparJornadaParaGanhos={() => setJornadaParaGanhos(null)}
+              tagsSessao={tagsSessao}
             />
           )}
 
@@ -289,7 +328,9 @@ export default function App() {
             />
           )}
 
-          {pagina === "contas" && <Contas />}
+          {pagina === "contas" && (
+            <Contas onConfiguracaoTagAlterada={atualizarTagsSessao} />
+          )}
 
           {pagina === "contas-pagar" && <ContasPagar />}
 
@@ -301,7 +342,9 @@ export default function App() {
 
           {pagina === "cartoes" && <Cartoes />}
 
-          {pagina === "veiculos" && <Veiculos />}
+          {pagina === "veiculos" && (
+            <Veiculos onConfiguracaoTagAlterada={atualizarTagsSessao} />
+          )}
 
           {pagina === "extrato" && <Extrato />}
 

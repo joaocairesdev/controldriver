@@ -4,6 +4,7 @@ import { supabase } from "../../../services/supabase";
 import ModalBase from "../../../shared/components/modals/ModalBase";
 import { rotuloEntradaAvulsa } from "../../contratos/utils/contratosFinanceiros";
 import { normalizarDescricaoRecebimentoSemanal } from "../utils/plataformasFinanceiro";
+import { compararMovimentosFinanceiros } from "../utils/extratoFinanceiro";
 
 const ITENS_POR_PAGINA_CONTA = 50;
 
@@ -67,7 +68,6 @@ export default function ModalExtratoConta({
         .select(`
           id,
           data,
-          created_at,
           conta_id,
           entrada_plataformas (
             faturamento,
@@ -83,7 +83,7 @@ export default function ModalExtratoConta({
       const { data: entradasAvulsasData, error: erroEntradasAvulsas } =
         await supabase
           .from("entradas_avulsas")
-          .select("id, data, created_at, valor, descricao, finalidade, contrato_financeiro_id")
+          .select("id, data, valor, descricao, finalidade, contrato_financeiro_id")
           .eq("conta_id", contaId);
 
       if (erroEntradasAvulsas) throw erroEntradasAvulsas;
@@ -93,7 +93,6 @@ export default function ModalExtratoConta({
         .select(`
           id,
           data_compra,
-          created_at,
           categoria,
           descricao,
           valor_total,
@@ -109,7 +108,7 @@ export default function ModalExtratoConta({
         await supabase
           .from("transferencias")
           .select(
-            "id, data, created_at, valor, descricao, conta_origem_id, conta_destino_id, tipo, plataforma_id, plataformas ( nome )",
+            "id, data, valor, descricao, conta_origem_id, conta_destino_id, tipo, plataforma_id, plataformas ( nome )",
           )
           .eq("conta_origem_id", contaId);
 
@@ -119,7 +118,7 @@ export default function ModalExtratoConta({
         await supabase
           .from("transferencias")
           .select(
-            "id, data, created_at, valor, descricao, conta_origem_id, conta_destino_id, tipo, plataforma_id, plataformas ( nome )",
+            "id, data, valor, descricao, conta_origem_id, conta_destino_id, tipo, plataforma_id, plataformas ( nome )",
           )
           .eq("conta_destino_id", contaId);
 
@@ -164,9 +163,9 @@ export default function ModalExtratoConta({
 
         return {
           id: `entrada-${entrada.id}`,
+          idOrdenacao: entrada.id,
           tipo: "entrada",
           data: entrada.data,
-          created_at: entrada.created_at,
           descricao: plataformas || "Ganhos com Plataformas",
           categoria: "Entrada",
           valor: total,
@@ -176,9 +175,9 @@ export default function ModalExtratoConta({
 
       const entradasAvulsas = (entradasAvulsasData || []).map((entrada) => ({
         id: `entrada-avulsa-${entrada.id}`,
+        idOrdenacao: entrada.id,
         tipo: "entrada",
         data: entrada.data,
-        created_at: entrada.created_at,
         descricao: entrada.descricao || "Entrada avulsa",
         categoria: rotuloEntradaAvulsa(entrada),
         valor: Number(entrada.valor || 0),
@@ -189,9 +188,9 @@ export default function ModalExtratoConta({
         .filter((saida) => saida.tipo_movimentacao !== "conta_pagar")
         .map((saida) => ({
           id: `saida-${saida.id}`,
+          idOrdenacao: saida.id,
           tipo: "saida",
           data: saida.data_compra,
-          created_at: saida.created_at,
           descricao: saida.descricao || saida.categoria || "Saída",
           categoria: saida.categoria || "Saída",
           valor: Number(saida.valor_total || 0),
@@ -201,9 +200,9 @@ export default function ModalExtratoConta({
       const transferenciasSaida = (transferenciasOrigem || []).map(
         (transferencia) => ({
           id: `transferencia-saida-${transferencia.id}`,
+          idOrdenacao: transferencia.id,
           tipo: "saida",
           data: transferencia.data,
-          created_at: transferencia.created_at,
           descricao: transferencia.descricao || "Transferência enviada",
           categoria: "Transferência",
           valor: Number(transferencia.valor || 0),
@@ -240,9 +239,9 @@ export default function ModalExtratoConta({
 
           return {
             id: `transferencia-entrada-${transferencia.id}`,
+            idOrdenacao: transferencia.id,
             tipo: "entrada",
             data: transferencia.data,
-            created_at: transferencia.created_at,
             descricao,
             categoria,
             valor: Number(transferencia.valor || 0),
@@ -259,17 +258,7 @@ export default function ModalExtratoConta({
         ...saidas,
         ...transferenciasSaida,
         ...transferenciasEntrada,
-      ].sort((a, b) => {
-  const dataA = new Date(`${a.data || "1900-01-01"}T00:00:00`).getTime();
-  const dataB = new Date(`${b.data || "1900-01-01"}T00:00:00`).getTime();
-
-  if (dataA !== dataB) return dataB - dataA;
-
-  const criadoA = new Date(a.created_at || 0).getTime();
-  const criadoB = new Date(b.created_at || 0).getTime();
-
-  return criadoB - criadoA;
-});
+      ].sort(compararMovimentosFinanceiros);
 
       setMovimentos(lista);
     } catch (erro) {
@@ -367,7 +356,6 @@ export default function ModalExtratoConta({
     return `Mostrando ${inicio}-${fim} de ${movimentosFiltrados.length} movimentação(s)`;
   }
 
-  const saldoInicial = Number(conta?.saldo_inicial || 0);
   const saldoAtual = Number(conta?.saldo_atual ?? conta?.saldo_inicial ?? 0);
   const temFiltroAtivo =
     busca ||
@@ -414,12 +402,7 @@ export default function ModalExtratoConta({
         }
       >
         <div className="space-y-5" ref={topoListaRef}>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <ResumoCard
-              titulo="Saldo inicial"
-              valor={formatarMoeda(saldoInicial)}
-              destaque="apagado"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <ResumoCard
               titulo="Entradas"
               valor={formatarMoeda(resumo.entradas)}

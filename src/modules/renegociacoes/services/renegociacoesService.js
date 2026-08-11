@@ -7,8 +7,11 @@ import {
 import { calcularSaldoAbertoFatura } from "../../cartoes/utils/cartoesUtils";
 import {
   adicionarMeses,
+  calcularValorParcelaRenegociacao,
   criarComposicaoParcelaRenegociacao,
   encontrarItemRenegociacaoPorProduto,
+  MODELO_ENTRADA_INDEPENDENTE,
+  usaEntradaIndependente,
 } from "../utils/renegociacoesUtils";
 
 export async function carregarRenegociacoes() {
@@ -37,7 +40,7 @@ export async function carregarRenegociacoes() {
   if (erroItens) throw erroItens;
 
   const cobrancasIds = (saidasAcordos || [])
-    .filter((saida) => saida.tipo_movimentacao === "conta_pagar")
+    .filter((saida) => ["conta_pagar", "renegociacao_entrada"].includes(saida.tipo_movimentacao))
     .map((saida) => saida.id);
   const { data: pagamentos, error: erroPagamentos } = cobrancasIds.length
     ? await supabase.from("saidas").select("*").in("conta_pagar_origem_id", cobrancasIds).order("data_compra")
@@ -56,19 +59,41 @@ export async function carregarRenegociacoes() {
     const itensDoAcordo = (itensRenegociacoes || []).filter(
       (item) => String(item.renegociacao_id) === String(renegociacao.id)
     );
-    const valorPrevistoParcela = (
-      Math.max(Number(renegociacao.valor_renegociado || 0) - Number(renegociacao.valor_entrada || 0), 0)
-      / Math.max(Number(renegociacao.numero_parcelas || 1), 1)
-    );
+    const entradaIndependente = usaEntradaIndependente(itensDoAcordo);
+    const valorPrevistoParcela = calcularValorParcelaRenegociacao({
+      valorRenegociado: renegociacao.valor_renegociado,
+      valorEntrada: renegociacao.valor_entrada,
+      numeroParcelas: renegociacao.numero_parcelas,
+      entradaIndependente,
+    });
     const parcelasDoAcordo = (saidasAcordos || []).filter(
       (parcela) => String(parcela.renegociacao_id) === String(renegociacao.id)
     );
     const parcelasMensais = parcelasDoAcordo
-      .filter((parcela) => parcela.tipo_movimentacao === "conta_pagar")
+      .filter((parcela) =>
+        parcela.tipo_movimentacao === "conta_pagar"
+        && Number(parcela.numero_parcelas || 0) !== 0
+      )
       .sort((a, b) =>
         String(a.data_vencimento || "").localeCompare(String(b.data_vencimento || ""))
         || Number(a.id) - Number(b.id)
       );
+    const cobrancaEntrada = parcelasDoAcordo.find(
+      (parcela) => parcela.tipo_movimentacao === "renegociacao_entrada"
+        || (
+          parcela.tipo_movimentacao === "conta_pagar"
+          && Number(parcela.numero_parcelas || 0) === 0
+          && String(parcela.descricao || "").startsWith("Entrada da renegociação")
+        )
+    );
+    const entradaNormalizada = cobrancaEntrada
+      ? normalizarParcelaContrato({
+          parcela: { valor: Number(renegociacao.valor_entrada || 0) },
+          cobranca: cobrancaEntrada,
+          numero: 0,
+          pagamentos: pagamentosPorCobranca.get(String(cobrancaEntrada.id)) || [],
+        })
+      : null;
     const pagas = parcelasMensais.filter(
       (parcela) => parcela.status === "pago" || Number(parcela.valor_pago || 0) >= Number(parcela.valor_total || 0)
     );
@@ -108,8 +133,12 @@ export async function carregarRenegociacoes() {
       proxima_parcela_valor: proxima?.valor_total || null,
       saldo_devedor: parcelasNormalizadas.reduce(
         (total, parcela) => total + Math.max(parcela.valorAtualizado - parcela.valorPago, 0),
-        0
+        entradaNormalizada
+          ? Math.max(entradaNormalizada.valorAtualizado - entradaNormalizada.valorPago, 0)
+          : 0
       ),
+      entrada_independente: entradaIndependente,
+      entrada: entradaNormalizada,
       parcelas: parcelasNormalizadas,
     };
   });
@@ -403,6 +432,11 @@ export async function criarRenegociacao(payload) {
     valorEntrada,
     numeroParcelas,
     primeiroVencimento,
+    entradaIndependente = false,
+    entradaVencimento,
+    entradaFormaPagamento,
+    entradaContaId,
+    entradaCartaoId,
     itens,
   } = payload;
 
@@ -450,6 +484,7 @@ export async function criarRenegociacao(payload) {
         ajustar_limite: item.ajustar_limite,
         limite_anterior: item.limite_anterior,
         novo_limite_total: item.novo_limite_total,
+        modelo_valores: entradaIndependente ? MODELO_ENTRADA_INDEPENDENTE : null,
       },
     },
   }));
@@ -476,6 +511,11 @@ export async function criarRenegociacao(payload) {
     formaPagamento,
     contaDebitoId,
     cartaoPagamentoId,
+    entradaIndependente,
+    entradaVencimento,
+    entradaFormaPagamento,
+    entradaContaId,
+    entradaCartaoId,
     itens,
   });
 
@@ -557,26 +597,41 @@ async function criarParcelasRenegociacao({
   formaPagamento,
   contaDebitoId,
   cartaoPagamentoId,
+  entradaIndependente = false,
+  entradaVencimento,
+  entradaFormaPagamento,
+  entradaContaId,
+  entradaCartaoId,
   itens,
 }) {
-  const saldoParcelar = Math.max(Number(valorRenegociado || 0) - Number(valorEntrada || 0), 0);
+  const saldoParcelar = entradaIndependente
+    ? Math.max(Number(valorRenegociado || 0), 0)
+    : Math.max(Number(valorRenegociado || 0) - Number(valorEntrada || 0), 0);
   const parcelas = Math.max(Number(numeroParcelas || 1), 1);
   const valorParcela = parcelas > 0 ? saldoParcelar / parcelas : saldoParcelar;
 
   if (Number(valorEntrada || 0) > 0) {
+    const entradaPendente = entradaIndependente;
     await supabase.from("saidas").insert({
       data_compra: renegociacao.data_renegociacao,
-      data_efetivacao: renegociacao.data_renegociacao,
-      data_vencimento: renegociacao.data_renegociacao,
+      data_efetivacao: entradaPendente ? null : renegociacao.data_renegociacao,
+      data_vencimento: entradaVencimento || renegociacao.data_renegociacao,
       valor_total: Number(valorEntrada || 0),
-      valor_pago: Number(valorEntrada || 0),
+      valor_pago: entradaPendente ? 0 : Number(valorEntrada || 0),
       categoria: "Renegociação",
       descricao: `Entrada da renegociação - ${credor}`,
-      forma_pagamento: formaPagamento,
-      tipo_movimentacao: "renegociacao_entrada",
-      status: "pago",
-      conta_id: contaDebitoId ? Number(contaDebitoId) : null,
-      ...(cartaoPagamentoId ? { cartao_id: Number(cartaoPagamentoId) } : {}),
+      forma_pagamento: entradaFormaPagamento || formaPagamento,
+      tipo_movimentacao: entradaPendente ? "conta_pagar" : "renegociacao_entrada",
+      numero_parcelas: entradaPendente ? 0 : 1,
+      status: entradaPendente ? "pendente" : "pago",
+      conta_id: entradaContaId
+        ? Number(entradaContaId)
+        : contaDebitoId
+          ? Number(contaDebitoId)
+          : null,
+      ...((entradaCartaoId || cartaoPagamentoId)
+        ? { cartao_id: Number(entradaCartaoId || cartaoPagamentoId) }
+        : {}),
       finalidade: "pessoal",
       renegociacao_id: renegociacao.id,
     });
@@ -635,6 +690,11 @@ export async function editarRenegociacao(renegociacaoId, payload) {
     valorEntrada,
     numeroParcelas,
     primeiroVencimento,
+    entradaIndependente = false,
+    entradaVencimento,
+    entradaFormaPagamento,
+    entradaContaId,
+    entradaCartaoId,
   } = payload;
 
   const itens = await carregarItensRenegociacao(id);
@@ -671,6 +731,25 @@ export async function editarRenegociacao(renegociacaoId, payload) {
   const { error: erroSaidasGeradas } = await querySaidasGeradas;
   if (erroSaidasGeradas) throw erroSaidasGeradas;
 
+  if (entradaIndependente) {
+    for (const item of itens) {
+      const payloadAtual = item.payload || {};
+      const { error: erroModelo } = await supabase
+        .from("renegociacoes_itens")
+        .update({
+          payload: {
+            ...payloadAtual,
+            _acordo: {
+              ...(payloadAtual._acordo || {}),
+              modelo_valores: MODELO_ENTRADA_INDEPENDENTE,
+            },
+          },
+        })
+        .eq("id", item.id);
+      if (erroModelo) throw erroModelo;
+    }
+  }
+
   await criarParcelasRenegociacao({
     renegociacao: renegociacaoAtualizada,
     credor: credor || renegociacaoAtualizada.credor,
@@ -681,6 +760,11 @@ export async function editarRenegociacao(renegociacaoId, payload) {
     formaPagamento,
     contaDebitoId,
     cartaoPagamentoId,
+    entradaIndependente,
+    entradaVencimento,
+    entradaFormaPagamento,
+    entradaContaId,
+    entradaCartaoId,
     itens,
   });
 

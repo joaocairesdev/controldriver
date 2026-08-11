@@ -72,7 +72,7 @@ export default function ParcelasContrato({ parcelas = [], onSelecionar }) {
   );
 }
 
-export function CardParcela({ parcela, onClick }) {
+export function CardParcela({ parcela, onClick, rotulo, disabled = false }) {
   const atrasada = parcelaEstaAtrasada(parcela);
   const status = atrasada
     ? "Em atraso"
@@ -82,11 +82,12 @@ export function CardParcela({ parcela, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="rounded-2xl border border-gray-800 bg-[#111827] p-5 text-left transition hover:border-green-400/60"
+      disabled={disabled}
+      className="rounded-2xl border border-gray-800 bg-[#111827] p-5 text-left transition hover:border-green-400/60 disabled:cursor-default disabled:hover:border-gray-800"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="font-black">Parcela {String(parcela.numero).padStart(2, "0")}</p>
+          <p className="font-black">{rotulo || `Parcela ${String(parcela.numero).padStart(2, "0")}`}</p>
           <p className="mt-1 text-sm text-gray-400">
             Vencimento {formatarDataBR(parcela.dataVencimento)}
           </p>

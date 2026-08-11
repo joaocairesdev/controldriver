@@ -27,10 +27,9 @@ import {
   recalcularFaturaPorParcelas as recalcularFaturaPorParcelasCompartilhada,
 } from "../../cartoes/utils/cartoesUtils";
 
-const TAG_MODAL_CACHE_TTL = 30 * 1000;
 let tagModalCache = null;
 
-export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagInicialId = "", edicao = null, onSalvo = null }) {
+export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagInicialId = "", edicao = null, onSalvo = null, contasTagIniciais = [] }) {
   const hoje = new Date().toISOString().split("T")[0];
 
   const categorias = [
@@ -63,7 +62,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   });
 
   const [etapa, setEtapa] = useState("menu");
-  const [contasTag, setContasTag] = useState([]);
+  const [contasTag, setContasTag] = useState(contasTagIniciais);
   const [contas, setContas] = useState([]);
   const [cartoes, setCartoes] = useState([]);
   const [contaTagId, setContaTagId] = useState("");
@@ -215,9 +214,14 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
     if (!aberto) return;
 
     setEtapa(edicao?.id ? "uso" : etapaInicial || "menu");
-    if (!tagModalCache) setDadosCarregados(false);
+    if (contasTagIniciais.length > 0) {
+      setContasTag(contasTagIniciais);
+      setDadosCarregados(true);
+    } else if (!tagModalCache) {
+      setDadosCarregados(false);
+    }
     carregarDados();
-  }, [aberto, etapaInicial, tagInicialId, edicao?.id]);
+  }, [aberto, etapaInicial, tagInicialId, edicao?.id, contasTagIniciais]);
 
   useEffect(() => {
     if (!aberto) return;
@@ -410,14 +414,20 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
   }
 
   async function carregarDados() {
-    // O modal precisa abrir imediatamente. A atualização do Supabase acontece em segundo plano.
     setCarregando(false);
 
-    const cacheValido =
-      tagModalCache && Date.now() - tagModalCache.timestamp < TAG_MODAL_CACHE_TTL;
-
-    if (cacheValido) {
-      aplicarDadosCarregados(tagModalCache.contasComSaldo, tagModalCache.cartoesComUso);
+    if (tagModalCache) {
+      const contasComSaldo = contasTagIniciais.length > 0
+        ? [
+            ...tagModalCache.contasComSaldo.filter((conta) => conta.tipo_conta !== "tag"),
+            ...contasTagIniciais.map((tag) => ({
+              ...tagModalCache.contasComSaldo.find((conta) => String(conta.id) === String(tag.id)),
+              ...tag,
+            })),
+          ]
+        : tagModalCache.contasComSaldo;
+      tagModalCache = { ...tagModalCache, contasComSaldo };
+      aplicarDadosCarregados(contasComSaldo, tagModalCache.cartoesComUso);
       setDadosCarregados(true);
       return;
     }
@@ -427,6 +437,7 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
         .from("contas")
         .select("*")
         .eq("ativo", true)
+        .or("tipo_conta.neq.tag,tipo_conta.is.null")
         .order("nome"),
       supabase
         .from("cartoes")
@@ -435,7 +446,10 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
         .order("nome"),
     ]);
 
-    const contasData = contasResponse.data || [];
+    const contasData = [
+      ...(contasResponse.data || []),
+      ...contasTagIniciais,
+    ];
     const cartoesData = cartoesResponse.data || [];
 
     const [cartoesComUso, contasComSaldo] = await Promise.all([
@@ -443,7 +457,6 @@ export default function TagModal({ aberto, onClose, etapaInicial = "menu", tagIn
       carregarContasComSaldo(contasData || []),
     ]);
     tagModalCache = {
-      timestamp: Date.now(),
       contasComSaldo,
       cartoesComUso,
     };

@@ -45,7 +45,7 @@ const criarCaucaoPadrao = () => ({
   devolvivel: true, previsaoDevolucao: "", observacoes: "",
 });
 
-export default function Veiculos() {
+export default function Veiculos({ onConfiguracaoTagAlterada }) {
   const [veiculos, setVeiculos] = useState([]);
   const [contasBanco, setContasBanco] = useState([]);
   const [cartoes, setCartoes] = useState([]);
@@ -1099,6 +1099,7 @@ export default function Veiculos() {
 
       try {
         await salvarTagDoVeiculo(veiculoEditando.id, nomeGerado);
+        await onConfiguracaoTagAlterada?.();
         await salvarProtecaoDoVeiculo(veiculoEditando.id, nomeGerado);
         await salvarContratosVeiculo(veiculoEditando.id);
       } catch (errorTag) {
@@ -1134,6 +1135,7 @@ export default function Veiculos() {
 
       try {
         await salvarTagDoVeiculo(veiculoReativado.id, nomeGerado);
+        await onConfiguracaoTagAlterada?.();
         await salvarProtecaoDoVeiculo(veiculoReativado.id, nomeGerado);
         await salvarContratosVeiculo(veiculoReativado.id);
       } catch (errorTag) {
@@ -1168,6 +1170,7 @@ export default function Veiculos() {
 
     try {
       await salvarTagDoVeiculo(novoVeiculo.id, nomeGerado);
+      await onConfiguracaoTagAlterada?.();
       await salvarProtecaoDoVeiculo(novoVeiculo.id, nomeGerado);
       await salvarContratosVeiculo(novoVeiculo.id);
     } catch (errorTag) {
@@ -1262,6 +1265,8 @@ export default function Veiculos() {
       .eq("tipo_conta", "tag")
       .eq("veiculo_id", veiculoParaExcluir.id);
 
+    await onConfiguracaoTagAlterada?.();
+
     setModalExcluirAberto(false);
     setVeiculoParaExcluir(null);
     carregarVeiculos();
@@ -1285,6 +1290,7 @@ export default function Veiculos() {
           cartoes={cartoes}
           onErro={abrirAviso}
           onRecarregar={carregarVeiculos}
+          onConfiguracaoTagAlterada={onConfiguracaoTagAlterada}
         />
       </>
     );
@@ -1600,6 +1606,7 @@ function DetalhesVeiculo({
   cartoes,
   onErro,
   onRecarregar,
+  onConfiguracaoTagAlterada,
 }) {
   const kmInicial = Number(veiculo.odometro_inicial || 0);
   const kmAtual = Number(veiculo.odometro_atual || 0);
@@ -1715,7 +1722,10 @@ function DetalhesVeiculo({
             formatarMoeda={formatarMoeda}
             formatarMoedaDigitada={formatarMoedaDigitada}
             numeroParaMoedaInput={numeroParaMoedaInput}
-            onAtualizar={onRecarregar}
+            onAtualizar={async () => {
+              await onRecarregar?.();
+              await onConfiguracaoTagAlterada?.();
+            }}
             onErro={onErro}
           />
         )}

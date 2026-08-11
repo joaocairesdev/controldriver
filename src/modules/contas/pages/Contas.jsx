@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   FiBriefcase,
-  FiCreditCard,
   FiUser,
 } from "react-icons/fi";
 import { supabase } from "../../../services/supabase";
@@ -11,8 +10,9 @@ import PlataformasFinanceiras from "../components/PlataformasFinanceiras";
 import { formatarDataBR } from "../../../shared/utils/data";
 import TagFinanceiraCard from "../../tag/components/TagFinanceiraCard";
 import { calcularSaldoAbertoFatura } from "../../cartoes/utils/cartoesUtils";
+import ContaFinanceiraCard from "../components/ContaFinanceiraCard";
 
-export default function Contas() {
+export default function Contas({ onConfiguracaoTagAlterada }) {
   const [contas, setContas] = useState([]);
   const [cartoes, setCartoes] = useState([]);
   const [modalAberto, setModalAberto] = useState(false);
@@ -239,6 +239,11 @@ export default function Contas() {
     );
   }
 
+  async function atualizarContasETag() {
+    await carregarContas();
+    await onConfiguracaoTagAlterada?.();
+  }
+
   function limparFormulario() {
     setContaEditando(null);
     setNomeConta("");
@@ -380,19 +385,6 @@ export default function Contas() {
     carregarContas();
   }
 
-  function calcularChequeUsado(conta) {
-    const saldoAtual = Number(conta.saldo_atual || 0);
-    if (saldoAtual >= 0) return 0;
-    return Math.abs(saldoAtual);
-  }
-
-  function calcularPorcentagemCheque(conta) {
-    const limite = Number(conta.limite_cheque_especial || 0);
-    const usado = calcularChequeUsado(conta);
-    if (limite <= 0) return 0;
-    return Math.min((usado / limite) * 100, 100);
-  }
-
   function solicitarExclusaoConta(conta) {
     if (isCarteira(conta)) {
       abrirAviso(
@@ -461,45 +453,19 @@ export default function Contas() {
           {carteiras.length > 0 && (
             <div className="mt-4 grid grid-cols-1 gap-3">
               {carteiras.map((conta) => {
-                const saldoNegativo = Number(conta.saldo_atual || 0) < 0;
-
                 return (
-                  <div
+                  <ContaFinanceiraCard
                     key={conta.id}
+                    nome={conta.nome}
+                    tipo="Carteira"
+                    saldo={conta.saldo_atual}
+                    badges={[{
+                      texto: "Dinheiro em espécie",
+                      classe: "border-amber-500/20 bg-amber-500/15 text-amber-300",
+                    }]}
+                    formatarMoeda={formatarMoeda}
                     onClick={() => setContaExtrato(conta)}
-                    role="button"
-                    tabIndex={0}
-                    className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-[#111827] to-[#0B1120] p-4 shadow cursor-pointer hover:border-green-400/60 transition"
-                  >
-                    <div className="relative flex items-start justify-between gap-4">
-                      <div>
-                        <div className="inline-flex items-center gap-2 rounded-full bg-amber-500/15 text-amber-300 text-[11px] font-bold px-2.5 py-1">
-                          Carteira padrão
-                        </div>
-
-                        <h2 className="text-lg font-black mt-2">{conta.nome}</h2>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          Dinheiro em espécie
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="relative mt-4">
-                      <p className="text-xs text-gray-400">Saldo em dinheiro</p>
-                      <h3
-                        className={`text-2xl font-black mt-1 ${
-                          saldoNegativo ? "text-red-400" : "text-white"
-                        }`}
-                      >
-                        {formatarMoeda(conta.saldo_atual)}
-                      </h3>
-                    </div>
-
-                    <p className="relative text-xs text-gray-500 mt-4 border-t border-amber-500/20 pt-3">
-                      Criada automaticamente pelo sistema. Pagamentos em dinheiro
-                      sempre saem daqui.
-                    </p>
-                  </div>
+                  />
                 );
               })}
             </div>
@@ -522,7 +488,7 @@ export default function Contas() {
                 formatarMoeda={formatarMoeda}
                 formatarMoedaDigitada={formatarMoedaDigitada}
                 numeroParaMoedaInput={numeroParaMoedaInput}
-                onAtualizar={carregarContas}
+                onAtualizar={atualizarContasETag}
                 onErro={abrirAviso}
               />
             ))}
@@ -548,183 +514,30 @@ export default function Contas() {
                 conta.permitir_saldo_negativo &&
                 Number(conta.limite_cheque_especial || 0) > 0;
 
-              const chequeUsado = calcularChequeUsado(conta);
-              const porcentagemCheque = calcularPorcentagemCheque(conta);
-
               return (
-                <div
+                <ContaFinanceiraCard
                   key={conta.id}
+                  nome={conta.nome}
+                  tipo="Banco"
+                  saldo={conta.saldo_atual}
+                  badges={[
+                    {
+                      texto: textoFinalidadeConta(conta),
+                      icone: finalidadeDaConta(conta) === "pessoal" ? <FiUser /> : <FiBriefcase />,
+                      classe: finalidadeDaConta(conta) === "pessoal"
+                        ? "border-blue-500/20 bg-blue-500/15 text-blue-300"
+                        : "border-green-500/20 bg-green-500/15 text-green-300",
+                    },
+                    ...(temCheque ? [{
+                      texto: saldoNegativo ? "Cheque especial em uso" : "Cheque especial disponível",
+                      classe: saldoNegativo
+                        ? "border-red-500/20 bg-red-500/15 text-red-400"
+                        : "border-yellow-500/20 bg-yellow-500/15 text-yellow-400",
+                    }] : []),
+                  ]}
+                  formatarMoeda={formatarMoeda}
                   onClick={() => setContaExtrato(conta)}
-                  role="button"
-                  tabIndex={0}
-                  className={`relative rounded-2xl border p-6 transition cursor-pointer hover:border-green-400/60 ${
-                    saldoNegativo
-                      ? "border-red-500/60 bg-red-500/10"
-                      : "border-gray-800 bg-[#111827]"
-                  }`}
-                >
-                  <h2 className="text-xl font-bold pr-24">{conta.nome}</h2>
-
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <div className="inline-flex items-center gap-1.5 rounded-full bg-gray-500/10 text-gray-300 text-xs font-bold px-3 py-1">
-                      <FiCreditCard className="text-sm" /> Banco
-                    </div>
-
-                    <div
-                      className={`inline-flex items-center gap-1.5 rounded-full text-xs font-bold px-3 py-1 border ${
-                        finalidadeDaConta(conta) === "pessoal"
-                          ? "bg-blue-500/15 text-blue-300 border-blue-500/20"
-                          : "bg-green-500/15 text-green-300 border-green-500/20"
-                      }`}
-                    >
-                      {finalidadeDaConta(conta) === "pessoal" ? (
-                        <FiUser />
-                      ) : (
-                        <FiBriefcase />
-                      )}
-                      {textoFinalidadeConta(conta)}
-                    </div>
-
-                    {temCheque && (
-                      <div
-                        className={`rounded-full text-xs font-bold px-3 py-1 ${
-                          saldoNegativo
-                            ? "bg-red-500/20 text-red-400"
-                            : "bg-yellow-500/20 text-yellow-400"
-                        }`}
-                      >
-                        {saldoNegativo &&
-                        chequeUsado > Number(conta.limite_cheque_especial || 0)
-                          ? "Cheque Especial Excedido"
-                          : saldoNegativo
-                            ? "Cheque Especial Ativo"
-                            : "Cheque Especial Disponível"}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-8">
-                    <p className="text-sm text-gray-400">Saldo Atual</p>
-
-                    <div className="flex items-center gap-3 mt-2">
-                      <h3
-                        className={`text-4xl font-bold ${
-                          saldoNegativo ? "text-red-400" : "text-white"
-                        }`}
-                      >
-                        {formatarMoeda(conta.saldo_atual)}
-                      </h3>
-
-                      {saldoNegativo && (
-                        <span className="flex items-center justify-center w-9 h-9 rounded-xl bg-red-500/20 text-red-400 text-2xl font-bold">
-                          ↓
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-6 border-t border-gray-800 pt-4">
-                    <p className="text-sm text-gray-500">Saldo Inicial</p>
-
-                    <p
-                      className={`mt-2 text-base font-semibold ${
-                        Number(conta.saldo_inicial || 0) < 0
-                          ? "text-red-400"
-                          : "text-gray-400"
-                      }`}
-                    >
-                      {formatarMoeda(conta.saldo_inicial)}
-                    </p>
-                  </div>
-
-                  {temCheque && (
-                    <div className="mt-6 border-t border-gray-800 pt-5">
-                      <div className="flex items-center justify-between">
-                        <p className="text-lg font-semibold">Cheque Especial</p>
-
-                        <p
-                          className={`text-sm font-bold ${
-                            porcentagemCheque >= 80
-                              ? "text-red-400"
-                              : porcentagemCheque >= 50
-                                ? "text-yellow-400"
-                                : "text-gray-300"
-                          }`}
-                        >
-                          {porcentagemCheque.toFixed(0)}%
-                        </p>
-                      </div>
-
-                      <div className="mt-4 h-4 bg-[#0B1120] border border-gray-700 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${
-                            porcentagemCheque >= 80
-                              ? "bg-red-500"
-                              : porcentagemCheque >= 50
-                                ? "bg-yellow-500"
-                                : "bg-green-500"
-                          }`}
-                          style={{ width: `${porcentagemCheque}%` }}
-                        />
-                      </div>
-
-                      <div className="mt-5 grid grid-cols-2 gap-4">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`w-2 h-2 rounded-full ${
-                                chequeUsado > 0 ? "bg-red-400" : "bg-green-400"
-                              }`}
-                            />
-
-                            <p className="text-sm text-gray-400">Usado</p>
-                          </div>
-
-                          <p
-                            className={`text-xl font-bold mt-2 ${
-                              chequeUsado > 0
-                                ? "text-red-400"
-                                : "text-green-400"
-                            }`}
-                          >
-                            {formatarMoeda(chequeUsado)}
-                          </p>
-                        </div>
-
-                        <div className="border-l border-gray-700 pl-4">
-                          <p className="text-sm text-gray-400">Limite</p>
-
-                          <p className="text-xl font-bold mt-2 text-white">
-                            {formatarMoeda(conta.limite_cheque_especial)}
-                          </p>
-                        </div>
-                      </div>
-
-                      {saldoNegativo &&
-                        chequeUsado >
-                          Number(conta.limite_cheque_especial || 0) && (
-                          <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-xl p-3">
-                            <p className="text-sm font-bold text-red-400">
-                              ⚠ Limite do cheque especial excedido
-                            </p>
-                            <p className="text-xs text-gray-300 mt-1">
-                              O banco permitiu ficar acima do limite cadastrado.
-                              Pode haver juros, tarifas ou bloqueios.
-                            </p>
-                          </div>
-                        )}
-
-                      {saldoNegativo &&
-                        chequeUsado <=
-                          Number(conta.limite_cheque_especial || 0) && (
-                          <p className="text-xs text-yellow-400 mt-4">
-                            Atenção: você está usando cheque especial. Pode
-                            haver juros se continuar negativo.
-                          </p>
-                        )}
-                    </div>
-                  )}
-                </div>
+                />
               );
             })}
           </div>

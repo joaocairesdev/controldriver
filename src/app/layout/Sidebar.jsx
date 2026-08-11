@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   FiPlusCircle,
   FiHome,
@@ -11,17 +10,12 @@ import {
   FiSettings,
   FiRefreshCw,
   FiDollarSign,
-  FiChevronDown,
 } from "react-icons/fi";
 
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.0.0";
 const APP_BUILD = import.meta.env.VITE_APP_BUILD || "local";
-const PAGINAS_FINANCEIRO = ["contas", "cartoes", "contas-pagar", "renegociacoes", "emprestimos"];
-
 export default function Sidebar({ setPagina, paginaAtual }) {
-  const [financeiroAberto, setFinanceiroAberto] = useState(() => PAGINAS_FINANCEIRO.includes(paginaAtual));
-
-  const menuPrincipal = [
+  const menu = [
     { nome: "Dashboard", pagina: "dashboard", icone: <FiHome /> },
     {
       nome: "Novo Lançamento",
@@ -42,23 +36,16 @@ export default function Sidebar({ setPagina, paginaAtual }) {
     },
     { nome: "Extrato", pagina: "extrato", icone: <FiFileText /> },
     { nome: "Metas", pagina: "metas", icone: <FiTarget /> },
-    { nome: "Veículos", pagina: "veiculos", icone: <FiTruck /> },
-  ];
-
-  const menuFinanceiro = [
     { nome: "Contas", pagina: "contas", icone: <FiBriefcase /> },
     { nome: "Cartões", pagina: "cartoes", icone: <FiCreditCard /> },
     { nome: "Contas a Pagar", pagina: "contas-pagar", icone: <FiAlertTriangle /> },
     { nome: "Renegociações", pagina: "renegociacoes", icone: <FiRefreshCw /> },
     { nome: "Empréstimos", pagina: "emprestimos", icone: <FiDollarSign /> },
-  ];
-
-  const menuConfiguracoes = [
+    { nome: "Veículos", pagina: "veiculos", icone: <FiTruck /> },
     {
       nome: "Configurações",
       pagina: "configuracoes-categorias",
       icone: <FiSettings />,
-      ativoExtra: ["configuracoes-categorias"],
     },
   ];
 
@@ -104,37 +91,7 @@ export default function Sidebar({ setPagina, paginaAtual }) {
       <div className="border-t border-gray-700 my-6 shrink-0" />
 
       <nav className="space-y-2 overflow-y-auto scrollbar-hide pr-1 flex-1">
-        {menuPrincipal.slice(0, 4).map(renderItem)}
-
-        <div>
-          <button
-            type="button"
-            onClick={() => setFinanceiroAberto((aberto) => !aberto)}
-            aria-expanded={financeiroAberto}
-            aria-controls="sidebar-menu-financeiro"
-            className={`w-full flex items-center gap-3 rounded-xl px-4 py-3 transition font-semibold ${
-              PAGINAS_FINANCEIRO.includes(paginaAtual)
-                ? "bg-green-500/15 text-green-400"
-                : "text-gray-300 hover:bg-white/5 hover:text-white"
-            }`}
-          >
-            <span className="text-lg shrink-0"><FiDollarSign /></span>
-            <span className="truncate flex-1 text-left">Financeiro</span>
-            <FiChevronDown className={`shrink-0 transition-transform ${financeiroAberto ? "rotate-180" : ""}`} />
-          </button>
-
-          {financeiroAberto && (
-            <div id="sidebar-menu-financeiro" className="mt-2 ml-4 pl-3 space-y-1 border-l border-gray-700">
-              {menuFinanceiro.map(renderItem)}
-            </div>
-          )}
-        </div>
-
-        {menuPrincipal.slice(4).map(renderItem)}
-
-        <div className="pt-4 mt-4 border-t border-dashed border-gray-700">
-          {menuConfiguracoes.map(renderItem)}
-        </div>
+        {menu.map(renderItem)}
       </nav>
 
       <div className="pt-4 mt-4 border-t border-gray-800 shrink-0">

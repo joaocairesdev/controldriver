@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
-import { FiArrowDown, FiArrowUp, FiTag, FiX } from "react-icons/fi";
+import { useState } from "react";
 import { supabase } from "../../../services/supabase";
 import ModalBase from "../../../shared/components/modals/ModalBase";
 import SelecionarCartaoModal from "../../../shared/components/modals/SelecionarCartaoModal";
 import SelecionarContaModal from "../../../shared/components/modals/SelecionarContaModal";
 import SelecionarFormaPagamentoModal from "../../../shared/components/modals/SelecionarFormaPagamentoModal";
 import { nomeCartaoComFinal } from "../../cartoes/utils/cartoesUtils";
-import TagModal from "./TagModal";
+import ContaFinanceiraCard from "../../contas/components/ContaFinanceiraCard";
+import ModalExtratoConta from "../../contas/components/ModalExtratoConta";
+import { formatarDataBR } from "../../../shared/utils/data";
 
 export default function TagFinanceiraCard({
   tag,
@@ -19,7 +20,6 @@ export default function TagFinanceiraCard({
   onErro,
 }) {
   const [modalDetalhesAberto, setModalDetalhesAberto] = useState(false);
-  const [modalRecargaAberto, setModalRecargaAberto] = useState(false);
   const [modalConfigAberto, setModalConfigAberto] = useState(false);
 
   function moedaParaNumero(valor) {
@@ -78,35 +78,42 @@ export default function TagFinanceiraCard({
 
   if (!tag) return null;
 
+  const prePaga = (tag.tipo_tag || "pre_paga") === "pre_paga";
+  const valorRecarga = Number(tag.valor_recarga_automatica || 0);
+  const percentualAlerta = Number(tag.percentual_alerta_recarga || 30);
+  const gatilhoRecarga = valorRecarga * (percentualAlerta / 100);
+  const precisaRecarga = prePaga
+    && valorRecarga > 0
+    && Number(tag.saldo_atual || 0) <= gatilhoRecarga;
+
   return (
     <>
       <TagVidroCard
-        tag={tag}
+        nome={tag.nome}
+        tipo={prePaga ? "TAG pré-paga" : "TAG pós-paga"}
+        saldo={tag.saldo_atual}
         formatarMoeda={formatarMoeda}
+        badges={[
+          ...(tag.recarga_automatica ? [{
+            texto: "Recarga automática",
+            classe: "border-blue-500/20 bg-blue-500/15 text-blue-300",
+          }] : []),
+          ...(precisaRecarga ? [{
+            texto: "Recarga necessária",
+            classe: "border-red-500/20 bg-red-500/15 text-red-300",
+          }] : []),
+        ]}
+        alerta={precisaRecarga}
         onClick={() => setModalDetalhesAberto(true)}
       />
 
-      {modalDetalhesAberto && (
-        <ModalDetalhesTag
-          tag={tag}
-          formatarMoeda={formatarMoeda}
-          fechar={() => setModalDetalhesAberto(false)}
-          configurar={() => setModalConfigAberto(true)}
-          recarregar={() => {
-            setModalDetalhesAberto(false);
-            setModalRecargaAberto(true);
-          }}
-        />
-      )}
-
-      <TagModal
-        aberto={modalRecargaAberto}
-        onClose={async () => {
-          setModalRecargaAberto(false);
-          await onAtualizar?.();
-        }}
-        etapaInicial="recarga"
-        tagInicialId={String(tag.id)}
+      <ModalExtratoConta
+        aberto={modalDetalhesAberto}
+        conta={tag}
+        onClose={() => setModalDetalhesAberto(false)}
+        onEditarConta={() => setModalConfigAberto(true)}
+        formatarMoeda={formatarMoeda}
+        formatarData={formatarDataBR}
       />
 
       {modalConfigAberto && (
@@ -124,322 +131,7 @@ export default function TagFinanceiraCard({
   );
 }
 
-function TagVidroCard({ tag, formatarMoeda, onClick }) {
-  const saldo = Number(tag.saldo_atual || 0);
-  const saldoNegativo = saldo < 0;
-  const prePaga = (tag.tipo_tag || "pre_paga") === "pre_paga";
-  const valorRecarga = Number(tag.valor_recarga_automatica || 0);
-  const percentual = Number(tag.percentual_alerta_recarga || 30);
-  const gatilho = valorRecarga > 0 ? valorRecarga * (percentual / 100) : 0;
-  const precisaRecarga = prePaga && valorRecarga > 0 && saldo <= gatilho;
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`w-full xl:w-[620px] text-left rounded-2xl border px-5 py-4 transition hover:border-green-400/60 hover:bg-white/[0.03] ${
-        precisaRecarga
-          ? "border-red-500/40 bg-red-500/10"
-          : "border-blue-400/30 bg-[#111827]"
-      }`}
-    >
-      <div className="flex items-center justify-between gap-5">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/20 text-blue-300 text-[11px] font-bold px-3 py-1">
-              <FiTag className="w-3 h-3" /> TAG no vidro •{" "}
-              {prePaga ? "Pré-paga" : "Pós-paga"}
-            </span>
-
-            {precisaRecarga && (
-              <span className="rounded-full bg-red-500/20 text-red-400 text-[11px] font-bold px-3 py-1">
-                Recarga necessária
-              </span>
-            )}
-          </div>
-
-          <div className="mt-3 flex items-center gap-3">
-            <span className="text-xl font-black text-white truncate">
-              {tag.nome}
-            </span>
-            <span className="text-xs text-gray-500">
-              Toque para mais informações.
-            </span>
-          </div>
-        </div>
-
-        <div className="shrink-0 text-right border-l border-blue-500/20 pl-5">
-          <p className="text-xs text-gray-400">Saldo da TAG</p>
-          <strong
-            className={`text-3xl font-black leading-tight ${
-              saldoNegativo ? "text-red-400" : "text-white"
-            }`}
-          >
-            {formatarMoeda(saldo)}
-          </strong>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function ModalDetalhesTag({
-  tag,
-  formatarMoeda,
-  fechar,
-  configurar,
-  recarregar,
-}) {
-  const saldo = Number(tag.saldo_atual || 0);
-  const prePaga = (tag.tipo_tag || "pre_paga") === "pre_paga";
-  const valorRecarga = Number(tag.valor_recarga_automatica || 0);
-  const percentual = Number(tag.percentual_alerta_recarga || 30);
-  const gatilho = valorRecarga > 0 ? valorRecarga * (percentual / 100) : 0;
-  const precisaRecarga = prePaga && valorRecarga > 0 && saldo <= gatilho;
-  const [movimentacoes, setMovimentacoes] = useState([]);
-  const [carregandoMovimentacoes, setCarregandoMovimentacoes] = useState(false);
-
-  function formatarDataBR(dataISO) {
-    if (!dataISO) return "-";
-    const [ano, mes, dia] = String(dataISO).split("-");
-    return `${dia}/${mes}/${ano}`;
-  }
-
-  function textoFormaRecarga() {
-    if (tag.tag_forma_recarga === "credito_avista") {
-      return "Cartão de crédito";
-    }
-    if (tag.tag_forma_recarga === "debito") return "Débito em conta";
-    if (tag.tag_forma_recarga === "pix") return "Pix";
-    return "Não definida";
-  }
-
-  const carregarMovimentacoesTag = useCallback(async () => {
-    setCarregandoMovimentacoes(true);
-
-    try {
-      const { data: usosData } = await supabase
-        .from("saidas_tag")
-        .select(`
-          id,
-          conta_tag_id,
-          saidas (
-            id,
-            data_compra,
-            created_at,
-            categoria,
-            descricao,
-            valor_total
-          )
-        `)
-        .eq("conta_tag_id", tag.id);
-
-      const usos = (usosData || [])
-        .filter((item) => item.saidas)
-        .map((item) => ({
-          id: `uso-${item.id}`,
-          tipo: "uso",
-          data: item.saidas.data_compra,
-          created_at: item.saidas.created_at,
-          titulo: item.saidas.categoria || "Uso da TAG",
-          descricao: item.saidas.descricao || "Uso da TAG",
-          valor: Number(item.saidas.valor_total || 0),
-        }));
-
-      const { data: recargasData } = await supabase
-        .from("entradas_avulsas")
-        .select("id, data, created_at, valor, descricao")
-        .eq("conta_id", tag.id);
-
-      const recargas = (recargasData || []).map((item) => ({
-        id: `recarga-${item.id}`,
-        tipo: "recarga",
-        data: item.data,
-        created_at: item.created_at,
-        titulo: "Recarga da TAG",
-        descricao: item.descricao || "Recarga da TAG",
-        valor: Number(item.valor || 0),
-      }));
-
-      const lista = [...usos, ...recargas]
-        .sort((a, b) => {
-          const dataA = new Date(a.created_at || a.data || 0).getTime();
-          const dataB = new Date(b.created_at || b.data || 0).getTime();
-          return dataB - dataA;
-        })
-        .slice(0, 10);
-
-      setMovimentacoes(lista);
-    } catch (error) {
-      console.error(error);
-      setMovimentacoes([]);
-    } finally {
-      setCarregandoMovimentacoes(false);
-    }
-  }, [tag.id]);
-
-  useEffect(() => {
-    // A abertura do extrato inicia a mesma carga imediata usada antes da extração.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    carregarMovimentacoesTag();
-  }, [carregarMovimentacoesTag]);
-
-  return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div
-        className="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-[#111827] border border-gray-800 rounded-2xl p-6 scrollbar-hide"
-        style={{ scrollbarWidth: "none" }}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-bold">TAG do veículo</h2>
-            <p className="text-gray-400 mt-2">
-              Resumo, saldo e últimas movimentações da TAG.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={fechar}
-            className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold"
-          >
-            <FiX className="w-5 h-5 mx-auto" />
-          </button>
-        </div>
-
-        <div className="mt-6 bg-[#0B1120] border border-gray-800 rounded-2xl p-5">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/20 text-blue-300 text-[11px] font-bold px-3 py-1">
-                <FiTag className="w-3 h-3" /> TAG no vidro •{" "}
-                {prePaga ? "Pré-paga" : "Pós-paga"}
-              </span>
-              <h3 className="text-xl font-black text-white mt-3">{tag.nome}</h3>
-            </div>
-
-            <div className="text-right">
-              <p className="text-xs text-gray-400">Saldo da TAG</p>
-              <strong
-                className={`text-3xl font-black ${
-                  saldo < 0 ? "text-red-400" : "text-green-400"
-                }`}
-              >
-                {formatarMoeda(saldo)}
-              </strong>
-            </div>
-          </div>
-
-          {prePaga && tag.recarga_automatica && (
-            <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 border-t border-gray-800 pt-4">
-              <MiniInfoTag
-                titulo="Recarga"
-                valor={formatarMoeda(valorRecarga)}
-              />
-              <MiniInfoTag
-                titulo="Ao atingir"
-                valor={formatarMoeda(gatilho)}
-              />
-              <MiniInfoTag
-                titulo="Recarga automática em:"
-                valor={textoFormaRecarga()}
-              />
-            </div>
-          )}
-        </div>
-
-        {precisaRecarga && (
-          <button
-            type="button"
-            onClick={recarregar}
-            className="mt-4 w-full text-left bg-red-500/10 border border-red-500/40 hover:bg-red-500/15 rounded-2xl p-4 transition"
-          >
-            <p className="font-bold text-red-400">Recarga necessária</p>
-            <p className="text-sm text-gray-300 mt-1">
-              O saldo está em {formatarMoeda(saldo)}. Toque para registrar uma
-              recarga agora.
-            </p>
-          </button>
-        )}
-
-        <div className="mt-6">
-          <div className="flex items-center justify-between gap-4">
-            <h3 className="text-lg font-bold">Últimas movimentações</h3>
-            <span className="text-xs text-gray-500">até 10 registros</span>
-          </div>
-
-          <div className="mt-3 space-y-2">
-            {carregandoMovimentacoes && (
-              <div className="bg-[#0B1120] border border-gray-800 rounded-xl p-4 text-gray-400 text-sm">
-                Carregando movimentações...
-              </div>
-            )}
-
-            {!carregandoMovimentacoes && movimentacoes.length === 0 && (
-              <div className="bg-[#0B1120] border border-gray-800 rounded-xl p-4 text-gray-400 text-sm">
-                Nenhuma movimentação encontrada para esta TAG.
-              </div>
-            )}
-
-            {!carregandoMovimentacoes &&
-              movimentacoes.map((movimento) => {
-                const recarga = movimento.tipo === "recarga";
-
-                return (
-                  <div
-                    key={movimento.id}
-                    className="bg-[#0B1120] border border-gray-800 rounded-xl p-3 flex items-center justify-between gap-4"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs text-gray-500">
-                        {formatarDataBR(movimento.data)}
-                      </p>
-                      <p className="font-bold text-white truncate">
-                        {recarga ? (
-                          <FiArrowUp className="inline w-3 h-3 mr-1" />
-                        ) : (
-                          <FiArrowDown className="inline w-3 h-3 mr-1" />
-                        )}
-                        {movimento.titulo}
-                      </p>
-                      <p className="text-xs text-gray-400 truncate">
-                        {movimento.descricao}
-                      </p>
-                    </div>
-
-                    <p
-                      className={`font-black shrink-0 ${
-                        recarga ? "text-green-400" : "text-red-400"
-                      }`}
-                    >
-                      {recarga ? "+" : "-"} {formatarMoeda(movimento.valor)}
-                    </p>
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 mt-6">
-          <button
-            type="button"
-            onClick={fechar}
-            className="border border-gray-700 hover:bg-white/5 text-white font-bold rounded-xl p-3"
-          >
-            Fechar
-          </button>
-
-          <button
-            type="button"
-            onClick={configurar}
-            className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
-          >
-            Configurar TAG
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+const TagVidroCard = ContaFinanceiraCard;
 
 function ConfigurarTagModal({
   tag,
@@ -861,14 +553,5 @@ function ConfigurarTagModal({
         formatarMoeda={formatarMoedaLocal}
       />
     </>
-  );
-}
-
-function MiniInfoTag({ titulo, valor }) {
-  return (
-    <div className="bg-[#111827] border border-gray-800 rounded-xl p-3">
-      <p className="text-xs text-gray-500">{titulo}</p>
-      <p className="text-sm font-bold text-white mt-1">{valor}</p>
-    </div>
   );
 }

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../../services/supabase";
 
 import {
   FiTrendingUp,
@@ -27,6 +26,7 @@ export default function NovoLancamento({
   abrirVendaProdutos,
   jornadaParaGanhos = null,
   limparJornadaParaGanhos,
+  tagsSessao = [],
 }) {
   const [modalTagAberto, setModalTagAberto] = useState(false);
   const [modalTransferenciaAberto, setModalTransferenciaAberto] =
@@ -34,8 +34,6 @@ export default function NovoLancamento({
   const [modalEntradaAvulsaAberto, setModalEntradaAvulsaAberto] =
     useState(false);
   const [modalGanhosAberto, setModalGanhosAberto] = useState(false);
-  const [possuiTagCadastrada, setPossuiTagCadastrada] = useState(false);
-  const [carregandoTag, setCarregandoTag] = useState(true);
 
   const [modalAbastecimentoAberto, setModalAbastecimentoAberto] = useState(false);
   const [modalEscolhaManutencaoAberto, setModalEscolhaManutencaoAberto] = useState(false);
@@ -51,32 +49,6 @@ export default function NovoLancamento({
     if (!jornadaParaGanhos) return;
     setModalGanhosAberto(true);
   }, [jornadaParaGanhos]);
-
-  useEffect(() => {
-    verificarTagCadastrada();
-  }, []);
-
-  async function verificarTagCadastrada() {
-    setCarregandoTag(true);
-
-    const { data, error } = await supabase
-      .from("contas")
-      .select("id, veiculo_id")
-      .eq("ativo", true)
-      .eq("tipo_conta", "tag")
-      .not("veiculo_id", "is", null)
-      .limit(1);
-
-    if (error) {
-      console.error("Erro ao verificar TAG cadastrada:", error);
-      setPossuiTagCadastrada(false);
-      setCarregandoTag(false);
-      return;
-    }
-
-    setPossuiTagCadastrada((data || []).length > 0);
-    setCarregandoTag(false);
-  }
 
   const entradas = [
     {
@@ -127,7 +99,7 @@ export default function NovoLancamento({
       cor: "yellow",
       acao: () => setModalEscolhaManutencaoAberto(true),
     },
-    ...(!carregandoTag && possuiTagCadastrada
+    ...(tagsSessao.length > 0
       ? [
           {
             titulo: "Uso da TAG",
@@ -198,6 +170,7 @@ slate: "border-slate-500 bg-slate-500/10 text-slate-300",
       <TagModal
         aberto={modalTagAberto}
         onClose={() => setModalTagAberto(false)}
+        contasTagIniciais={tagsSessao}
       />
 
       <TransferenciaModal
@@ -341,4 +314,3 @@ function LancamentoCard({ card, estilos }) {
     </button>
   );
 }
-

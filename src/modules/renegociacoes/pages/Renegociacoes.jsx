@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ButtonField, Campo } from "../../../shared/components/ui/FormControls";
-import ParcelasContrato from "../../../shared/components/financeiro/ParcelasContrato";
+import ParcelasContrato, { CardParcela } from "../../../shared/components/financeiro/ParcelasContrato";
 import ResumoContrato from "../../../shared/components/financeiro/ResumoContrato";
 import TelaParcelaContrato, { CabecalhoVoltar } from "../../../shared/components/financeiro/TelaParcelaContrato";
 import {
@@ -62,6 +62,10 @@ const FORM_INICIAL = {
   valorParcela: "",
   numeroParcelas: "",
   primeiroVencimento: "",
+  entradaVencimento: "",
+  entradaFormaPagamento: "",
+  entradaContaId: "",
+  entradaCartaoId: "",
 };
 
 export default function Renegociacoes() {
@@ -133,7 +137,8 @@ export default function Renegociacoes() {
       (acc, item) => {
         if (item.status !== "cancelada") {
           acc.valorOriginal += Number(item.valor_original || 0);
-          acc.valorRenegociado += Number(item.valor_renegociado || 0);
+          acc.valorRenegociado += Number(item.valor_renegociado || 0)
+            + (item.entrada_independente ? Number(item.valor_entrada || 0) : 0);
           acc.ativas += 1;
         }
 
@@ -203,8 +208,13 @@ export default function Renegociacoes() {
                 <div className="flex items-end justify-between gap-4">
                   <div>
                     <p className="text-xs text-gray-500 font-bold uppercase tracking-wide">Valor total</p>
-                    <p className="text-2xl font-black mt-1">{formatarMoeda(renegociacao.valor_renegociado)}</p>
+                    <p className="text-2xl font-black mt-1">
+                      {formatarMoeda(Number(renegociacao.valor_renegociado || 0) + (renegociacao.entrada_independente ? Number(renegociacao.valor_entrada || 0) : 0))}
+                    </p>
                     <p className="text-sm text-gray-400 mt-1">
+                      {renegociacao.entrada_independente && Number(renegociacao.valor_entrada || 0) > 0
+                        ? `Entrada de ${formatarMoeda(renegociacao.valor_entrada)} + `
+                        : ""}
                       {Math.max(Number(renegociacao.numero_parcelas || 1), 1)}x de {formatarMoeda(Number(renegociacao.valor_renegociado || 0) / Math.max(Number(renegociacao.numero_parcelas || 1), 1))}
                     </p>
                   </div>
@@ -295,6 +305,7 @@ export default function Renegociacoes() {
             setItensDetalhe([]);
           }}
           onSelecionarParcela={(parcela) => setParcelaDetalhe({ ...parcela, renegociacaoId: renegociacaoDetalhe.id })}
+          onPagarEntrada={(entrada) => setParcelaPagamento(entrada.cobranca)}
           onExcluido={async () => {
             setRenegociacaoDetalhe(null);
             setItensDetalhe([]);
@@ -349,6 +360,9 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   const [modalTipoAcordo, setModalTipoAcordo] = useState(false);
   const [modalConta, setModalConta] = useState(false);
   const [modalCartao, setModalCartao] = useState(false);
+  const [modalFormaEntrada, setModalFormaEntrada] = useState(false);
+  const [modalContaEntrada, setModalContaEntrada] = useState(false);
+  const [modalCartaoEntrada, setModalCartaoEntrada] = useState(false);
   const [modalParcelas, setModalParcelas] = useState(false);
   const [dadosItens, setDadosItens] = useState({});
   const [infoValorBancoAberto, setInfoValorBancoAberto] = useState(false);
@@ -410,6 +424,9 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   const exigeCartaoPagamento = form.formaPagamento === "credito";
   const temEntrada = ["entrada_avista", "entrada_parcelado"].includes(form.tipoAcordo);
   const temParcelas = ["parcelado", "entrada_parcelado"].includes(form.tipoAcordo);
+  const entradaIndependente = form.tipoAcordo === "entrada_parcelado";
+  const exigeCartaoEntrada = form.entradaFormaPagamento === "credito";
+  const exigeContaEntrada = Boolean(form.entradaFormaPagamento) && !exigeCartaoEntrada;
 
   const origens = useMemo(() => {
     return agruparDividasPorOrigem(dividas).filter((origem) =>
@@ -442,7 +459,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   const numeroParcelas = temParcelas ? Math.max(Number(form.numeroParcelas || 1), 1) : 1;
   const valorParcelaInformado = moedaParaNumero(form.valorParcela);
   const valorParcela = temParcelas
-    ? valorParcelaInformado || Math.max(valorRenegociado - valorEntrada, 0) / numeroParcelas
+    ? valorParcelaInformado || Math.max(valorRenegociado - (entradaIndependente ? 0 : valorEntrada), 0) / numeroParcelas
     : Math.max(valorRenegociado - valorEntrada, 0);
   const contaNegativaSelecionada = itensSelecionados.find((item) => item.tipo === "conta_negativa");
   const possuiCartaoSelecionado = itensSelecionados.some((item) => item.tipo === "fatura");
@@ -461,7 +478,9 @@ function RenegociacaoModal({ fechar, onSalvo }) {
     (total, grupo) => total + moedaParaNumero(dadosItens[grupo.chave]?.valorParcela),
     0
   );
-  const custoEstimado = totalConsideradoBanco > 0 ? totalAcordoItens - totalConsideradoBanco : null;
+  const custoEstimado = totalConsideradoBanco > 0
+    ? totalAcordoItens + (entradaIndependente ? valorEntrada : 0) - totalConsideradoBanco
+    : null;
 
   function atualizarDadoItem(chave, campo, valor) {
     limparErro(`item-${chave}-${campo}`);
@@ -605,6 +624,13 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   function selecionarTipoAcordo(tipo) {
     setField("tipoAcordo", tipo);
 
+    if (tipo !== "entrada_parcelado") {
+      setField("entradaVencimento", "");
+      setField("entradaFormaPagamento", "");
+      setField("entradaContaId", "");
+      setField("entradaCartaoId", "");
+    }
+
     if (tipo === "avista") {
       setField("valorEntrada", "");
       setField("valorParcela", "");
@@ -631,7 +657,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
     if (!temParcelas || !numeroParcelas) return;
 
     const total = moedaParaNumero(valor);
-    const parcela = Math.max(total - valorEntrada, 0) / numeroParcelas;
+    const parcela = Math.max(total - (entradaIndependente ? 0 : valorEntrada), 0) / numeroParcelas;
     setField("valorParcela", numeroParaMoedaInput(parcela));
   }
 
@@ -641,13 +667,14 @@ function RenegociacaoModal({ fechar, onSalvo }) {
     if (!temParcelas || !numeroParcelas) return;
 
     const parcela = moedaParaNumero(valor);
-    const total = valorEntrada + parcela * numeroParcelas;
+    const total = (entradaIndependente ? 0 : valorEntrada) + parcela * numeroParcelas;
     setField("valorRenegociado", numeroParaMoedaInput(total));
   }
 
   function atualizarValorEntrada(valor) {
     setField("valorEntrada", valor);
 
+    if (entradaIndependente) return;
     if (!temParcelas || !numeroParcelas) return;
 
     const entrada = moedaParaNumero(valor);
@@ -672,12 +699,12 @@ function RenegociacaoModal({ fechar, onSalvo }) {
     const totalAtual = moedaParaNumero(form.valorRenegociado);
 
     if (parcelaAtual > 0) {
-      setField("valorRenegociado", numeroParaMoedaInput(valorEntrada + parcelaAtual * parcelas));
+      setField("valorRenegociado", numeroParaMoedaInput((entradaIndependente ? 0 : valorEntrada) + parcelaAtual * parcelas));
       return;
     }
 
     if (totalAtual > 0) {
-      setField("valorParcela", numeroParaMoedaInput(Math.max(totalAtual - valorEntrada, 0) / parcelas));
+      setField("valorParcela", numeroParaMoedaInput(Math.max(totalAtual - (entradaIndependente ? 0 : valorEntrada), 0) / parcelas));
     }
   }
 
@@ -700,9 +727,13 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         if (temParcelas && moedaParaNumero(dadosItens[grupo.chave]?.valorParcela) <= 0) novos[`item-${grupo.chave}-valorParcela`] = "Informe o valor da parcela deste item.";
       });
       if (temEntrada && valorEntrada <= 0) novos.valorEntrada = "Informe o valor da entrada.";
-      else if (temEntrada && valorEntrada >= totalAcordoItens) novos.valorEntrada = "A entrada precisa ser menor que o valor total.";
+      else if (temEntrada && !entradaIndependente && valorEntrada >= totalAcordoItens) novos.valorEntrada = "A entrada precisa ser menor que o valor total.";
+      if (entradaIndependente && !form.entradaVencimento) novos.entradaVencimento = "Informe o vencimento da entrada.";
+      if (entradaIndependente && !form.entradaFormaPagamento) novos.entradaFormaPagamento = "Selecione a forma de pagamento da entrada.";
+      if (entradaIndependente && exigeContaEntrada && !form.entradaContaId) novos.entradaContaId = "Selecione a conta da entrada.";
+      if (entradaIndependente && exigeCartaoEntrada && !form.entradaCartaoId) novos.entradaCartaoId = "Selecione o cartão da entrada.";
       if (temParcelas && Number(form.numeroParcelas || 0) <= 0) novos.numeroParcelas = "Informe a quantidade de parcelas.";
-      if (!form.primeiroVencimento && totalAcordoItens > valorEntrada) novos.primeiroVencimento = temParcelas ? "Informe o primeiro vencimento." : "Informe a data de vencimento.";
+      if (!form.primeiroVencimento && totalAcordoItens > (entradaIndependente ? 0 : valorEntrada)) novos.primeiroVencimento = temParcelas ? "Informe o primeiro vencimento." : "Informe a data de vencimento.";
       else if (form.primeiroVencimento && form.dataRenegociacao && form.primeiroVencimento < form.dataRenegociacao) novos.primeiroVencimento = "O vencimento não pode ser anterior à data do acordo.";
       setErros(novos);
       if (Object.keys(novos).length) {
@@ -735,6 +766,11 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         valorEntrada: temEntrada ? valorEntrada : 0,
         numeroParcelas,
         primeiroVencimento: form.primeiroVencimento,
+        entradaIndependente,
+        entradaVencimento: entradaIndependente ? form.entradaVencimento : null,
+        entradaFormaPagamento: entradaIndependente ? form.entradaFormaPagamento : null,
+        entradaContaId: entradaIndependente ? form.entradaContaId : null,
+        entradaCartaoId: entradaIndependente ? form.entradaCartaoId : null,
         itens: itensComDadosContrato(),
       });
 
@@ -918,13 +954,13 @@ function RenegociacaoModal({ fechar, onSalvo }) {
                   </ButtonField>
                 </Campo>
 
-                <Campo label="Forma de pagamento" erro={erros.formaPagamento} shakeKey={shakeKey}>
+                <Campo label={entradaIndependente ? "Forma de pagamento das parcelas" : "Forma de pagamento"} erro={erros.formaPagamento} shakeKey={shakeKey}>
                   <ButtonField erro={erros.formaPagamento} shakeKey={shakeKey} onClick={() => setModalFormaPagamento(true)}>
                     {form.formaPagamento ? textoFormaPagamento(form.formaPagamento) : "Selecionar forma de pagamento"}
                   </ButtonField>
                 </Campo>
 
-                <Campo label={exigeCartaoPagamento ? "Cartão" : "Conta"} erro={exigeCartaoPagamento ? erros.cartaoPagamentoId : erros.contaDebitoId} shakeKey={shakeKey}>
+                <Campo label={exigeCartaoPagamento ? (entradaIndependente ? "Cartão das parcelas" : "Cartão") : (entradaIndependente ? "Conta das parcelas" : "Conta")} erro={exigeCartaoPagamento ? erros.cartaoPagamentoId : erros.contaDebitoId} shakeKey={shakeKey}>
                   <ButtonField erro={exigeCartaoPagamento ? erros.cartaoPagamentoId : erros.contaDebitoId} shakeKey={shakeKey} onClick={() => exigeCartaoPagamento ? setModalCartao(true) : setModalConta(true)}>
                     {exigeCartaoPagamento
                       ? nomeCartaoSelecionado(cartoesAtivos, form.cartaoPagamentoId) || "Selecionar cartão"
@@ -936,6 +972,34 @@ function RenegociacaoModal({ fechar, onSalvo }) {
                   <Campo label="Entrada" erro={erros.valorEntrada} shakeKey={shakeKey}>
                     <InputMoeda erro={erros.valorEntrada} shakeKey={shakeKey} value={form.valorEntrada} onChange={(valor) => { limparErro("valorEntrada"); atualizarValorEntrada(valor); }} />
                   </Campo>
+                )}
+
+                {entradaIndependente && (
+                  <>
+                    <Campo label="Vencimento da entrada" erro={erros.entradaVencimento} shakeKey={shakeKey}>
+                      <ButtonField erro={erros.entradaVencimento} shakeKey={shakeKey} onClick={() => setModalData("entradaVencimento")}>
+                        {form.entradaVencimento ? formatarDataBR(form.entradaVencimento) : "Selecionar data"}
+                      </ButtonField>
+                    </Campo>
+
+                    <Campo label="Forma de pagamento da entrada" erro={erros.entradaFormaPagamento} shakeKey={shakeKey}>
+                      <ButtonField erro={erros.entradaFormaPagamento} shakeKey={shakeKey} onClick={() => setModalFormaEntrada(true)}>
+                        {form.entradaFormaPagamento ? textoFormaPagamento(form.entradaFormaPagamento) : "Selecionar forma de pagamento"}
+                      </ButtonField>
+                    </Campo>
+
+                    <Campo label={exigeCartaoEntrada ? "Cartão da entrada" : "Conta da entrada"} erro={exigeCartaoEntrada ? erros.entradaCartaoId : erros.entradaContaId} shakeKey={shakeKey}>
+                      <ButtonField
+                        erro={exigeCartaoEntrada ? erros.entradaCartaoId : erros.entradaContaId}
+                        shakeKey={shakeKey}
+                        onClick={() => exigeCartaoEntrada ? setModalCartaoEntrada(true) : setModalContaEntrada(true)}
+                      >
+                        {exigeCartaoEntrada
+                          ? nomeCartaoSelecionado(cartoesAtivos, form.entradaCartaoId) || "Selecionar cartão"
+                          : nomeContaSelecionada(contasBanco, form.entradaContaId) || "Selecionar conta"}
+                      </ButtonField>
+                    </Campo>
+                  </>
                 )}
 
                 {temParcelas && (
@@ -1049,6 +1113,13 @@ function RenegociacaoModal({ fechar, onSalvo }) {
               parcelaTotal={parcelaTotalItens}
               totalConsideradoBanco={totalConsideradoBanco}
               custoEstimado={custoEstimado}
+              entradaIndependente={entradaIndependente}
+              valorEntrada={valorEntrada}
+              entradaVencimento={form.entradaVencimento}
+              entradaFormaPagamento={form.entradaFormaPagamento}
+              entradaConta={exigeCartaoEntrada
+                ? nomeCartaoSelecionado(cartoesAtivos, form.entradaCartaoId)
+                : nomeContaSelecionada(contasBanco, form.entradaContaId)}
             />
           )}
 
@@ -1085,7 +1156,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         <DatePickerModal
           aberto={true}
           valor={form[modalData] || ""}
-          minDate={modalData === "primeiroVencimento" ? form.dataRenegociacao || null : null}
+          minDate={["primeiroVencimento", "entradaVencimento"].includes(modalData) ? form.dataRenegociacao || null : null}
           maxDate={modalData === "dataRenegociacao" ? hojeISO() : null}
           onChange={(data) => {
             limparErro(modalData);
@@ -1119,6 +1190,19 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         onClose={() => setModalFormaPagamento(false)}
       />
 
+      <SelecionarFormaPagamentoModal
+        aberto={modalFormaEntrada}
+        formasPagamento={formasPagamentoAcordo}
+        formaPagamento={form.entradaFormaPagamento}
+        onSelecionar={(valor) => {
+          limparErro("entradaFormaPagamento");
+          setField("entradaFormaPagamento", valor);
+          if (valor === "credito") setField("entradaContaId", "");
+          else setField("entradaCartaoId", "");
+        }}
+        onClose={() => setModalFormaEntrada(false)}
+      />
+
       <SelecionarContaModal
         aberto={modalConta}
         contas={contasBanco}
@@ -1128,12 +1212,30 @@ function RenegociacaoModal({ fechar, onSalvo }) {
         formatarMoeda={formatarMoeda}
       />
 
+      <SelecionarContaModal
+        aberto={modalContaEntrada}
+        contas={contasBanco}
+        contaId={form.entradaContaId}
+        onSelecionar={(id) => { limparErro("entradaContaId"); setField("entradaContaId", id); }}
+        onClose={() => setModalContaEntrada(false)}
+        formatarMoeda={formatarMoeda}
+      />
+
       <SelecionarCartaoModal
         aberto={modalCartao}
         cartoes={cartoesAtivos}
         cartaoId={form.cartaoPagamentoId}
         onSelecionar={(id) => { limparErro("cartaoPagamentoId"); setField("cartaoPagamentoId", id); }}
         onClose={() => setModalCartao(false)}
+        formatarMoeda={formatarMoeda}
+      />
+
+      <SelecionarCartaoModal
+        aberto={modalCartaoEntrada}
+        cartoes={cartoesAtivos}
+        cartaoId={form.entradaCartaoId}
+        onSelecionar={(id) => { limparErro("entradaCartaoId"); setField("entradaCartaoId", id); }}
+        onClose={() => setModalCartaoEntrada(false)}
         formatarMoeda={formatarMoeda}
       />
 
@@ -1163,7 +1265,7 @@ function RenegociacaoModal({ fechar, onSalvo }) {
   );
 }
 
-function TelaRenegociacao({ renegociacao, produtos, fechar, onExcluido, onAtualizado, onSelecionarParcela }) {
+function TelaRenegociacao({ renegociacao, produtos, fechar, onExcluido, onAtualizado, onSelecionarParcela, onPagarEntrada }) {
   const [confirmarExclusao, setConfirmarExclusao] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
   const [modalEdicaoAberto, setModalEdicaoAberto] = useState(false);
@@ -1174,7 +1276,7 @@ function TelaRenegociacao({ renegociacao, produtos, fechar, onExcluido, onAtuali
   const valorEntrada = Number(renegociacao.valor_entrada || 0);
   const numeroParcelas = temParcelas ? Math.max(Number(renegociacao.numero_parcelas || 1), 1) : 1;
   const valorParcelas = temParcelas
-    ? Math.max(Number(renegociacao.valor_renegociado || 0) - valorEntrada, 0) / numeroParcelas
+    ? Math.max(Number(renegociacao.valor_renegociado || 0) - (renegociacao.entrada_independente ? 0 : valorEntrada), 0) / numeroParcelas
     : 0;
   const proximaParcela = (renegociacao.parcelas || []).find(
     (parcela) => !["paga", "pago"].includes(String(parcela.status || "").toLowerCase())
@@ -1245,7 +1347,8 @@ function TelaRenegociacao({ renegociacao, produtos, fechar, onExcluido, onAtuali
           hierarquico
           itens={[
           { titulo: "Produtos renegociados", valor: produtos.map((produto) => produto.titulo) },
-          { titulo: "Saldo renegociado", valor: formatarMoeda(renegociacao.valor_renegociado), principal: true },
+          { titulo: renegociacao.entrada_independente ? "Parcelamento" : "Saldo renegociado", valor: formatarMoeda(renegociacao.valor_renegociado), principal: true },
+          ...(renegociacao.entrada_independente ? [{ titulo: "Entrada", valor: formatarMoeda(valorEntrada), principal: true }] : []),
           { titulo: "Saldo devedor", valor: formatarMoeda(renegociacao.saldo_devedor), destaque: true, principal: true },
           { titulo: "Parcelas", valor: `${Math.max(numeroParcelas - Number(renegociacao.parcelas_pagas || 0), 0)} de ${numeroParcelas} restantes`, principal: true },
           { titulo: "Valor da parcela", valor: formatarMoeda(proximaParcela?.valorAtualizado ?? valorParcelas ?? renegociacao.valor_renegociado), principal: true },
@@ -1254,6 +1357,19 @@ function TelaRenegociacao({ renegociacao, produtos, fechar, onExcluido, onAtuali
           { titulo: "Tipo do acordo", valor: textoTipoAcordo(tipoAcordo) },
         ]}
         />
+        {renegociacao.entrada_independente && renegociacao.entrada && (
+          <section className="mt-8">
+            <h2 className="text-sm font-black uppercase tracking-wide text-gray-400">Entrada</h2>
+            <div className="mt-4 max-w-xl">
+              <CardParcela
+                parcela={renegociacao.entrada}
+                rotulo="Entrada"
+                onClick={() => onPagarEntrada(renegociacao.entrada)}
+                disabled={["paga", "pago"].includes(String(renegociacao.entrada.status || "").toLowerCase())}
+              />
+            </div>
+          </section>
+        )}
         <ParcelasContrato parcelas={renegociacao.parcelas || []} onSelecionar={onSelecionarParcela} />
       </div>
 
@@ -1293,10 +1409,11 @@ function TelaRenegociacao({ renegociacao, produtos, fechar, onExcluido, onAtuali
 
 function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
   const tipoInicial = definirTipoAcordoRenegociacao(renegociacao);
+  const entradaAtual = renegociacao.entrada?.cobranca || null;
   const valorEntradaInicial = Number(renegociacao.valor_entrada || 0);
   const numeroParcelasInicial = Math.max(Number(renegociacao.numero_parcelas || 1), 1);
   const valorParcelaInicial = ["parcelado", "entrada_parcelado"].includes(tipoInicial)
-    ? Math.max(Number(renegociacao.valor_renegociado || 0) - valorEntradaInicial, 0) / numeroParcelasInicial
+    ? Math.max(Number(renegociacao.valor_renegociado || 0) - (renegociacao.entrada_independente ? 0 : valorEntradaInicial), 0) / numeroParcelasInicial
     : 0;
 
   const [contas, setContas] = useState([]);
@@ -1306,6 +1423,9 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
   const [modalTipoAcordo, setModalTipoAcordo] = useState(false);
   const [modalConta, setModalConta] = useState(false);
   const [modalCartao, setModalCartao] = useState(false);
+  const [modalFormaEntrada, setModalFormaEntrada] = useState(false);
+  const [modalContaEntrada, setModalContaEntrada] = useState(false);
+  const [modalCartaoEntrada, setModalCartaoEntrada] = useState(false);
   const [modalParcelas, setModalParcelas] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [feedback, setFeedback] = useState({ aberto: false, tipo: "sucesso", titulo: "", mensagem: "" });
@@ -1323,6 +1443,10 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
     valorParcela: valorParcelaInicial > 0 ? numeroParaMoedaInput(valorParcelaInicial) : "",
     numeroParcelas: String(numeroParcelasInicial),
     primeiroVencimento: renegociacao.primeiro_vencimento || "",
+    entradaVencimento: entradaAtual?.data_vencimento || "",
+    entradaFormaPagamento: entradaAtual?.forma_pagamento || "",
+    entradaContaId: entradaAtual?.conta_id ? String(entradaAtual.conta_id) : "",
+    entradaCartaoId: entradaAtual?.cartao_id ? String(entradaAtual.cartao_id) : "",
   });
 
   useEffect(() => {
@@ -1354,6 +1478,10 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
   const exigeCartaoPagamento = form.formaPagamento === "credito";
   const temEntrada = ["entrada_avista", "entrada_parcelado"].includes(form.tipoAcordo);
   const temParcelas = ["parcelado", "entrada_parcelado"].includes(form.tipoAcordo);
+  const entradaIndependente = Boolean(renegociacao.entrada_independente)
+    && form.tipoAcordo === "entrada_parcelado";
+  const exigeCartaoEntrada = form.entradaFormaPagamento === "credito";
+  const exigeContaEntrada = Boolean(form.entradaFormaPagamento) && !exigeCartaoEntrada;
   const valorRenegociado = moedaParaNumero(form.valorRenegociado);
   const valorEntrada = moedaParaNumero(form.valorEntrada);
   const numeroParcelas = temParcelas ? Math.max(Number(form.numeroParcelas || 1), 1) : 1;
@@ -1377,6 +1505,13 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
 
   function selecionarTipoAcordo(tipo) {
     setField("tipoAcordo", tipo);
+
+    if (tipo !== "entrada_parcelado") {
+      setField("entradaVencimento", "");
+      setField("entradaFormaPagamento", "");
+      setField("entradaContaId", "");
+      setField("entradaCartaoId", "");
+    }
 
     if (tipo === "avista") {
       setField("valorEntrada", "");
@@ -1404,7 +1539,7 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
     if (!temParcelas || !numeroParcelas) return;
 
     const total = moedaParaNumero(valor);
-    setField("valorParcela", numeroParaMoedaInput(Math.max(total - valorEntrada, 0) / numeroParcelas));
+    setField("valorParcela", numeroParaMoedaInput(Math.max(total - (entradaIndependente ? 0 : valorEntrada), 0) / numeroParcelas));
   }
 
   function atualizarValorParcelaRenegociada(valor) {
@@ -1412,11 +1547,12 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
     if (!temParcelas || !numeroParcelas) return;
 
     const parcela = moedaParaNumero(valor);
-    setField("valorRenegociado", numeroParaMoedaInput(valorEntrada + parcela * numeroParcelas));
+    setField("valorRenegociado", numeroParaMoedaInput((entradaIndependente ? 0 : valorEntrada) + parcela * numeroParcelas));
   }
 
   function atualizarValorEntrada(valor) {
     setField("valorEntrada", valor);
+    if (entradaIndependente) return;
     if (!temParcelas || !numeroParcelas) return;
 
     const entrada = moedaParaNumero(valor);
@@ -1441,12 +1577,12 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
     const totalAtual = moedaParaNumero(form.valorRenegociado);
 
     if (parcelaAtual > 0) {
-      setField("valorRenegociado", numeroParaMoedaInput(valorEntrada + parcelaAtual * parcelas));
+      setField("valorRenegociado", numeroParaMoedaInput((entradaIndependente ? 0 : valorEntrada) + parcelaAtual * parcelas));
       return;
     }
 
     if (totalAtual > 0) {
-      setField("valorParcela", numeroParaMoedaInput(Math.max(totalAtual - valorEntrada, 0) / parcelas));
+      setField("valorParcela", numeroParaMoedaInput(Math.max(totalAtual - (entradaIndependente ? 0 : valorEntrada), 0) / parcelas));
     }
   }
 
@@ -1459,9 +1595,13 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
     if (exigeCartaoPagamento && !form.cartaoPagamentoId) novos.cartaoPagamentoId = "Selecione o cartão usado no pagamento.";
     if (valorRenegociado <= 0) novos.valorRenegociado = "Informe o valor da renegociação.";
     if (temEntrada && valorEntrada <= 0) novos.valorEntrada = "Informe o valor da entrada.";
-    else if (temEntrada && valorEntrada >= valorRenegociado) novos.valorEntrada = "A entrada precisa ser menor que o valor total.";
+    else if (temEntrada && !entradaIndependente && valorEntrada >= valorRenegociado) novos.valorEntrada = "A entrada precisa ser menor que o valor total.";
+    if (entradaIndependente && !form.entradaVencimento) novos.entradaVencimento = "Informe o vencimento da entrada.";
+    if (entradaIndependente && !form.entradaFormaPagamento) novos.entradaFormaPagamento = "Selecione a forma de pagamento da entrada.";
+    if (entradaIndependente && exigeContaEntrada && !form.entradaContaId) novos.entradaContaId = "Selecione a conta da entrada.";
+    if (entradaIndependente && exigeCartaoEntrada && !form.entradaCartaoId) novos.entradaCartaoId = "Selecione o cartão da entrada.";
     if (temParcelas && Number(form.numeroParcelas || 0) <= 0) novos.numeroParcelas = "Informe a quantidade de parcelas.";
-    if (!form.primeiroVencimento && valorRenegociado > valorEntrada) novos.primeiroVencimento = temParcelas ? "Informe o primeiro vencimento." : "Informe a data de vencimento.";
+    if (!form.primeiroVencimento && valorRenegociado > (entradaIndependente ? 0 : valorEntrada)) novos.primeiroVencimento = temParcelas ? "Informe o primeiro vencimento." : "Informe a data de vencimento.";
     else if (form.primeiroVencimento && form.dataRenegociacao && form.primeiroVencimento < form.dataRenegociacao) novos.primeiroVencimento = "O vencimento não pode ser anterior à data do acordo.";
     setErros(novos);
     if (Object.keys(novos).length) {
@@ -1482,6 +1622,11 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
         valorEntrada: temEntrada ? valorEntrada : 0,
         numeroParcelas,
         primeiroVencimento: form.primeiroVencimento,
+        entradaIndependente,
+        entradaVencimento: entradaIndependente ? form.entradaVencimento : null,
+        entradaFormaPagamento: entradaIndependente ? form.entradaFormaPagamento : null,
+        entradaContaId: entradaIndependente ? form.entradaContaId : null,
+        entradaCartaoId: entradaIndependente ? form.entradaCartaoId : null,
       });
 
       await onSalvo?.(atualizado);
@@ -1538,7 +1683,7 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
             </ButtonField>
           </Campo>
 
-          <Campo label="Forma de pagamento" erro={erros.formaPagamento} shakeKey={shakeKey}>
+          <Campo label={entradaIndependente ? "Forma de pagamento das parcelas" : "Forma de pagamento"} erro={erros.formaPagamento} shakeKey={shakeKey}>
             <ButtonField erro={erros.formaPagamento} shakeKey={shakeKey} onClick={() => setModalFormaPagamento(true)}>
               {form.formaPagamento ? textoFormaPagamento(form.formaPagamento) : "Selecionar forma de pagamento"}
             </ButtonField>
@@ -1565,6 +1710,30 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
             </Campo>
           )}
 
+          {entradaIndependente && (
+            <>
+              <Campo label="Vencimento da entrada" erro={erros.entradaVencimento} shakeKey={shakeKey}>
+                <ButtonField erro={erros.entradaVencimento} shakeKey={shakeKey} onClick={() => setModalData("entradaVencimento")}>
+                  {form.entradaVencimento ? formatarDataBR(form.entradaVencimento) : "Selecionar data"}
+                </ButtonField>
+              </Campo>
+
+              <Campo label="Forma de pagamento da entrada" erro={erros.entradaFormaPagamento} shakeKey={shakeKey}>
+                <ButtonField erro={erros.entradaFormaPagamento} shakeKey={shakeKey} onClick={() => setModalFormaEntrada(true)}>
+                  {form.entradaFormaPagamento ? textoFormaPagamento(form.entradaFormaPagamento) : "Selecionar forma de pagamento"}
+                </ButtonField>
+              </Campo>
+
+              <Campo label={exigeCartaoEntrada ? "Cartão da entrada" : "Conta da entrada"} erro={exigeCartaoEntrada ? erros.entradaCartaoId : erros.entradaContaId} shakeKey={shakeKey}>
+                <ButtonField onClick={() => exigeCartaoEntrada ? setModalCartaoEntrada(true) : setModalContaEntrada(true)}>
+                  {exigeCartaoEntrada
+                    ? nomeCartaoSelecionado(cartoesAtivos, form.entradaCartaoId) || "Selecionar cartão"
+                    : nomeContaSelecionada(contasBanco, form.entradaContaId) || "Selecionar conta"}
+                </ButtonField>
+              </Campo>
+            </>
+          )}
+
           {temParcelas && (
             <Campo label="Quantidade de parcelas" erro={erros.numeroParcelas} shakeKey={shakeKey}>
               <ButtonField erro={erros.numeroParcelas} shakeKey={shakeKey} onClick={() => setModalParcelas(true)}>
@@ -1579,7 +1748,7 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
             </Campo>
           )}
 
-          <Campo label="Valor Total Renegociado" erro={erros.valorRenegociado} shakeKey={shakeKey}>
+          <Campo label={entradaIndependente ? "Total do parcelamento" : "Valor Total Renegociado"} erro={erros.valorRenegociado} shakeKey={shakeKey}>
             <InputMoeda erro={erros.valorRenegociado} shakeKey={shakeKey} value={form.valorRenegociado} onChange={(valor) => { limparErro("valorRenegociado"); atualizarValorTotalRenegociado(valor); }} />
           </Campo>
 
@@ -1595,7 +1764,7 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
         <DatePickerModal
           aberto={true}
           valor={form[modalData] || ""}
-          minDate={modalData === "primeiroVencimento" ? form.dataRenegociacao || null : null}
+          minDate={["primeiroVencimento", "entradaVencimento"].includes(modalData) ? form.dataRenegociacao || null : null}
           maxDate={modalData === "dataRenegociacao" ? hojeISO() : null}
           onChange={(data) => {
             limparErro(modalData);
@@ -1629,6 +1798,19 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
         onClose={() => setModalFormaPagamento(false)}
       />
 
+      <SelecionarFormaPagamentoModal
+        aberto={modalFormaEntrada}
+        formasPagamento={formasPagamentoAcordo}
+        formaPagamento={form.entradaFormaPagamento}
+        onSelecionar={(valor) => {
+          limparErro("entradaFormaPagamento");
+          setField("entradaFormaPagamento", valor);
+          if (valor === "credito") setField("entradaContaId", "");
+          else setField("entradaCartaoId", "");
+        }}
+        onClose={() => setModalFormaEntrada(false)}
+      />
+
       <SelecionarContaModal
         aberto={modalConta}
         contas={contasBanco}
@@ -1638,12 +1820,30 @@ function EditarRenegociacaoModal({ renegociacao, fechar, onSalvo }) {
         formatarMoeda={formatarMoeda}
       />
 
+      <SelecionarContaModal
+        aberto={modalContaEntrada}
+        contas={contasBanco}
+        contaId={form.entradaContaId}
+        onSelecionar={(id) => { limparErro("entradaContaId"); setField("entradaContaId", id); }}
+        onClose={() => setModalContaEntrada(false)}
+        formatarMoeda={formatarMoeda}
+      />
+
       <SelecionarCartaoModal
         aberto={modalCartao}
         cartoes={cartoesAtivos}
         cartaoId={form.cartaoPagamentoId}
         onSelecionar={(id) => { limparErro("cartaoPagamentoId"); setField("cartaoPagamentoId", id); }}
         onClose={() => setModalCartao(false)}
+        formatarMoeda={formatarMoeda}
+      />
+
+      <SelecionarCartaoModal
+        aberto={modalCartaoEntrada}
+        cartoes={cartoesAtivos}
+        cartaoId={form.entradaCartaoId}
+        onSelecionar={(id) => { limparErro("entradaCartaoId"); setField("entradaCartaoId", id); }}
+        onClose={() => setModalCartaoEntrada(false)}
         formatarMoeda={formatarMoeda}
       />
 
@@ -1749,19 +1949,40 @@ function ResumoResultadoAcordo({
   parcelaTotal,
   totalConsideradoBanco,
   custoEstimado,
+  entradaIndependente,
+  valorEntrada,
+  entradaVencimento,
+  entradaFormaPagamento,
+  entradaConta,
 }) {
   return (
     <div className="space-y-5">
       <div className="rounded-2xl border border-green-500/30 bg-green-500/10 p-5 flex items-center justify-between gap-4">
         <div>
           <p className="text-sm text-green-300">Valor total do acordo</p>
-          <p className="text-2xl font-black text-green-400 mt-1">{formatarMoeda(totalAcordo)}</p>
+          <p className="text-2xl font-black text-green-400 mt-1">{formatarMoeda(totalAcordo + (entradaIndependente ? valorEntrada : 0))}</p>
         </div>
         <div className="text-right">
           <p className="text-sm text-green-300">Nova obrigação</p>
-          <p className="font-black mt-1">{temParcelas ? `${numeroParcelas}x de ${formatarMoeda(parcelaTotal)}` : "Pagamento à vista"}</p>
+          <p className="font-black mt-1">
+            {entradaIndependente
+              ? `${formatarMoeda(valorEntrada)} de entrada + ${numeroParcelas}x de ${formatarMoeda(parcelaTotal)}`
+              : temParcelas ? `${numeroParcelas}x de ${formatarMoeda(parcelaTotal)}` : "Pagamento à vista"}
+          </p>
         </div>
       </div>
+
+      {entradaIndependente && (
+        <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-5">
+          <p className="text-xs font-black uppercase tracking-wide text-blue-300">Entrada independente</p>
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <MiniInfo titulo="Valor" valor={formatarMoeda(valorEntrada)} />
+            <MiniInfo titulo="Vencimento" valor={formatarDataBR(entradaVencimento)} />
+            <MiniInfo titulo="Forma" valor={textoFormaPagamento(entradaFormaPagamento)} />
+            <MiniInfo titulo="Conta" valor={entradaConta || "-"} />
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         {grupos.map((grupo) => {
@@ -1810,7 +2031,7 @@ function ResumoResultadoAcordo({
           <>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
               <MiniInfo titulo="Banco considerou" valor={formatarMoeda(totalConsideradoBanco)} />
-              <MiniInfo titulo="Total a pagar" valor={formatarMoeda(totalAcordo)} />
+              <MiniInfo titulo="Total a pagar" valor={formatarMoeda(totalAcordo + (entradaIndependente ? valorEntrada : 0))} />
               <MiniInfo titulo="Diferença estimada" valor={formatarMoeda(custoEstimado)} />
             </div>
             <p className="text-sm text-gray-400 mt-4">A diferença pode incluir juros, IOF, multas e outros encargos definidos pela instituição.</p>

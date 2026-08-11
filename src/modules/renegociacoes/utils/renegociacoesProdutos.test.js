@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  calcularTotalParcelamento,
+  calcularValorParcelaRenegociacao,
   criarComposicaoParcelaRenegociacao,
   normalizarProdutosRenegociados,
 } from "./renegociacoesUtils.js";
@@ -172,4 +174,18 @@ test("altera cartão, cheque especial e empréstimo sem uma edição reverter a 
     [110, 95, 120]
   );
   assert.equal(parcela.valorAtualizado, 325);
+});
+
+test("entrada independente não reduz o valor do parcelamento", () => {
+  assert.equal(calcularTotalParcelamento(1060.5, 67.3, true), 1060.5);
+  assert.equal(calcularValorParcelaRenegociacao({
+    valorRenegociado: 1060.5,
+    valorEntrada: 67.3,
+    numeroParcelas: 10,
+    entradaIndependente: true,
+  }), 106.05);
+});
+
+test("mantém a leitura legada que já descontava a entrada", () => {
+  assert.equal(calcularTotalParcelamento(1127.8, 67.3, false), 1060.5);
 });

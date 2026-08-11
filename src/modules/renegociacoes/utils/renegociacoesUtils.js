@@ -1,6 +1,32 @@
 export { formatarMoeda } from "../../../shared/utils/moeda.js";
 import { criarItensParcela } from "../../../shared/utils/parcelasContratos.js";
 
+export const MODELO_ENTRADA_INDEPENDENTE = "entrada_independente_v2";
+
+export function usaEntradaIndependente(itens = []) {
+  return itens.some(
+    (item) => item?.payload?._acordo?.modelo_valores === MODELO_ENTRADA_INDEPENDENTE
+      || item?._acordo?.modelo_valores === MODELO_ENTRADA_INDEPENDENTE
+  );
+}
+
+export function calcularTotalParcelamento(valorRenegociado, valorEntrada, entradaIndependente) {
+  const total = Number(valorRenegociado || 0);
+  return entradaIndependente
+    ? Math.max(total, 0)
+    : Math.max(total - Number(valorEntrada || 0), 0);
+}
+
+export function calcularValorParcelaRenegociacao({
+  valorRenegociado,
+  valorEntrada,
+  numeroParcelas,
+  entradaIndependente,
+}) {
+  const parcelas = Math.max(Number(numeroParcelas || 1), 1);
+  return calcularTotalParcelamento(valorRenegociado, valorEntrada, entradaIndependente) / parcelas;
+}
+
 export function formatarMoedaDigitada(valor) {
   const somenteDigitos = String(valor ?? "").replace(/\D/g, "");
   if (!somenteDigitos) return "";
