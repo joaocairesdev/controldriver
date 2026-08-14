@@ -1,4 +1,4 @@
-import { supabase } from "../../../services/supabase";
+import { supabase } from "../../../services/supabase.js";
 
 export function criarMetricasVazias() {
   return {
@@ -7,7 +7,7 @@ export function criarMetricasVazias() {
     corridas: 0,
     minutosTrabalhados: 0,
     diasTrabalhados: 0,
-    datasTrabalhadas: new Set(),
+    maiorFaturamento: 0,
     plataformas: {},
     custos: criarCustosVazios(),
     rateioUsoVeiculo: {
@@ -22,6 +22,55 @@ export function criarMetricasVazias() {
     percentualMeta: 0,
     faltaMeta: 0,
     historicoFaturamento: [],
+  };
+}
+
+export function resumirOperacaoPorDia(entradas = []) {
+  const resumoPorData = new Map();
+
+  entradas.forEach((entrada) => {
+    if (!entrada?.data) return;
+
+    const plataformas = entrada.entrada_plataformas || [];
+    const faturamento = plataformas.reduce(
+      (total, item) => total + Number(item.faturamento || 0) + Number(item.valor_reembolso || 0),
+      0,
+    );
+    const corridas = plataformas.reduce(
+      (total, item) => total + Number(item.numero_corridas || 0),
+      0,
+    );
+    const resumoAtual = resumoPorData.get(entrada.data) || {
+      data: entrada.data,
+      faturamento: 0,
+      corridas: 0,
+      km: 0,
+    };
+
+    resumoAtual.faturamento += faturamento;
+    resumoAtual.corridas += corridas;
+    resumoAtual.km += Number(entrada.km_rodados || 0);
+    resumoPorData.set(entrada.data, resumoAtual);
+  });
+
+  return [...resumoPorData.values()];
+}
+
+export function diaFoiTrabalhado(resumoDia) {
+  return Number(resumoDia?.faturamento || 0) > 0
+    && Number(resumoDia?.corridas || 0) > 0
+    && Number(resumoDia?.km || 0) > 0;
+}
+
+export function calcularIndicadoresDiarios(entradas = []) {
+  const resumoDiario = resumirOperacaoPorDia(entradas);
+
+  return {
+    diasTrabalhados: resumoDiario.filter(diaFoiTrabalhado).length,
+    maiorFaturamento: resumoDiario.reduce(
+      (maior, dia) => Math.max(maior, Number(dia.faturamento || 0)),
+      0,
+    ),
   };
 }
 
@@ -562,7 +611,7 @@ export function normalizarArrayNumerico(valor) {
     try {
       const convertido = JSON.parse(valor);
       return Array.isArray(convertido) ? convertido.map(Number).filter((item) => !Number.isNaN(item)) : [];
-    } catch (_) {
+    } catch {
       return [];
     }
   }
@@ -702,4 +751,3 @@ export function construirHistoricoFaturamento(entradas, periodo, selecao) {
     return { label, valor };
   });
 }
-

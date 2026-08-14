@@ -33,7 +33,7 @@ export function PeriodoControle({ periodo, setPeriodo, textoPeriodo, abrirPeriod
         <button
           type="button"
           onClick={abrirPeriodo}
-          className="w-full sm:w-[190px] bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl px-3 py-2 text-gray-200 text-sm font-bold text-center transition truncate"
+          className="w-full sm:w-[190px] bg-[#111827] border border-gray-700 hover:border-green-400 rounded-xl px-3 py-2 text-gray-200 text-sm font-bold text-center leading-tight whitespace-pre-line transition"
         >
           {textoPeriodo}
         </button>
@@ -209,7 +209,7 @@ export function InvestimentosObjetivosCard({ formatarMoeda }) {
   );
 }
 
-export function ContasAtrasadasCard({ contas, total, abrirConfiguracao, abrirPagina, formatarMoeda, formatarDataBR }) {
+export function ContasAtrasadasCard({ contas, total, abrirPagina, formatarMoeda, formatarDataBR }) {
   return (
     <div
       className="relative bg-[#111827] border border-gray-800 hover:border-red-500/45 rounded-3xl p-5 cursor-pointer transition"
@@ -223,30 +223,17 @@ export function ContasAtrasadasCard({ contas, total, abrirConfiguracao, abrirPag
       role="button"
       tabIndex={0}
     >
-      <button
-        type="button"
-        onClick={(evento) => {
-          evento.stopPropagation();
-          abrirConfiguracao();
-        }}
-        className="absolute top-4 right-4 w-9 h-9 rounded-xl hover:bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition"
-        title="Configurar contas atrasadas e negativas"
-        aria-label="Configurar contas atrasadas e negativas"
-      >
-        <FiSettings className="text-lg" />
-      </button>
-
-      <div className="pr-12">
+      <div>
         <p className="text-sm text-gray-400">Contas vencidas</p>
         <h3 className="text-2xl font-black mt-1 text-red-400">{formatarMoeda(total)}</h3>
-        <p className="text-xs text-gray-500 mt-1">Faturas e contas vencidas, além de saldos negativos configurados.</p>
+        <p className="text-xs text-gray-500 mt-1">Todas as faturas e contas vencidas, da mais antiga para a mais recente.</p>
       </div>
 
       <div className="mt-4 space-y-3">
         {contas.length === 0 ? (
-          <p className="text-sm text-gray-500">Nada para mostrar conforme sua configuração.</p>
+          <p className="text-sm text-gray-500">Nenhuma conta vencida encontrada.</p>
         ) : (
-          contas.slice(0, 5).map((conta) => (
+          contas.map((conta) => (
             <div key={conta.id} className="flex items-center justify-between gap-3 border-t border-gray-800 pt-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
@@ -296,10 +283,10 @@ export function SaldoGeralCard({ saldoGeral, contas, plataformas = [], abrirConf
       </button>
 
       <div className="pr-12">
-        <p className="text-sm font-black uppercase tracking-wide text-white/80">Saldo consolidado das contas</p>
+        <p className="text-sm font-black uppercase tracking-wide text-white/80">Saldo Consolidado</p>
         <h2 className="text-4xl sm:text-5xl font-black mt-2">{formatarMoeda(saldoGeral)}</h2>
         <p className="text-sm text-white/80 mt-3">
-          {contas.length} conta(s) incluída(s) neste saldo.
+          {contas.length} conta(s) e {plataformas.length} plataforma(s) incluída(s) neste saldo.
         </p>
       </div>
 
@@ -329,11 +316,23 @@ export function SaldoGeralCard({ saldoGeral, contas, plataformas = [], abrirConf
   );
 }
 
+function IndicadorBadge({ tipo }) {
+  const classe = tipo === "Média"
+    ? "bg-purple-500/20 text-purple-300"
+    : "bg-blue-500/20 text-blue-300";
+
+  return (
+    <span className={`inline-flex shrink-0 items-center rounded-full px-3 py-1 text-xs font-bold ${classe}`}>
+      {tipo}
+    </span>
+  );
+}
+
 export function FaturamentoCard({ titulo, valor }) {
   return (
-    <div className="h-full min-h-[132px] bg-gradient-to-br from-green-500/15 to-[#111827] border border-green-500/30 rounded-3xl px-6 py-5 sm:px-7 sm:py-6 flex flex-col justify-center">
-      <p className="text-base font-black text-green-300">{titulo}</p>
-      <h3 className="text-4xl sm:text-5xl font-black mt-3 text-white leading-none">{valor}</h3>
+    <div className="h-full min-h-[132px] bg-gradient-to-br from-green-500/15 to-[#111827] border border-green-500/30 rounded-3xl px-6 py-5 sm:px-7 sm:py-6 flex flex-col justify-center min-w-0">
+      <p className="text-base font-black text-green-300 break-words">{titulo}</p>
+      <h3 className="text-4xl sm:text-5xl font-black mt-3 text-white leading-none break-words [overflow-wrap:anywhere]">{valor}</h3>
     </div>
   );
 }
@@ -342,12 +341,12 @@ export function MetaCard({ metaLabel, metaValor, percentual, faltaMeta, formatar
   const percentualSeguro = Math.max(Number(percentual || 0), 0);
 
   return (
-    <div className="h-full min-h-[132px] bg-gradient-to-br from-blue-500/12 to-[#111827] border border-blue-500/30 rounded-3xl px-6 py-5 sm:px-7 sm:py-6 flex flex-col justify-center">
+    <div className="h-full min-h-[132px] bg-gradient-to-br from-blue-500/12 to-[#111827] border border-blue-500/30 rounded-3xl px-6 py-5 sm:px-7 sm:py-6 flex flex-col justify-center min-w-0">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-base font-bold text-blue-200">{metaLabel}</p>
+        <p className="text-base font-bold text-blue-200 break-words">{metaLabel}</p>
         <span className="text-xl sm:text-2xl font-black text-green-400">{Math.round(percentualSeguro)}%</span>
       </div>
-      <p className="text-3xl sm:text-4xl font-black mt-2 leading-none">{metaValor}</p>
+      <p className="text-3xl sm:text-4xl font-black mt-2 leading-none break-words [overflow-wrap:anywhere]">{metaValor}</p>
       <div className="mt-3 h-3 rounded-full bg-[#0B1120] overflow-hidden border border-gray-800">
         <div className="h-full bg-green-500 rounded-full" style={{ width: `${Math.min(percentualSeguro, 100)}%` }} />
       </div>
@@ -358,16 +357,17 @@ export function MetaCard({ metaLabel, metaValor, percentual, faltaMeta, formatar
   );
 }
 
-export function MetricCard({ titulo, valor }) {
+export function MetricCard({ titulo, valor, badge }) {
   return (
-    <div className="h-full min-h-[132px] bg-[#111827] border border-gray-800 rounded-2xl px-4 py-4 flex flex-col justify-center min-w-0 overflow-hidden">
-      <p className="text-sm font-semibold text-gray-300 leading-snug">{titulo}</p>
-      <h3 className="text-xl sm:text-2xl font-black mt-3 whitespace-nowrap">{valor}</h3>
+    <div className="h-full min-h-[132px] bg-[#111827] border border-gray-800 rounded-2xl px-4 py-4 flex flex-col items-start min-w-0">
+      <IndicadorBadge tipo={badge} />
+      <p className="text-sm font-semibold text-gray-300 leading-snug mt-2 break-words">{titulo}</p>
+      <h3 className="text-xl sm:text-2xl font-black leading-tight mt-2 break-words [overflow-wrap:anywhere]">{valor}</h3>
     </div>
   );
 }
 
-export function ProximasContasCard({ contas, dias, abrirConfiguracao, abrirPagina, formatarMoeda, formatarDataBR, total }) {
+export function ProximasContasCard({ contas, abrirPagina, formatarMoeda, formatarDataBR, total }) {
 
   return (
     <div
@@ -382,23 +382,10 @@ export function ProximasContasCard({ contas, dias, abrirConfiguracao, abrirPagin
       role="button"
       tabIndex={0}
     >
-      <button
-        type="button"
-        onClick={(evento) => {
-          evento.stopPropagation();
-          abrirConfiguracao();
-        }}
-        className="absolute top-4 right-4 w-9 h-9 rounded-xl hover:bg-white/5 flex items-center justify-center text-gray-400 hover:text-white transition"
-        title="Configurar contas a pagar"
-        aria-label="Configurar contas a pagar"
-      >
-        <FiSettings className="text-lg" />
-      </button>
-
-      <div className="pr-12">
+      <div>
         <p className="text-sm text-gray-400">Próximas contas a vencer</p>
         <h3 className="text-2xl font-black mt-1">{formatarMoeda(total)}</h3>
-        <p className="text-xs text-gray-500 mt-1">Vencimentos dos próximos {dias} dias.</p>
+        <p className="text-xs text-gray-500 mt-1">Todos os vencimentos dos próximos 30 dias.</p>
       </div>
 
       <div className="mt-4 space-y-3">

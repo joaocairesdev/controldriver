@@ -33,10 +33,10 @@ test("extrato mantém ganhos somente leitura e oferece busca e paginação", asy
   assert.match(container, /titulo="Valor líquido"/);
 });
 
-test("cards respeitam visibilidade, saldo e hierarquia visual responsiva", async () => {
+test("cards preservam todas as plataformas e a hierarquia visual responsiva", async () => {
   const fonte = await ler("../components/PlataformasFinanceiras.jsx");
 
-  assert.match(fonte, /plataforma\.exibir_nas_contas !== false/);
+  assert.match(fonte, /plataformas\.map\(\(plataforma\)/);
   assert.match(fonte, /grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5/);
   assert.match(fonte, /Number\(plataforma\.saldo \|\| 0\) > 0/);
   assert.match(fonte, /disabled=\{!permiteSaque\}/);
@@ -46,16 +46,16 @@ test("cards respeitam visibilidade, saldo e hierarquia visual responsiva", async
   assert.doesNotMatch(fonte, /font-black truncate/);
 });
 
-test("lista usa logo, nome e switch com feedback para saldos não zerados", async () => {
+test("lista usa logo, nome e switch para participação no saldo consolidado", async () => {
   const fonte = await ler("../components/PlataformasFinanceiras.jsx");
 
   assert.match(fonte, /function ListaConfiguracaoPlataformasModal/);
   assert.match(fonte, /<LogoPlataforma nome=\{plataforma\.nome\}/);
-  assert.match(fonte, /<ToggleSwitch[\s\S]*onAlternarExibicao\(plataforma, exibir\)/);
+  assert.match(fonte, /Participa do Saldo Consolidado/);
+  assert.match(fonte, /<ToggleSwitch[\s\S]*onAlternarParticipacao\(plataforma, valor\)/);
   assert.match(fonte, /plataformas\.length > 8/);
   assert.match(fonte, /placeholder="Buscar\.\.\."/);
-  assert.match(fonte, /Saldo disponível na plataforma/);
-  assert.match(fonte, /Saldo pendente na plataforma/);
+  assert.doesNotMatch(fonte, /não pode ser ocultada/);
   assert.doesNotMatch(fonte, /Configurar recebimentos e taxas de saque\./);
   assert.doesNotMatch(fonte, /Plataformas com saldo não podem ser ocultadas\./);
 });
@@ -75,7 +75,7 @@ test("edição do saque mantém transferência, data e taxa na mesma função SQ
   assert.match(migration, /delete from public\.saidas/);
 });
 
-test("preferência de exibição possui migration sem alterar regras financeiras", async () => {
+test("preferência persistida da plataforma controla participação sem alterar regras financeiras", async () => {
   const [migration, servico] = await Promise.all([
     ler("../../../../supabase/migrations/20260805150000_exibir_plataformas_nas_contas.sql"),
     ler("../services/plataformasFinanceiroService.js"),
@@ -83,7 +83,7 @@ test("preferência de exibição possui migration sem alterar regras financeiras
 
   assert.match(migration, /add column if not exists exibir_nas_contas boolean not null default true/);
   assert.match(servico, /supabase\.rpc\("excluir_recebimento_semanal_plataforma"/);
-  assert.match(servico, /\.update\(\{ exibir_nas_contas: Boolean\(exibir\) \}\)/);
+  assert.match(servico, /\.update\(\{ exibir_nas_contas: Boolean\(participa\) \}\)/);
 });
 
 test("recebimento semanal permite editar metadados sem alterar o valor", async () => {

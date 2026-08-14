@@ -13,22 +13,25 @@ import {
   ProximasContasCard, PlataformasCard, GraficoHistoricoFaturamento, DashboardAnimations,
 } from "../components/DashboardComponentes";
 import {
-  ModalRateioDashboard, ModalContasAtrasadasDashboard, ModalContasPagarDashboard,
-  ModalContasDashboard, ModalPeriodo, ModalAno, ModalMesAno,
+  ModalRateioDashboard, ModalContasDashboard, ModalPeriodo, ModalAno, ModalMesAno,
 } from "../components/DashboardModais";
 import {
   criarMetricasVazias, calcularRateioUsoVeiculo, calcularCustosPorFinalidade,
-  construirHistoricoFaturamento, calcularMetaPeriodo, getSemanaDoAno, pegarSemanaPorNumero,
+  construirHistoricoFaturamento, calcularMetaPeriodo, calcularIndicadoresDiarios,
+  getSemanaDoAno, pegarSemanaPorNumero,
 } from "../utils/dashboardCalculos";
 import {
   carregarPreferenciasDashboardLocalStorage, salvarPreferenciasDashboardLocalStorage,
-  criarMetricasPessoaisVazias, entradaAvulsaPessoal,
+  criarMetricasPessoaisVazias, criarContextoDashboard, entradaAvulsaPessoal,
 } from "../utils/dashboardHelpers";
 
 
 const CONTAS_DASHBOARD_KEY = "controldriver_dashboard_contas_ativas_v1";
-const CONTAS_PAGAR_DIAS_KEY = "controldriver_dashboard_contas_pagar_dias_v1";
-const CONTAS_ATRASADAS_CONFIG_KEY = "controldriver_dashboard_contas_atrasadas_config_v1";
+const MESES = [
+  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
+];
+
 export default function Dashboard({ navegarPara }) {
   const hoje = new Date();
   const hojeISO = dataISO(hoje);
@@ -42,7 +45,6 @@ export default function Dashboard({ navegarPara }) {
 
   const [modalPeriodoAberto, setModalPeriodoAberto] = useState(false);
   const [modalContasAberto, setModalContasAberto] = useState(false);
-  const [modalContasPagarAberto, setModalContasPagarAberto] = useState(false);
   const [modalAnoAberto, setModalAnoAberto] = useState(false);
   const [modalMesAnoAberto, setModalMesAnoAberto] = useState(false);
   const [etapaMesAno, setEtapaMesAno] = useState("ano");
@@ -57,9 +59,6 @@ export default function Dashboard({ navegarPara }) {
   const [metricasPessoais, setMetricasPessoais] = useState(criarMetricasPessoaisVazias());
   const [proximasContas, setProximasContas] = useState([]);
   const [contasAtrasadas, setContasAtrasadas] = useState([]);
-  const [diasContasPagar, setDiasContasPagar] = useState(carregarDiasContasPagarLocalStorage());
-  const [configContasAtrasadas, setConfigContasAtrasadas] = useState(carregarConfigContasAtrasadasLocalStorage());
-  const [modalContasAtrasadasAberto, setModalContasAtrasadasAberto] = useState(false);
   const [modalRateioAberto, setModalRateioAberto] = useState(false);
   const [tipoRateioModal, setTipoRateioModal] = useState("trabalho");
 
@@ -67,21 +66,22 @@ export default function Dashboard({ navegarPara }) {
   const [selecaoGrafico, setSelecaoGrafico] = useState(null);
   const contextoGrafico = `${periodo}:${dataSelecionada}:${semanaSelecionada}:${mesSelecionado}:${anoSelecionado}`;
   const selecaoGraficoAtiva = selecaoGrafico?.contexto === contextoGrafico ? selecaoGrafico : null;
-
-  const meses = [
-    "Janeiro",
-    "Fevereiro",
-    "Março",
-    "Abril",
-    "Maio",
-    "Junho",
-    "Julho",
-    "Agosto",
-    "Setembro",
-    "Outubro",
-    "Novembro",
-    "Dezembro",
-  ];
+  const contextoDashboard = useMemo(() => criarContextoDashboard({
+    periodo,
+    dataSelecionada,
+    semanaSelecionada,
+    mesSelecionado,
+    anoSelecionado,
+    selecaoGrafico: selecaoGraficoAtiva,
+    meses: MESES,
+  }), [
+    periodo,
+    dataSelecionada,
+    semanaSelecionada,
+    mesSelecionado,
+    anoSelecionado,
+    selecaoGraficoAtiva,
+  ]);
 
   const diasSemana = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -101,12 +101,7 @@ export default function Dashboard({ navegarPara }) {
   async function carregarSaldosPlataformas() {
     try {
       const plataformasData = await carregarPlataformasFinanceiras();
-      setPlataformasFinanceiras(
-        plataformasData.filter(
-          (plataforma) => Math.abs(Number(plataforma.saldo || 0)) >= 0.01
-            || plataforma.exibir_nas_contas !== false,
-        ),
-      );
+      setPlataformasFinanceiras(plataformasData);
     } catch (error) {
       console.error("Erro ao carregar saldos das plataformas no dashboard:", error);
       setPlataformasFinanceiras([]);
@@ -227,7 +222,7 @@ export default function Dashboard({ navegarPara }) {
   async function carregarProximasContas() {
     const hojeTexto = dataISO(new Date());
     const limite = new Date();
-    limite.setDate(limite.getDate() + Number(diasContasPagar || 7));
+    limite.setDate(limite.getDate() + 30);
     const limiteTexto = dataISO(limite);
 
     const { data: faturasData } = await supabase
@@ -247,8 +242,7 @@ export default function Dashboard({ navegarPara }) {
       .in("status", ["aberta", "fechada", "parcial"])
       .gte("data_vencimento", hojeTexto)
       .lte("data_vencimento", limiteTexto)
-      .order("data_vencimento", { ascending: true })
-      .limit(5);
+      .order("data_vencimento", { ascending: true });
 
     const { data: contasPagarData } = await supabase
       .from("saidas")
@@ -256,8 +250,7 @@ export default function Dashboard({ navegarPara }) {
       .eq("tipo_movimentacao", "conta_pagar")
       .gte("data_vencimento", hojeTexto)
       .lte("data_vencimento", limiteTexto)
-      .order("data_vencimento", { ascending: true })
-      .limit(5);
+      .order("data_vencimento", { ascending: true });
 
     const faturas = (faturasData || []).map((fatura) => ({
       id: `fatura-${fatura.id}`,
@@ -279,8 +272,7 @@ export default function Dashboard({ navegarPara }) {
 
     const lista = [...faturas, ...contas]
       .filter((item) => item.valor > 0)
-      .sort((a, b) => String(a.data).localeCompare(String(b.data)))
-      .slice(0, 5);
+      .sort((a, b) => String(a.data).localeCompare(String(b.data)));
 
     setProximasContas(lista);
   }
@@ -304,8 +296,7 @@ export default function Dashboard({ navegarPara }) {
       `)
       .in("status", ["aberta", "fechada", "parcial"])
       .lt("data_vencimento", hojeTexto)
-      .order("data_vencimento", { ascending: true })
-      .limit(10);
+      .order("data_vencimento", { ascending: true });
 
     const { data: contasPagarData } = await supabase
       .from("saidas")
@@ -313,8 +304,7 @@ export default function Dashboard({ navegarPara }) {
       .eq("tipo_movimentacao", "conta_pagar")
       .neq("status", "pago")
       .lt("data_vencimento", hojeTexto)
-      .order("data_vencimento", { ascending: true })
-      .limit(10);
+      .order("data_vencimento", { ascending: true });
 
     const faturas = (faturasData || []).map((fatura) => ({
       id: `fatura-atrasada-${fatura.id}`,
@@ -336,8 +326,7 @@ export default function Dashboard({ navegarPara }) {
 
     const lista = [...faturas, ...contas]
       .filter((item) => item.valor > 0)
-      .sort((a, b) => String(a.data).localeCompare(String(b.data)))
-      .slice(0, 8);
+      .sort((a, b) => String(a.data).localeCompare(String(b.data)));
 
     setContasAtrasadas(lista);
   }
@@ -405,8 +394,6 @@ export default function Dashboard({ navegarPara }) {
       acc.km += Number(entrada.km_rodados || 0);
       acc.corridas += totalCorridas;
       acc.minutosTrabalhados += intervalParaMinutos(entrada.horas_trabalhadas);
-      if (entrada.data) acc.datasTrabalhadas.add(entrada.data);
-
       plataformas.forEach((item) => {
         const nome = item.plataformas?.nome || "Sem plataforma";
         const valor = Number(item.faturamento || 0) + Number(item.valor_reembolso || 0);
@@ -423,8 +410,9 @@ export default function Dashboard({ navegarPara }) {
       return acc;
     }, criarMetricasVazias());
 
-    resumoBase.diasTrabalhados = resumoBase.datasTrabalhadas.size;
-    delete resumoBase.datasTrabalhadas;
+    const indicadoresDiarios = calcularIndicadoresDiarios(entradasData);
+    resumoBase.diasTrabalhados = indicadoresDiarios.diasTrabalhados;
+    resumoBase.maiorFaturamento = indicadoresDiarios.maiorFaturamento;
 
     const kmTotalVeiculoPeriodo = (abastecimentosData || []).reduce(
       (total, item) => total + Number(item.km_rodados || 0),
@@ -443,26 +431,22 @@ export default function Dashboard({ navegarPara }) {
   }
 
   async function carregarPerformance() {
-    const { inicio, fim } = intervaloDatas();
+    const { inicio, fim } = contextoDashboard.intervaloBase;
     const { resumoBase, entradasData } = await buscarDadosOperacao(inicio, fim);
-    const historicoFaturamento = construirHistoricoFaturamento(entradasData, periodo, {
-      dataSelecionada,
-      semanaSelecionada,
-      mesSelecionado,
-      anoSelecionado,
-    });
+    const historicoFaturamento = construirHistoricoFaturamento(
+      entradasData,
+      contextoDashboard.periodoBase,
+      contextoDashboard.filtrosBase,
+    );
 
-    const metricasIndicadores = selecaoGraficoAtiva
-      ? (await buscarDadosOperacao(selecaoGraficoAtiva.inicio, selecaoGraficoAtiva.fim)).resumoBase
+    const metricasIndicadores = contextoDashboard.temSelecao
+      ? (await buscarDadosOperacao(contextoDashboard.inicio, contextoDashboard.fim)).resumoBase
       : resumoBase;
-    const periodoMeta = selecaoGraficoAtiva?.periodoMeta || periodo;
-    const filtrosMeta = selecaoGraficoAtiva?.filtrosMeta || {
-      dataSelecionada,
-      semanaSelecionada,
-      mesSelecionado,
-      anoSelecionado,
-    };
-    const metaPeriodo = await calcularMetaPeriodo(metaAtiva, periodoMeta, filtrosMeta);
+    const metaPeriodo = await calcularMetaPeriodo(
+      metaAtiva,
+      contextoDashboard.periodo,
+      contextoDashboard.filtrosMeta,
+    );
 
     metricasIndicadores.meta = metaPeriodo;
     metricasIndicadores.percentualMeta = metaPeriodo > 0 ? Math.min((metricasIndicadores.faturamento / metaPeriodo) * 100, 999) : 0;
@@ -473,7 +457,7 @@ export default function Dashboard({ navegarPara }) {
   }
 
   async function carregarFinancasPessoais() {
-    const { inicio, fim } = intervaloIndicadores();
+    const { inicio, fim } = contextoDashboard;
     const { resumoBase } = await buscarDadosOperacao(inicio, fim);
 
     const { data: entradasAvulsasData = [] } = await supabase
@@ -508,35 +492,6 @@ export default function Dashboard({ navegarPara }) {
 
   function salvarContasSelecionadasLocalStorage(ids) {
     localStorage.setItem(CONTAS_DASHBOARD_KEY, JSON.stringify(ids.map(String)));
-  }
-
-  function carregarDiasContasPagarLocalStorage() {
-    const valor = Number(localStorage.getItem(CONTAS_PAGAR_DIAS_KEY) || 7);
-    return [7, 15, 30, 60].includes(valor) ? valor : 7;
-  }
-
-  function carregarConfigContasAtrasadasLocalStorage() {
-    try {
-      const config = JSON.parse(localStorage.getItem(CONTAS_ATRASADAS_CONFIG_KEY) || "{}");
-      return {
-        mostrarAtrasadas: config.mostrarAtrasadas !== false,
-        mostrarNegativas: config.mostrarNegativas === true,
-      };
-    } catch {
-      return { mostrarAtrasadas: true, mostrarNegativas: false };
-    }
-  }
-
-  function alterarConfigContasAtrasadas(novaConfig) {
-    const config = { ...configContasAtrasadas, ...novaConfig };
-    setConfigContasAtrasadas(config);
-    localStorage.setItem(CONTAS_ATRASADAS_CONFIG_KEY, JSON.stringify(config));
-  }
-
-  function alterarDiasContasPagar(dias) {
-    const novoValor = Number(dias || 7);
-    setDiasContasPagar(novoValor);
-    localStorage.setItem(CONTAS_PAGAR_DIAS_KEY, String(novoValor));
   }
 
   function alternarContaDashboard(contaId) {
@@ -582,71 +537,6 @@ export default function Dashboard({ navegarPara }) {
     if (!dataISOTexto) return "-";
     const [ano, mes, dia] = String(dataISOTexto).split("-");
     return `${dia}/${mes}/${ano}`;
-  }
-
-  function intervaloDatas() {
-    return intervaloPorSelecao(periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado);
-  }
-
-  function intervaloIndicadores() {
-    return selecaoGraficoAtiva
-      ? { inicio: selecaoGraficoAtiva.inicio, fim: selecaoGraficoAtiva.fim }
-      : intervaloDatas();
-  }
-
-  function intervaloPorSelecao(periodoAtual, dataAtual, semanaAtual, mesAtual, anoAtual) {
-    if (periodoAtual === "dia") return { inicio: dataAtual, fim: dataAtual };
-
-    if (periodoAtual === "semana") {
-      return pegarSemanaPorNumero(Number(anoAtual), Number(semanaAtual));
-    }
-
-    if (periodoAtual === "mes") {
-      const inicio = new Date(Number(anoAtual), Number(mesAtual) - 1, 1);
-      const fim = new Date(Number(anoAtual), Number(mesAtual), 0);
-      return { inicio: dataISO(inicio), fim: dataISO(fim) };
-    }
-
-    return { inicio: `${anoAtual}-01-01`, fim: `${anoAtual}-12-31` };
-  }
-
-  function textoPeriodoSelecionado() {
-    return textoPeriodo(periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado);
-  }
-
-  function textoPeriodo(periodoAtual, dataAtual, semanaAtual, mesAtual, anoAtual) {
-    if (periodoAtual === "dia") return formatarDataBR(dataAtual);
-
-    if (periodoAtual === "semana") {
-      const semana = pegarSemanaPorNumero(Number(anoAtual), Number(semanaAtual));
-      return `${semanaAtual}ª Semana • ${formatarDataBR(semana.inicio)} à ${formatarDataBR(semana.fim)}`;
-    }
-
-    if (periodoAtual === "mes") return `${meses[Number(mesAtual) - 1]} / ${anoAtual}`;
-
-    return String(anoAtual);
-  }
-
-  function rotuloPeriodo() {
-    const mapa = {
-      dia: "do dia",
-      semana: "da semana",
-      mes: "do mês",
-      ano: "do ano",
-    };
-
-    return mapa[periodo] || "do período";
-  }
-
-  function rotuloMeta() {
-    const mapa = {
-      dia: "Meta do dia",
-      semana: "Meta da semana",
-      mes: "Meta do mês",
-      ano: "Meta do ano",
-    };
-
-    return mapa[periodo] || "Meta do período";
   }
 
   function intervalParaMinutos(intervalo) {
@@ -788,7 +678,7 @@ export default function Dashboard({ navegarPara }) {
       fim,
       periodoMeta: "mes",
       filtrosMeta: { mesSelecionado: String(mesGrafico), anoSelecionado },
-      rotulo: `${meses[mesGrafico - 1]} / ${anoSelecionado}`,
+      rotulo: `${MESES[mesGrafico - 1]}/${anoSelecionado}`,
     };
   }
 
@@ -802,26 +692,25 @@ export default function Dashboard({ navegarPara }) {
     // Consulta inicial: o estado é atualizado pelas respostas assíncronas do Supabase.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     carregarTudo();
+    // A carga inicial é intencionalmente executada uma única vez.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     // Sincroniza os indicadores com o filtro principal e a seleção rápida do gráfico.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     carregarPerformance();
-  }, [periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado, metaAtiva, selecaoGraficoAtiva]);
+    // As dependências abaixo representam integralmente as entradas da função de carga.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextoDashboard, metaAtiva]);
 
   useEffect(() => {
     // Mantém o card pessoal no mesmo intervalo visual dos demais indicadores.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     carregarFinancasPessoais();
-  }, [periodo, dataSelecionada, semanaSelecionada, mesSelecionado, anoSelecionado, selecaoGraficoAtiva]);
-
-  useEffect(() => {
-    if (!carregando) {
-      carregarProximasContas();
-      carregarContasAtrasadas();
-    }
-  }, [diasContasPagar]);
+    // O contexto central contém todas as entradas usadas pela função de carga.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextoDashboard]);
 
   useEffect(() => {
     salvarPreferenciasDashboardLocalStorage({
@@ -842,32 +731,26 @@ export default function Dashboard({ navegarPara }) {
   ]);
 
   const contasAtivasDashboard = contas.filter((conta) => contasSelecionadas.includes(String(conta.id)));
-  const saldoGeral = contasAtivasDashboard.reduce((total, conta) => total + Number(conta.saldo_atual || 0), 0);
+  const plataformasSaldoConsolidado = plataformasFinanceiras.filter(
+    (plataforma) => plataforma.exibir_nas_contas !== false,
+  );
+  const saldoContas = contasAtivasDashboard.reduce((total, conta) => total + Number(conta.saldo_atual || 0), 0);
+  const saldoPlataformas = plataformasSaldoConsolidado.reduce(
+    (total, plataforma) => total + Number(plataforma.saldo || 0),
+    0,
+  );
+  const saldoGeral = saldoContas + saldoPlataformas;
   const horasDecimal = metricas.minutosTrabalhados / 60;
   const ganhoPorKm = metricas.km > 0 ? metricas.faturamento / metricas.km : 0;
   const ganhoPorHora = horasDecimal > 0 ? metricas.faturamento / horasDecimal : 0;
   const ganhoPorCorrida = metricas.corridas > 0 ? metricas.faturamento / metricas.corridas : 0;
   const plataformas = Object.values(metricas.plataformas || {}).sort((a, b) => b.valor - a.valor);
-  const periodoTexto = rotuloPeriodo();
-  const metaTexto = rotuloMeta();
-  const mostrarMetricasPorDia = periodo !== "dia";
   const mediaPorDiaTrabalhado = metricas.diasTrabalhados > 0 ? metricas.faturamento / metricas.diasTrabalhados : 0;
+  const mediaHorasPorDia = metricas.diasTrabalhados > 0
+    ? metricas.minutosTrabalhados / metricas.diasTrabalhados
+    : 0;
   const totalProximasContas = proximasContas.reduce((soma, item) => soma + Number(item.valor || 0), 0);
-  const contasNegativas = contasAtivasDashboard
-    .filter((conta) => Number(conta.saldo_atual || 0) < 0)
-    .map((conta) => ({
-      id: `negativa-${conta.id}`,
-      tipo: "Conta negativa",
-      titulo: conta.nome,
-      subtitulo: conta.tipo_conta === "tag" ? "TAG" : conta.tipo_conta || "Conta",
-      data: hojeISO,
-      valor: Math.abs(Number(conta.saldo_atual || 0)),
-    }));
-  const itensContasAtrasadasCard = [
-    ...(configContasAtrasadas.mostrarAtrasadas ? contasAtrasadas : []),
-    ...(configContasAtrasadas.mostrarNegativas ? contasNegativas : []),
-  ];
-  const totalContasAtrasadas = itensContasAtrasadasCard.reduce((soma, item) => soma + Number(item.valor || 0), 0);
+  const totalContasAtrasadas = contasAtrasadas.reduce((soma, item) => soma + Number(item.valor || 0), 0);
   const custoTrabalho = metricas.custos?.trabalho || { total: 0, categorias: [] };
   const resultadoOperacional = metricas.faturamento - Number(custoTrabalho.total || 0);
   const formatarValorFinanceiro = (valor) => valoresFinanceirosVisiveis ? formatarMoeda(valor) : "••••";
@@ -880,7 +763,7 @@ export default function Dashboard({ navegarPara }) {
         <PeriodoControle
           periodo={periodo}
           setPeriodo={setPeriodo}
-          textoPeriodo={textoPeriodoSelecionado()}
+          textoPeriodo={contextoDashboard.texto}
           abrirPeriodo={() => setModalPeriodoAberto(true)}
         />
 
@@ -890,22 +773,25 @@ export default function Dashboard({ navegarPara }) {
           </div>
         ) : (
           <>
-            {periodo !== "dia" && (
+            {contextoDashboard.periodoBase !== "dia" && (
               <GraficoHistoricoFaturamento
                 dados={metricas.historicoFaturamento || []}
-                periodo={periodo}
-                periodoLabel={textoPeriodoSelecionado()}
+                periodo={contextoDashboard.periodoBase}
+                periodoLabel={contextoDashboard.texto}
                 formatarMoeda={formatarMoeda}
                 selecionadoIndex={selecaoGraficoAtiva?.indice ?? null}
                 onSelecionar={alternarSelecaoGrafico}
               />
             )}
 
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 items-stretch xl:min-h-[286px]">
-              <div className="xl:col-span-5 grid grid-rows-2 gap-3 h-full min-h-0">
-                <FaturamentoCard titulo={`Faturamento bruto ${selecaoGraficoAtiva ? "da seleção" : periodoTexto}`} valor={formatarMoeda(metricas.faturamento)} />
+            <div className="space-y-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch">
+                <FaturamentoCard
+                  titulo={`Faturamento Bruto ${contextoDashboard.complementoTitulo}`}
+                  valor={formatarMoeda(metricas.faturamento)}
+                />
                 <MetaCard
-                  metaLabel={selecaoGraficoAtiva ? "Meta da seleção" : metaTexto}
+                  metaLabel={`Meta ${contextoDashboard.complementoTitulo}`}
                   metaValor={formatarMoeda(metricas.meta)}
                   percentual={metricas.percentualMeta}
                   faltaMeta={metricas.faltaMeta}
@@ -913,20 +799,37 @@ export default function Dashboard({ navegarPara }) {
                 />
               </div>
 
-              <div className="xl:col-span-7 grid grid-cols-2 xl:grid-cols-4 xl:grid-rows-2 gap-3 h-full min-h-0">
-                <MetricCard titulo={`KM rodados ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarNumero(metricas.km)} />
-                <MetricCard titulo={`Horas ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarHoras(metricas.minutosTrabalhados)} />
-                <MetricCard titulo={`Corridas ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarNumero(metricas.corridas)} />
-                <MetricCard titulo={`Ganho/KM ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarMoeda(ganhoPorKm)} />
-                <MetricCard titulo={`Ganho/Hora ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarMoeda(ganhoPorHora)} />
-                <MetricCard titulo={`Ganho/Corrida ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarMoeda(ganhoPorCorrida)} />
-                {mostrarMetricasPorDia && (
-                  <>
-                    <MetricCard titulo={`Dias trabalhados ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarNumero(metricas.diasTrabalhados)} />
-                    <MetricCard titulo={`Média por dia trabalhado ${selecaoGraficoAtiva ? "na seleção" : periodoTexto}`} valor={formatarMoeda(mediaPorDiaTrabalhado)} />
-                  </>
-                )}
-              </div>
+              <section className="space-y-3" aria-labelledby="indicadores-totais-titulo">
+                <div className="flex items-center gap-3">
+                  <h3 id="indicadores-totais-titulo" className="text-xs font-black uppercase tracking-[0.16em] text-gray-500 whitespace-nowrap">
+                    Indicadores Totais
+                  </h3>
+                  <div className="h-px flex-1 border-t border-dashed border-gray-800" aria-hidden="true" />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-stretch">
+                  <MetricCard titulo={`KM Rodados ${contextoDashboard.complementoTitulo}`} valor={formatarNumero(metricas.km)} badge="Total" />
+                  <MetricCard titulo={`Horas Trabalhadas ${contextoDashboard.complementoTitulo}`} valor={formatarHoras(metricas.minutosTrabalhados)} badge="Total" />
+                  <MetricCard titulo={`Dias Trabalhados ${contextoDashboard.complementoTitulo}`} valor={formatarNumero(metricas.diasTrabalhados)} badge="Total" />
+                  <MetricCard titulo={`Corridas Realizadas ${contextoDashboard.complementoTitulo}`} valor={formatarNumero(metricas.corridas)} badge="Total" />
+                  <MetricCard titulo={`Maior Faturamento ${contextoDashboard.complementoTitulo}`} valor={formatarMoeda(metricas.maiorFaturamento)} badge="Total" />
+                </div>
+              </section>
+
+              <section className="space-y-3" aria-labelledby="indicadores-medios-titulo">
+                <div className="flex items-center gap-3">
+                  <h3 id="indicadores-medios-titulo" className="text-xs font-black uppercase tracking-[0.16em] text-gray-500 whitespace-nowrap">
+                    Indicadores Médios
+                  </h3>
+                  <div className="h-px flex-1 border-t border-dashed border-gray-800" aria-hidden="true" />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-stretch">
+                  <MetricCard titulo={`Ganho por KM ${contextoDashboard.complementoTitulo}`} valor={formatarMoeda(ganhoPorKm)} badge="Média" />
+                  <MetricCard titulo={`Ganho por Hora ${contextoDashboard.complementoTitulo}`} valor={formatarMoeda(ganhoPorHora)} badge="Média" />
+                  <MetricCard titulo={`Ganho por Dia ${contextoDashboard.complementoTitulo}`} valor={formatarMoeda(mediaPorDiaTrabalhado)} badge="Média" />
+                  <MetricCard titulo={`Horas Trabalhadas por Dia ${contextoDashboard.complementoTitulo}`} valor={formatarHoras(Math.round(mediaHorasPorDia))} badge="Média" />
+                  <MetricCard titulo={`Ganho por Corrida Realizada ${contextoDashboard.complementoTitulo}`} valor={formatarMoeda(ganhoPorCorrida)} badge="Média" />
+                </div>
+              </section>
             </div>
 
             <PlataformasCard plataformas={plataformas} total={metricas.faturamento} formatarMoeda={formatarMoeda} />
@@ -996,23 +899,20 @@ export default function Dashboard({ navegarPara }) {
             <SaldoGeralCard
               saldoGeral={saldoGeral}
               contas={contasAtivasDashboard}
-              plataformas={plataformasFinanceiras}
+              plataformas={plataformasSaldoConsolidado}
               abrirConfiguracao={() => setModalContasAberto(true)}
               abrirPagina={() => navegarPara?.("contas")}
               formatarMoeda={formatarValorFinanceiro}
             />
             <ContasAtrasadasCard
-              contas={itensContasAtrasadasCard}
+              contas={contasAtrasadas}
               total={totalContasAtrasadas}
-              abrirConfiguracao={() => setModalContasAtrasadasAberto(true)}
               abrirPagina={() => navegarPara?.("contas-pagar")}
               formatarMoeda={formatarValorFinanceiro}
               formatarDataBR={formatarDataBR}
             />
             <ProximasContasCard
               contas={proximasContas}
-              dias={diasContasPagar}
-              abrirConfiguracao={() => setModalContasPagarAberto(true)}
               abrirPagina={() => navegarPara?.("contas-pagar")}
               formatarMoeda={formatarValorFinanceiro}
               formatarDataBR={formatarDataBR}
@@ -1040,27 +940,11 @@ export default function Dashboard({ navegarPara }) {
         />
       )}
 
-      {modalContasPagarAberto && (
-        <ModalContasPagarDashboard
-          diasSelecionados={diasContasPagar}
-          alterarDias={alterarDiasContasPagar}
-          fechar={() => setModalContasPagarAberto(false)}
-        />
-      )}
-
-      {modalContasAtrasadasAberto && (
-        <ModalContasAtrasadasDashboard
-          config={configContasAtrasadas}
-          alterarConfig={alterarConfigContasAtrasadas}
-          fechar={() => setModalContasAtrasadasAberto(false)}
-        />
-      )}
-
       {modalPeriodoAberto && (
         <ModalPeriodo
           periodo={periodo}
           setPeriodo={setPeriodo}
-          meses={meses}
+          meses={MESES}
           diasSemana={diasSemana}
           dataSelecionada={dataSelecionada}
           mesSelecionado={mesSelecionado}
@@ -1104,7 +988,7 @@ export default function Dashboard({ navegarPara }) {
           etapa={etapaMesAno}
           setEtapa={setEtapaMesAno}
           anos={anosComDados()}
-          meses={meses}
+          meses={MESES}
           anoSelecionado={anoSelecionado}
           setAnoSelecionado={setAnoSelecionado}
           mesSelecionado={mesSelecionado}

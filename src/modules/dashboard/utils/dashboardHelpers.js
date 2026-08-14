@@ -1,11 +1,11 @@
-import { normalizarTexto } from "./dashboardCalculos";
+import { intervaloPorFiltros, normalizarTexto } from "./dashboardCalculos.js";
 
 const DASHBOARD_PREFERENCIAS_KEY = "controldriver_dashboard_preferencias_v1";
 
 export function carregarPreferenciasDashboardLocalStorage() {
   try {
     return JSON.parse(localStorage.getItem(DASHBOARD_PREFERENCIAS_KEY) || "{}");
-  } catch (_) {
+  } catch {
     return {};
   }
 }
@@ -13,7 +13,7 @@ export function carregarPreferenciasDashboardLocalStorage() {
 export function salvarPreferenciasDashboardLocalStorage(preferencias) {
   try {
     localStorage.setItem(DASHBOARD_PREFERENCIAS_KEY, JSON.stringify(preferencias));
-  } catch (_) {
+  } catch {
     // Ignora erro de armazenamento local.
   }
 }
@@ -50,4 +50,79 @@ export function entradaAvulsaPessoal(entrada) {
   return true;
 }
 
+export function criarContextoDashboard({
+  periodo,
+  dataSelecionada,
+  semanaSelecionada,
+  mesSelecionado,
+  anoSelecionado,
+  selecaoGrafico,
+  meses,
+}) {
+  const filtrosBase = {
+    dataSelecionada,
+    semanaSelecionada,
+    mesSelecionado,
+    anoSelecionado,
+  };
+  const intervaloBase = intervaloPorFiltros(periodo, filtrosBase);
+  const periodoAtual = selecaoGrafico?.periodoMeta || periodo;
+  const filtrosMeta = selecaoGrafico?.filtrosMeta || filtrosBase;
+  const intervalo = selecaoGrafico
+    ? { inicio: selecaoGrafico.inicio, fim: selecaoGrafico.fim }
+    : intervaloBase;
+  const complementos = {
+    dia: "do Dia",
+    semana: "da Semana",
+    mes: "do Mês",
+    ano: "do Ano",
+  };
 
+  return {
+    periodoBase: periodo,
+    periodo: periodoAtual,
+    inicio: intervalo.inicio,
+    fim: intervalo.fim,
+    intervaloBase,
+    filtrosBase,
+    filtrosMeta,
+    temSelecao: Boolean(selecaoGrafico),
+    complementoTitulo: complementos[periodoAtual] || "do Período",
+    texto: selecaoGrafico?.rotulo || textoContextoBase({
+      periodo,
+      dataSelecionada,
+      semanaSelecionada,
+      mesSelecionado,
+      anoSelecionado,
+      meses,
+      intervaloBase,
+    }),
+  };
+}
+
+function textoContextoBase({
+  periodo,
+  dataSelecionada,
+  semanaSelecionada,
+  mesSelecionado,
+  anoSelecionado,
+  meses,
+  intervaloBase,
+}) {
+  if (periodo === "dia") return formatarDataCompleta(dataSelecionada);
+  if (periodo === "semana") {
+    return `${semanaSelecionada}ª Semana\n${formatarDataCurta(intervaloBase.inicio)} até ${formatarDataCurta(intervaloBase.fim)}`;
+  }
+  if (periodo === "mes") return `${meses[Number(mesSelecionado) - 1]}/${anoSelecionado}`;
+  return String(anoSelecionado);
+}
+
+function formatarDataCompleta(data) {
+  const [ano, mes, dia] = String(data || "").split("-");
+  return ano && mes && dia ? `${dia}/${mes}/${ano}` : "-";
+}
+
+function formatarDataCurta(data) {
+  const [, mes, dia] = String(data || "").split("-");
+  return mes && dia ? `${dia}/${mes}` : "-";
+}

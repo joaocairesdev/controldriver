@@ -210,10 +210,10 @@ export async function salvarConfiguracaoPlataforma(plataformaId, configuracao) {
   if (error) throw error;
 }
 
-export async function salvarExibicaoPlataformaNasContas(plataformaId, exibir) {
+export async function salvarParticipacaoPlataformaSaldoConsolidado(plataformaId, participa) {
   const { error } = await supabase
     .from("plataformas")
-    .update({ exibir_nas_contas: Boolean(exibir) })
+    .update({ exibir_nas_contas: Boolean(participa) })
     .eq("id", Number(plataformaId));
 
   if (error) throw error;
