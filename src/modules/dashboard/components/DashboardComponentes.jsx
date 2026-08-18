@@ -255,7 +255,17 @@ export function ContasAtrasadasCard({ contas, total, abrirPagina, formatarMoeda,
   );
 }
 
-export function SaldoGeralCard({ saldoGeral, contas, plataformas = [], abrirConfiguracao, abrirPagina, formatarMoeda }) {
+export function SaldoGeralCard({
+  saldoGeral,
+  contas,
+  plataformas = [],
+  quantidadePlataformasSaldo = plataformas.length,
+  abrirConfiguracao,
+  abrirPagina,
+  formatarMoeda,
+}) {
+  const plataformasVisiveis = plataformas.filter((plataforma) => plataforma.visivel === true);
+
   return (
     <div
       className="relative bg-green-500 border border-green-400 hover:border-white rounded-3xl p-6 sm:p-7 text-white overflow-hidden cursor-pointer transition"
@@ -286,7 +296,7 @@ export function SaldoGeralCard({ saldoGeral, contas, plataformas = [], abrirConf
         <p className="text-sm font-black uppercase tracking-wide text-white/80">Saldo Consolidado</p>
         <h2 className="text-4xl sm:text-5xl font-black mt-2">{formatarMoeda(saldoGeral)}</h2>
         <p className="text-sm text-white/80 mt-3">
-          {contas.length} conta(s) e {plataformas.length} plataforma(s) incluída(s) neste saldo.
+          {contas.length} conta(s) e {quantidadePlataformasSaldo} plataforma(s) incluída(s) neste saldo.
         </p>
       </div>
 
@@ -299,11 +309,11 @@ export function SaldoGeralCard({ saldoGeral, contas, plataformas = [], abrirConf
         ))}
       </div>
 
-      {plataformas.length > 0 && (
+      {plataformasVisiveis.length > 0 && (
         <div className="mt-5 border-t border-white/20 pt-4">
           <p className="text-xs font-black uppercase tracking-wide text-white/70">Saldos nas plataformas</p>
           <div className="mt-2 divide-y divide-white/15">
-            {plataformas.map((plataforma) => (
+            {plataformasVisiveis.map((plataforma) => (
               <div key={plataforma.id} className="py-2 flex items-center justify-between gap-3 text-sm">
                 <span className="truncate text-white/85">{plataforma.nome}</span>
                 <span className="whitespace-nowrap text-white/90">{formatarMoeda(plataforma.saldo)}</span>

@@ -754,6 +754,20 @@ export default function Dashboard({ navegarPara }) {
   const custoTrabalho = metricas.custos?.trabalho || { total: 0, categorias: [] };
   const resultadoOperacional = metricas.faturamento - Number(custoTrabalho.total || 0);
   const formatarValorFinanceiro = (valor) => valoresFinanceirosVisiveis ? formatarMoeda(valor) : "••••";
+  const indicadoresTotais = [
+    { titulo: `KM Rodados ${contextoDashboard.complementoTitulo}`, valor: formatarNumero(metricas.km), badge: "Total" },
+    { titulo: `Horas Trabalhadas ${contextoDashboard.complementoTitulo}`, valor: formatarHoras(metricas.minutosTrabalhados), badge: "Total" },
+    { titulo: `Dias Trabalhados ${contextoDashboard.complementoTitulo}`, valor: formatarNumero(metricas.diasTrabalhados), badge: "Total" },
+    { titulo: `Corridas Realizadas ${contextoDashboard.complementoTitulo}`, valor: formatarNumero(metricas.corridas), badge: "Total" },
+    { titulo: `Maior Faturamento ${contextoDashboard.complementoTitulo}`, valor: formatarMoeda(metricas.maiorFaturamento), badge: "Total" },
+  ];
+  const indicadoresMedios = [
+    { titulo: `Ganho por KM ${contextoDashboard.complementoTitulo}`, valor: formatarMoeda(ganhoPorKm), badge: "Média" },
+    { titulo: `Ganho por Hora ${contextoDashboard.complementoTitulo}`, valor: formatarMoeda(ganhoPorHora), badge: "Média" },
+    { titulo: `Ganho por Dia ${contextoDashboard.complementoTitulo}`, valor: formatarMoeda(mediaPorDiaTrabalhado), badge: "Média" },
+    { titulo: `Horas Trabalhadas por Dia ${contextoDashboard.complementoTitulo}`, valor: formatarHoras(Math.round(mediaHorasPorDia)), badge: "Média" },
+    { titulo: `Ganho por Corrida Realizada ${contextoDashboard.complementoTitulo}`, valor: formatarMoeda(ganhoPorCorrida), badge: "Média" },
+  ];
 
   return (
     <div className="max-w-[1600px] mx-auto space-y-10 pb-10">
@@ -799,37 +813,48 @@ export default function Dashboard({ navegarPara }) {
                 />
               </div>
 
-              <section className="space-y-3" aria-labelledby="indicadores-totais-titulo">
-                <div className="flex items-center gap-3">
-                  <h3 id="indicadores-totais-titulo" className="text-xs font-black uppercase tracking-[0.16em] text-gray-500 whitespace-nowrap">
+              <div className="space-y-3 md:hidden">
+                <div className="grid grid-cols-2 gap-3">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.08em] text-gray-500">
                     Indicadores Totais
                   </h3>
-                  <div className="h-px flex-1 border-t border-dashed border-gray-800" aria-hidden="true" />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-stretch">
-                  <MetricCard titulo={`KM Rodados ${contextoDashboard.complementoTitulo}`} valor={formatarNumero(metricas.km)} badge="Total" />
-                  <MetricCard titulo={`Horas Trabalhadas ${contextoDashboard.complementoTitulo}`} valor={formatarHoras(metricas.minutosTrabalhados)} badge="Total" />
-                  <MetricCard titulo={`Dias Trabalhados ${contextoDashboard.complementoTitulo}`} valor={formatarNumero(metricas.diasTrabalhados)} badge="Total" />
-                  <MetricCard titulo={`Corridas Realizadas ${contextoDashboard.complementoTitulo}`} valor={formatarNumero(metricas.corridas)} badge="Total" />
-                  <MetricCard titulo={`Maior Faturamento ${contextoDashboard.complementoTitulo}`} valor={formatarMoeda(metricas.maiorFaturamento)} badge="Total" />
-                </div>
-              </section>
-
-              <section className="space-y-3" aria-labelledby="indicadores-medios-titulo">
-                <div className="flex items-center gap-3">
-                  <h3 id="indicadores-medios-titulo" className="text-xs font-black uppercase tracking-[0.16em] text-gray-500 whitespace-nowrap">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.08em] text-gray-500">
                     Indicadores Médios
                   </h3>
-                  <div className="h-px flex-1 border-t border-dashed border-gray-800" aria-hidden="true" />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-stretch">
-                  <MetricCard titulo={`Ganho por KM ${contextoDashboard.complementoTitulo}`} valor={formatarMoeda(ganhoPorKm)} badge="Média" />
-                  <MetricCard titulo={`Ganho por Hora ${contextoDashboard.complementoTitulo}`} valor={formatarMoeda(ganhoPorHora)} badge="Média" />
-                  <MetricCard titulo={`Ganho por Dia ${contextoDashboard.complementoTitulo}`} valor={formatarMoeda(mediaPorDiaTrabalhado)} badge="Média" />
-                  <MetricCard titulo={`Horas Trabalhadas por Dia ${contextoDashboard.complementoTitulo}`} valor={formatarHoras(Math.round(mediaHorasPorDia))} badge="Média" />
-                  <MetricCard titulo={`Ganho por Corrida Realizada ${contextoDashboard.complementoTitulo}`} valor={formatarMoeda(ganhoPorCorrida)} badge="Média" />
-                </div>
-              </section>
+                {indicadoresTotais.map((indicadorTotal, indice) => (
+                  <div key={indicadorTotal.titulo} className="grid grid-cols-2 gap-3 items-stretch">
+                    <MetricCard {...indicadorTotal} />
+                    <MetricCard {...indicadoresMedios[indice]} />
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden md:block space-y-5">
+                <section className="space-y-3" aria-labelledby="indicadores-totais-titulo">
+                  <div className="flex items-center gap-3">
+                    <h3 id="indicadores-totais-titulo" className="text-xs font-black uppercase tracking-[0.16em] text-gray-500 whitespace-nowrap">
+                      Indicadores Totais
+                    </h3>
+                    <div className="h-px flex-1 border-t border-dashed border-gray-800" aria-hidden="true" />
+                  </div>
+                  <div className="grid grid-cols-5 gap-3 items-stretch">
+                    {indicadoresTotais.map((indicador) => <MetricCard key={indicador.titulo} {...indicador} />)}
+                  </div>
+                </section>
+
+                <section className="space-y-3" aria-labelledby="indicadores-medios-titulo">
+                  <div className="flex items-center gap-3">
+                    <h3 id="indicadores-medios-titulo" className="text-xs font-black uppercase tracking-[0.16em] text-gray-500 whitespace-nowrap">
+                      Indicadores Médios
+                    </h3>
+                    <div className="h-px flex-1 border-t border-dashed border-gray-800" aria-hidden="true" />
+                  </div>
+                  <div className="grid grid-cols-5 gap-3 items-stretch">
+                    {indicadoresMedios.map((indicador) => <MetricCard key={indicador.titulo} {...indicador} />)}
+                  </div>
+                </section>
+              </div>
             </div>
 
             <PlataformasCard plataformas={plataformas} total={metricas.faturamento} formatarMoeda={formatarMoeda} />
@@ -899,7 +924,8 @@ export default function Dashboard({ navegarPara }) {
             <SaldoGeralCard
               saldoGeral={saldoGeral}
               contas={contasAtivasDashboard}
-              plataformas={plataformasSaldoConsolidado}
+              plataformas={plataformasFinanceiras}
+              quantidadePlataformasSaldo={plataformasSaldoConsolidado.length}
               abrirConfiguracao={() => setModalContasAberto(true)}
               abrirPagina={() => navegarPara?.("contas")}
               formatarMoeda={formatarValorFinanceiro}

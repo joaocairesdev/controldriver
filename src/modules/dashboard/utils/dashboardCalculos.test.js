@@ -86,34 +86,29 @@ test("seleção do gráfico define intervalo, título e meta do contexto inteiro
   });
 });
 
-test("dashboard mantém três blocos fixos no desktop e ordem vertical fixa no mobile", async () => {
+test("dashboard preserva os blocos do desktop e pareia totais e médias no mobile", async () => {
   const [pagina, componentes] = await Promise.all([
     readFile(new URL("../pages/Dashboard.jsx", import.meta.url), "utf8"),
     readFile(new URL("../components/DashboardComponentes.jsx", import.meta.url), "utf8"),
   ]);
 
   assert.equal((pagina.match(/grid grid-cols-1 md:grid-cols-2 gap-3 items-stretch/g) || []).length, 1);
-  assert.equal((pagina.match(/grid grid-cols-1 md:grid-cols-5 gap-3 items-stretch/g) || []).length, 2);
+  assert.match(pagina, /hidden md:block space-y-5/);
+  assert.equal((pagina.match(/grid grid-cols-5 gap-3 items-stretch/g) || []).length, 2);
+  assert.match(pagina, /space-y-3 md:hidden/);
+  assert.match(pagina, /indicadoresTotais\.map\(\(indicadorTotal, indice\)[\s\S]*<MetricCard \{\.\.\.indicadorTotal\} \/>[\s\S]*<MetricCard \{\.\.\.indicadoresMedios\[indice\]\} \/>/);
   assert.match(pagina, /Indicadores Totais/);
   assert.match(pagina, /Indicadores Médios/);
   assert.doesNotMatch(`${pagina}\n${componentes}`, /auto-fit|auto-fill|dashboard-indicator-grid|dashboard-card--/);
 
-  const inicioTotais = pagina.indexOf('aria-labelledby="indicadores-totais-titulo"');
-  const inicioMedios = pagina.indexOf('aria-labelledby="indicadores-medios-titulo"');
-  const fimMedios = pagina.indexOf("</section>", inicioMedios);
-  assert.equal((pagina.slice(inicioTotais, inicioMedios).match(/<MetricCard/g) || []).length, 5);
-  assert.equal((pagina.slice(inicioMedios, fimMedios).match(/<MetricCard/g) || []).length, 5);
-
-  const ordemMobile = [
-    "<FaturamentoCard",
-    "<MetaCard",
-    "Indicadores Totais",
+  const ordemTotais = [
     "KM Rodados",
     "Horas Trabalhadas",
     "Dias Trabalhados",
     "Corridas Realizadas",
     "Maior Faturamento",
-    "Indicadores Médios",
+  ].map((trecho) => pagina.indexOf(trecho));
+  const ordemMedias = [
     "Ganho por KM",
     "Ganho por Hora",
     "Ganho por Dia",
@@ -121,9 +116,10 @@ test("dashboard mantém três blocos fixos no desktop e ordem vertical fixa no m
     "Ganho por Corrida Realizada",
   ].map((trecho) => pagina.indexOf(trecho));
 
-  ordemMobile.forEach((indice) => assert.notEqual(indice, -1));
-  for (let indice = 1; indice < ordemMobile.length; indice += 1) {
-    assert.ok(ordemMobile[indice - 1] < ordemMobile[indice]);
+  [...ordemTotais, ...ordemMedias].forEach((indice) => assert.notEqual(indice, -1));
+  for (let indice = 1; indice < ordemTotais.length; indice += 1) {
+    assert.ok(ordemTotais[indice - 1] < ordemTotais[indice]);
+    assert.ok(ordemMedias[indice - 1] < ordemMedias[indice]);
   }
 
   assert.match(pagina, /Maior Faturamento/);
@@ -158,9 +154,16 @@ test("listas financeiras do dashboard não possuem limites locais e usam janela 
 });
 
 test("saldo consolidado soma somente plataformas participantes", async () => {
-  const fonte = await readFile(new URL("../pages/Dashboard.jsx", import.meta.url), "utf8");
+  const [pagina, componentes] = await Promise.all([
+    readFile(new URL("../pages/Dashboard.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/DashboardComponentes.jsx", import.meta.url), "utf8"),
+  ]);
 
-  assert.match(fonte, /plataformasFinanceiras\.filter\([\s\S]*plataforma\.exibir_nas_contas !== false/);
-  assert.match(fonte, /const saldoGeral = saldoContas \+ saldoPlataformas/);
-  assert.match(fonte, /plataformas=\{plataformasSaldoConsolidado\}/);
+  assert.match(pagina, /plataformasFinanceiras\.filter\([\s\S]*plataforma\.exibir_nas_contas !== false/);
+  assert.match(pagina, /const saldoGeral = saldoContas \+ saldoPlataformas/);
+  assert.match(pagina, /plataformas=\{plataformasFinanceiras\}/);
+  assert.match(pagina, /quantidadePlataformasSaldo=\{plataformasSaldoConsolidado\.length\}/);
+  assert.match(componentes, /plataformas\.filter\(\(plataforma\) => plataforma\.visivel === true\)/);
+  assert.match(componentes, /\{quantidadePlataformasSaldo\} plataforma\(s\) incluída\(s\) neste saldo/);
+  assert.match(componentes, /plataformasVisiveis\.map\(\(plataforma\)/);
 });
