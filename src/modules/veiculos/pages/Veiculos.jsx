@@ -1,9 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../../../services/supabase";
 import TagFinanceiraCard from "../../tag/components/TagFinanceiraCard";
 import VeiculoModal from "../components/VeiculoModal";
+import ModalBase from "../../../shared/components/modals/ModalBase";
 
-import { FiArrowLeft, FiEdit2, FiShield, FiStar, FiTag, FiTrash2 } from "react-icons/fi";
+import {
+  FiActivity,
+  FiAlertTriangle,
+  FiArrowLeft,
+  FiCamera,
+  FiCheckCircle,
+  FiDollarSign,
+  FiDroplet,
+  FiEdit2,
+  FiFileText,
+  FiMap,
+  FiShield,
+  FiStar,
+  FiTag,
+  FiTool,
+  FiTrash2,
+} from "react-icons/fi";
 import {
   adicionarMesCompetencia,
   ajustarVencimentoFimDeSemana,
@@ -22,10 +39,7 @@ import {
   salvarFinanciamentoVeiculo,
 } from "../services/veiculosFinanceiroService";
 import { somarPagamentosDoAbastecimento } from "../../abastecimentos/utils/abastecimentosPagamentos";
-import {
-  calcularMediaConsumoValido,
-  obterConsumosValidos,
-} from "../../abastecimentos/utils/abastecimentosCronologia";
+import { calcularConsumosPorFonte } from "../utils/veiculosConsumo";
 
 const criarFinanciamentoPadrao = () => ({
   instituicaoFinanceira: "", valorVeiculo: "", valorFinanciado: "", entrada: "",
@@ -53,7 +67,6 @@ export default function Veiculos({ onConfiguracaoTagAlterada }) {
   const [veiculoDetalhes, setVeiculoDetalhes] = useState(null);
 
   const [modalAberto, setModalAberto] = useState(false);
-  const [modalCategoriaAberto, setModalCategoriaAberto] = useState(false);
   const [veiculoEditando, setVeiculoEditando] = useState(null);
 
   const [modalExcluirAberto, setModalExcluirAberto] = useState(false);
@@ -95,9 +108,6 @@ export default function Veiculos({ onConfiguracaoTagAlterada }) {
   const [formaRecargaTag, setFormaRecargaTag] = useState("credito_avista");
   const [contaRecargaTagId, setContaRecargaTagId] = useState("");
   const [cartaoRecargaTagId, setCartaoRecargaTagId] = useState("");
-  const [modalFormaRecargaTagAberto, setModalFormaRecargaTagAberto] = useState(false);
-  const [modalContaRecargaTagAberto, setModalContaRecargaTagAberto] = useState(false);
-  const [modalCartaoRecargaTagAberto, setModalCartaoRecargaTagAberto] = useState(false);
 
   const [protecaoId, setProtecaoId] = useState(null);
   const [tipoProtecaoVeiculo, setTipoProtecaoVeiculo] = useState("nenhuma");
@@ -114,6 +124,8 @@ export default function Veiculos({ onConfiguracaoTagAlterada }) {
 
   useEffect(() => {
     carregarTudo();
+    // A carga inicial coordena funções locais estáveis e deve ocorrer apenas na montagem.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const categoriasVeiculo = [
@@ -606,7 +618,6 @@ export default function Veiculos({ onConfiguracaoTagAlterada }) {
 
   function selecionarCategoria(valor) {
     setCategoriaVeiculo(valor);
-    setModalCategoriaAberto(false);
   }
 
   async function salvarVeiculo() {
@@ -949,7 +960,7 @@ export default function Veiculos({ onConfiguracaoTagAlterada }) {
     await gerarLancamentosProtecao(veiculoId, data, nomeVeiculo);
   }
 
-  async function salvarTagDoVeiculo(veiculoId, nomeVeiculo) {
+  async function salvarTagDoVeiculo(veiculoId) {
     if (!possuiTag) {
       if (tagId) {
         await supabase.from("contas").update({ ativo: false }).eq("id", tagId);
@@ -1098,7 +1109,7 @@ export default function Veiculos({ onConfiguracaoTagAlterada }) {
       }
 
       try {
-        await salvarTagDoVeiculo(veiculoEditando.id, nomeGerado);
+        await salvarTagDoVeiculo(veiculoEditando.id);
         await onConfiguracaoTagAlterada?.();
         await salvarProtecaoDoVeiculo(veiculoEditando.id, nomeGerado);
         await salvarContratosVeiculo(veiculoEditando.id);
@@ -1134,7 +1145,7 @@ export default function Veiculos({ onConfiguracaoTagAlterada }) {
       }
 
       try {
-        await salvarTagDoVeiculo(veiculoReativado.id, nomeGerado);
+        await salvarTagDoVeiculo(veiculoReativado.id);
         await onConfiguracaoTagAlterada?.();
         await salvarProtecaoDoVeiculo(veiculoReativado.id, nomeGerado);
         await salvarContratosVeiculo(veiculoReativado.id);
@@ -1169,7 +1180,7 @@ export default function Veiculos({ onConfiguracaoTagAlterada }) {
     }
 
     try {
-      await salvarTagDoVeiculo(novoVeiculo.id, nomeGerado);
+      await salvarTagDoVeiculo(novoVeiculo.id);
       await onConfiguracaoTagAlterada?.();
       await salvarProtecaoDoVeiculo(novoVeiculo.id, nomeGerado);
       await salvarContratosVeiculo(novoVeiculo.id);
@@ -1314,12 +1325,6 @@ export default function Veiculos({ onConfiguracaoTagAlterada }) {
 
       <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-5">
         {veiculos.map((veiculo) => {
-          const kmInicial = Number(veiculo.odometro_inicial || 0);
-          const kmAtual = Number(veiculo.odometro_atual || 0);
-          const totalRodado = Number(veiculo.total_rodado_calculado || 0);
-          const kmTrabalho = Number(veiculo.km_trabalho_calculado || 0);
-          const kmPessoal = Number(veiculo.km_pessoal_calculado || 0);
-
           return (
             <div
               key={veiculo.id}
@@ -1411,14 +1416,6 @@ export default function Veiculos({ onConfiguracaoTagAlterada }) {
                   <p className="text-sm text-gray-400">Categoria</p>
                   <p className="text-lg font-semibold mt-1 break-words">{nomeCategoria(veiculo.categoria_veiculo)}</p>
                 </div>
-              </div>
-
-              <div className="mt-7 rounded-2xl border border-gray-800 bg-[#0B1120] p-4 flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm text-gray-400">Resumo interno</p>
-                  <p className="text-sm text-gray-500 mt-1">KM, uso pessoal/trabalho e histórico ficam nos detalhes.</p>
-                </div>
-                <span className="text-green-400 font-bold text-sm whitespace-nowrap">Ver detalhes</span>
               </div>
 
               <p className="text-xs text-gray-500 mt-6">Clique para abrir os dados completos do carro.</p>
@@ -1614,21 +1611,30 @@ function DetalhesVeiculo({
   const kmTrabalho = Number(veiculo.km_trabalho_calculado || 0);
   const kmPessoal = Number(veiculo.km_pessoal_calculado || 0);
   const tag = veiculo.tag;
-  const [abaAtiva, setAbaAtiva] = useState("resumo");
-  const [dadosDashboard, setDadosDashboard] = useState({ entradas: [], abastecimentos: [], pagamentosAbastecimentos: [], recargas: [], manutencoes: [], manutencoesLegadas: [], saidasContratos: [] });
+  const inputFotoRef = useRef(null);
+  const [fotoVeiculo, setFotoVeiculo] = useState(() => carregarFotoVeiculoLocal(veiculo.id));
+  const [saudeModalAberto, setSaudeModalAberto] = useState(false);
+  const [dadosDashboard, setDadosDashboard] = useState({ entradas: [], abastecimentos: [], pagamentosAbastecimentos: [], recargas: [], manutencoes: [], manutencoesLegadas: [], saidasContratos: [], documentos: [], usosTag: [], recargasTag: [] });
   const [carregandoDashboard, setCarregandoDashboard] = useState(true);
 
   useEffect(() => {
     let ativo = true;
     async function carregarDashboardVeiculo() {
       setCarregandoDashboard(true);
-      const [entradas, abastecimentos, recargas, manutencoes, manutencoesLegadas, saidasContratos] = await Promise.all([
+      const [entradas, abastecimentos, recargas, manutencoes, manutencoesLegadas, saidasContratos, documentos, usosTag, recargasTag] = await Promise.all([
         supabase.from("entradas").select("id, data, km_rodados, entrada_plataformas(faturamento, valor_reembolso)").eq("veiculo_id", veiculo.id),
         supabase.from("saidas_abastecimentos").select("*, saidas(id, data_compra, valor_total, categoria, descricao, status)").eq("veiculo_id", veiculo.id),
-        supabase.from("saidas_recargas_eletricas").select("*, saidas(id, data_compra, valor_total, categoria, descricao)").eq("veiculo_id", veiculo.id),
+        supabase.from("saidas_recargas_eletricas").select("*, saidas(id, data_compra, valor_total, categoria, descricao, status)").eq("veiculo_id", veiculo.id),
         supabase.from("saidas_manutencoes").select("*, saidas(id, data_compra, valor_total, categoria, descricao)").eq("veiculo_id", veiculo.id),
-        supabase.from("manutencoes").select("*").eq("veiculo_id", veiculo.id),
+        supabase.from("manutencoes").select("*, servicos:manutencao_servicos(*)").eq("veiculo_id", veiculo.id),
         supabase.from("saidas").select("*").eq("veiculo_id", veiculo.id).not("tipo_movimentacao", "eq", "conta_pagar"),
+        supabase.from("saidas").select("id, data_compra, categoria, descricao, status, valor_total").eq("veiculo_id", veiculo.id).order("data_compra", { ascending: false }),
+        tag
+          ? supabase.from("saidas_tag").select("id, created_at, saidas(data_compra, descricao, valor_total)").eq("conta_tag_id", tag.id).order("data_compra", { referencedTable: "saidas", ascending: false }).limit(1)
+          : Promise.resolve({ data: [] }),
+        tag
+          ? supabase.from("entradas_avulsas").select("id, data, descricao, valor").eq("conta_id", tag.id).ilike("descricao", "Recarga TAG%").order("data", { ascending: false }).limit(1)
+          : Promise.resolve({ data: [] }),
       ]);
       const idsAbastecimentos = (abastecimentos.data || [])
         .map((item) => item.saida_id)
@@ -1648,12 +1654,33 @@ function DetalhesVeiculo({
         manutencoes: manutencoes.data || [],
         manutencoesLegadas: manutencoesLegadas.data || [],
         saidasContratos: saidasContratos.data || [],
+        documentos: documentos.data || [],
+        usosTag: usosTag.data || [],
+        recargasTag: recargasTag.data || [],
       });
       setCarregandoDashboard(false);
     }
     carregarDashboardVeiculo();
     return () => { ativo = false; };
-  }, [veiculo.id]);
+  }, [veiculo.id, tag]);
+
+  async function selecionarFotoVeiculo(event) {
+    const arquivo = event.target.files?.[0];
+    event.target.value = "";
+    if (!arquivo) return;
+    if (!arquivo.type.startsWith("image/")) {
+      onErro?.("Foto inválida", "Selecione um arquivo de imagem.", "erro");
+      return;
+    }
+
+    try {
+      const fotoPreparada = await prepararFotoVeiculo(arquivo);
+      localStorage.setItem(chaveFotoVeiculo(veiculo.id), fotoPreparada);
+      setFotoVeiculo(fotoPreparada);
+    } catch {
+      onErro?.("Não foi possível salvar a foto", "Escolha uma imagem menor e tente novamente.", "erro");
+    }
+  }
 
   const receita = dadosDashboard.entradas.reduce((total, entrada) => total + (entrada.entrada_plataformas || []).reduce((soma, item) => soma + Number(item.faturamento || 0) + Number(item.valor_reembolso || 0), 0), 0);
   const gastosAbastecimento = dadosDashboard.abastecimentos.reduce(
@@ -1674,8 +1701,7 @@ function DetalhesVeiculo({
     .filter((item) => item.finalidade !== "caucao_devolvivel" && (item.conta_pagar_origem_id || (item.cartao_id && item.data_compra <= hojeDashboard)))
     .reduce((total, item) => total + Number(item.valor_total || 0), 0);
   const gastos = gastosAbastecimento + gastosRecarga + gastosManutencao + gastosContratos;
-  const consumos = obterConsumosValidos(dadosDashboard.abastecimentos);
-  const mediaConsumo = calcularMediaConsumoValido(dadosDashboard.abastecimentos);
+  const consumosPorFonte = calcularConsumosPorFonte(dadosDashboard.abastecimentos, dadosDashboard.recargas);
   const historico = [
     ...dadosDashboard.abastecimentos.map((item) => ({
       id: `a-${item.id}`,
@@ -1693,99 +1719,365 @@ function DetalhesVeiculo({
     ...dadosDashboard.manutencoes.map((item) => ({ id: `m-${item.id}`, data: item.saidas?.data_compra, tipo: "Manutenção", descricao: item.servico, valor: item.saidas?.valor_total })),
     ...dadosDashboard.manutencoesLegadas.map((item) => ({ id: `ml-${item.id}`, data: item.data, tipo: "Manutenção", descricao: item.titulo, valor: null })),
   ].filter((item) => item.data).sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  const resultadoOperacional = receita - gastos;
+  const historicoManutencao = historico.filter((item) => item.tipo === "Manutenção");
+  const ultimaUtilizacaoTag = dadosDashboard.usosTag[0]?.saidas?.data_compra;
+  const ultimaRecargaTag = dadosDashboard.recargasTag[0]?.data;
+  const protecaoVigente = Boolean(
+    veiculo.protecao
+    && veiculo.protecao.fim_vigencia
+    && veiculo.protecao.fim_vigencia >= hojeDashboard
+    && (!veiculo.protecao.inicio_vigencia || veiculo.protecao.inicio_vigencia <= hojeDashboard),
+  );
+  const ultimaRevisao = obterUltimaRevisao(dadosDashboard.manutencoes, dadosDashboard.manutencoesLegadas);
+  const ultimoIpva = obterUltimoDocumento(dadosDashboard.documentos, "ipva");
+  const ultimoLicenciamento = obterUltimoDocumento(dadosDashboard.documentos, "licenciamento");
+  const itensSaude = [
+    { titulo: "Proteção", ok: protecaoVigente, detalhe: protecaoVigente ? "Vigente" : "Não informada ou vencida" },
+    { titulo: "Revisões", ok: Boolean(ultimaRevisao), detalhe: ultimaRevisao ? `Última em ${formatarDataBRLocal(ultimaRevisao.data)}` : "Nenhuma revisão registrada" },
+    { titulo: "IPVA", ok: Boolean(ultimoIpva), detalhe: ultimoIpva ? `Último em ${formatarDataBRLocal(ultimoIpva.data_compra)}` : "Não informado" },
+    { titulo: "Licenciamento", ok: Boolean(ultimoLicenciamento), detalhe: ultimoLicenciamento ? `Último em ${formatarDataBRLocal(ultimoLicenciamento.data_compra)}` : "Não informado" },
+  ];
+  const pendenciasSaude = itensSaude.filter((item) => !item.ok).length;
+  const percentualTrabalho = totalRodado > 0 ? (kmTrabalho / totalRodado) * 100 : 0;
+  const percentualPessoal = totalRodado > 0 ? (kmPessoal / totalRodado) * 100 : 0;
+  const categoria = String(veiculo.categoria_veiculo || "");
+  const veiculoEletrico = categoria === "eletrico";
+  const veiculoHibrido = ["hibrido", "hibrido_plugin"].includes(categoria);
+  const mostrarAbastecimentos = !veiculoEletrico;
+  const mostrarRecargas = veiculoEletrico || veiculoHibrido;
+  const mostrarContrato = veiculo.tipo_posse === "alugado" || (veiculo.tipo_posse === "proprio" && veiculo.situacao_aquisicao === "financiado");
 
   return (
-    <div>
-      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
-        <div className="flex items-center gap-4 min-w-0">
-          <button
-            type="button"
-            onClick={voltar}
-            className="w-10 h-10 rounded-xl border border-gray-700 hover:bg-white/5 flex items-center justify-center shrink-0"
-          >
-            <FiArrowLeft className="w-5 h-5" />
-          </button>
+    <div className="max-w-[1600px] mx-auto space-y-8 pb-10">
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={voltar}
+          className="w-10 h-10 rounded-xl border border-gray-700 hover:border-green-400 hover:text-green-400 hover:bg-white/5 flex items-center justify-center shrink-0 transition"
+          aria-label="Voltar para veículos"
+        >
+          <FiArrowLeft className="w-5 h-5" />
+        </button>
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-green-400">Dashboard do veículo</p>
+          <p className="text-sm text-gray-400 mt-1">Visão completa em uma única página</p>
+        </div>
+      </div>
 
-          <div className="min-w-0">
-            <h1 className="text-3xl font-bold truncate">
-              {[veiculo.marca, veiculo.modelo, veiculo.ano].filter(Boolean).join(" ")}
-            </h1>
-            <p className="text-gray-400 mt-1">Histórico e controle completo do veículo</p>
+      <section className="grid grid-cols-1 xl:grid-cols-3 gap-4 items-stretch">
+        <div
+          className="relative xl:col-span-2 min-h-[390px] sm:min-h-[365px] lg:min-h-[308px] rounded-3xl border border-green-500/30 bg-gradient-to-br from-green-500/15 via-[#111827] to-[#111827] p-6 sm:p-8 overflow-hidden bg-cover bg-center"
+          style={fotoVeiculo ? { backgroundImage: `url(${fotoVeiculo})` } : undefined}
+        >
+          {fotoVeiculo && <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/60 to-black/45" aria-hidden="true" />}
+          <input ref={inputFotoRef} type="file" accept="image/*" onChange={selecionarFotoVeiculo} className="sr-only" tabIndex={-1} />
+          <div className="relative z-10 flex h-full flex-col sm:flex-row sm:items-start sm:justify-between gap-5 pt-12 sm:pt-14">
+            <div className="min-w-0 self-end sm:self-auto sm:mt-auto">
+              <div className="flex flex-wrap gap-2">
+                {veiculo.principal && <BadgeVeiculo classe="bg-green-500/20 text-green-300">Veículo principal</BadgeVeiculo>}
+                <BadgeVeiculo classe="bg-blue-500/15 text-blue-300">{nomeCategoria(veiculo.categoria_veiculo)}</BadgeVeiculo>
+                {tag && <BadgeVeiculo classe="bg-purple-500/15 text-purple-300"><FiTag /> {tag.nome}</BadgeVeiculo>}
+              </div>
+              <h1 className="text-3xl sm:text-5xl font-black mt-5 leading-tight break-words">
+                {[veiculo.marca, veiculo.modelo].filter(Boolean).join(" ")}
+              </h1>
+              <p className="text-lg text-gray-300 mt-2">{veiculo.ano || "Ano não informado"} · {veiculo.placa || "Placa não informada"}</p>
+            </div>
+            <div className="sm:ml-auto flex flex-col items-start sm:items-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => inputFotoRef.current?.click()}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-black/25 hover:bg-black/40 px-3 py-2 text-xs font-bold text-gray-200 transition"
+              >
+                <FiCamera /> {fotoVeiculo ? "Alterar foto" : "Adicionar foto"}
+              </button>
+              <div className="rounded-2xl border border-green-500/20 bg-black/25 px-5 py-4 sm:text-right">
+                <p className="text-xs text-gray-300">Odômetro atual</p>
+                <p className="text-2xl font-black text-green-300 mt-1">{kmAtual.toLocaleString("pt-BR")} km</p>
+              </div>
+            </div>
           </div>
         </div>
 
-        {tag && (
-          <TagFinanceiraCard
-            tag={tag}
-            contasBanco={contasBanco}
-            cartoes={cartoes}
-            formatarMoeda={formatarMoeda}
-            formatarMoedaDigitada={formatarMoedaDigitada}
-            numeroParaMoedaInput={numeroParaMoedaInput}
-            onAtualizar={async () => {
-              await onRecarregar?.();
-              await onConfiguracaoTagAlterada?.();
-            }}
-            onErro={onErro}
-          />
-        )}
-      </div>
+        <button type="button" onClick={() => setSaudeModalAberto(true)} className="rounded-3xl border border-gray-800 bg-[#111827] hover:border-green-500/40 hover:bg-[#141d2e] p-6 text-left transition">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-gray-500">Saúde do veículo</p>
+              <h2 className="text-2xl font-black mt-2">{pendenciasSaude ? `${pendenciasSaude} item(ns) sem registro` : "Informações reunidas"}</h2>
+            </div>
+            <span className={`w-11 h-11 rounded-2xl flex items-center justify-center ${pendenciasSaude ? "bg-yellow-500/15 text-yellow-300" : "bg-green-500/15 text-green-300"}`}>
+              {pendenciasSaude ? <FiAlertTriangle /> : <FiCheckCircle />}
+            </span>
+          </div>
+          <div className="mt-5 divide-y divide-gray-800">
+            {itensSaude.map((item) => <StatusSaudeVeiculo key={item.titulo} {...item} />)}
+          </div>
+          <p className="text-xs font-bold text-green-400 mt-4">Abrir detalhes</p>
+        </button>
+      </section>
 
-      <div className="mt-8 flex gap-2 overflow-x-auto scrollbar-hide" role="tablist">
-        {["resumo", "financeiro", "consumo", "manutencao", "historico"].map((aba) => (
-          <button key={aba} type="button" role="tab" aria-selected={abaAtiva === aba} onClick={() => setAbaAtiva(aba)} className={`whitespace-nowrap rounded-xl border px-4 py-3 font-bold capitalize ${abaAtiva === aba ? "border-green-400 bg-green-500/10 text-green-400" : "border-gray-700 text-gray-300"}`}>
-            {aba === "manutencao" ? "Manutenção" : aba === "historico" ? "Histórico" : aba}
-          </button>
-        ))}
-      </div>
+      {carregandoDashboard ? (
+        <div className="rounded-3xl border border-gray-800 bg-[#111827] p-6 text-gray-400">Carregando dados do veículo...</div>
+      ) : (
+        <>
+          <SecaoDashboardVeiculo titulo="Indicadores operacionais" descricao="Uso acumulado e atividade vinculada a este veículo." icone={<FiActivity />}>
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              <IndicadorVeiculoCard titulo="Odômetro inicial" valor={`${kmInicial.toLocaleString("pt-BR")} km`} />
+              <IndicadorVeiculoCard titulo="Odômetro atual" valor={`${kmAtual.toLocaleString("pt-BR")} km`} />
+              <IndicadorVeiculoCard titulo="Total de KM rodados" valor={`${totalRodado.toLocaleString("pt-BR")} km`} destaque="text-green-300" />
+              <IndicadorVeiculoCard titulo="Uso trabalho" valor={`${formatarPercentualLocal(percentualTrabalho)}%`} destaque="text-blue-300" />
+              <IndicadorVeiculoCard titulo="Uso pessoal" valor={`${formatarPercentualLocal(percentualPessoal)}%`} destaque="text-purple-300" />
+            </div>
+          </SecaoDashboardVeiculo>
 
-      <div className="mt-4 bg-[#111827] border border-gray-800 rounded-2xl p-5 sm:p-8">
-        {carregandoDashboard ? <p className="text-gray-400">Carregando dados do veículo...</p> : null}
+          <SecaoDashboardVeiculo titulo="Indicadores financeiros" descricao="Valores já vinculados ao veículo em todo o histórico." icone={<FiDollarSign />}>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <IndicadorVeiculoCard titulo="Receita" valor={formatarMoeda(receita)} destaque="text-green-300" />
+              <IndicadorVeiculoCard titulo="Custos" valor={formatarMoeda(gastos)} destaque="text-red-300" />
+              <IndicadorVeiculoCard titulo="Resultado operacional" valor={formatarMoeda(resultadoOperacional)} destaque={resultadoOperacional >= 0 ? "text-green-300" : "text-red-300"} />
+              <IndicadorVeiculoCard titulo="Custo por KM" valor={totalRodado > 0 ? formatarMoeda(gastos / totalRodado) : "Base insuficiente"} />
+              {mostrarAbastecimentos && <IndicadorVeiculoCard titulo="Abastecimentos" valor={formatarMoeda(gastosAbastecimento)} />}
+              {mostrarRecargas && <IndicadorVeiculoCard titulo="Recargas elétricas" valor={formatarMoeda(gastosRecarga)} />}
+              {mostrarContrato && <IndicadorVeiculoCard titulo={veiculo.tipo_posse === "alugado" ? "Aluguel" : "Financiamento"} valor={formatarMoeda(gastosContratos)} />}
+            </div>
+          </SecaoDashboardVeiculo>
 
-        {!carregandoDashboard && abaAtiva === "resumo" && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <ResumoCard titulo="Categoria" valor={nomeCategoria(veiculo.categoria_veiculo)} />
-          <ResumoCard titulo="Posse" valor={veiculo.tipo_posse === "alugado" ? "Alugado" : veiculo.tipo_posse === "proprio" ? "Próprio" : "Não informado"} />
-          <ResumoCard titulo="Aquisição" valor={veiculo.situacao_aquisicao === "financiado" ? "Financiado" : veiculo.situacao_aquisicao === "quitado" ? "Quitado" : "Não informado"} />
-          <ResumoCard titulo="KM inicial" valor={`${kmInicial.toLocaleString("pt-BR")} km`} />
-          <ResumoCard titulo="KM atual" valor={`${kmAtual.toLocaleString("pt-BR")} km`} />
-          <ResumoCard titulo="Total rodado" valor={`${totalRodado.toLocaleString("pt-BR")} km`} />
-          <ResumoCard titulo="Uso trabalho" valor={`${kmTrabalho.toLocaleString("pt-BR")} km`} />
-          <ResumoCard titulo="Uso pessoal" valor={`${kmPessoal.toLocaleString("pt-BR")} km`} />
-          <ResumoCard titulo="TAG / saldo" valor={tag ? `${tag.nome} · ${formatarMoeda(tag.saldo_atual)}` : "Sem TAG"} />
-          <ResumoCard titulo="Seguro / proteção" valor={veiculo.protecao?.nome_protecao || "Não informado"} />
-        </div>}
+          <SecaoDashboardVeiculo titulo="Consumo" descricao="Cada fonte usa apenas os próprios ciclos e os valores reais registrados." icone={<FiDroplet />}>
+            {consumosPorFonte.length ? (
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {consumosPorFonte.map((consumo) => <ConsumoFonteCard key={consumo.chave} consumo={consumo} formatarMoeda={formatarMoeda} />)}
+              </div>
+            ) : <PainelVazioVeiculo texto="Os próximos abastecimentos ou recargas com odômetro formarão aqui a leitura de consumo." />}
+          </SecaoDashboardVeiculo>
 
-        {!carregandoDashboard && abaAtiva === "financeiro" && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <ResumoCard titulo="Receita vinculada" valor={formatarMoeda(receita)} />
-          <ResumoCard titulo="Gastos vinculados" valor={formatarMoeda(gastos)} />
-          <ResumoCard titulo="Resultado operacional" valor={formatarMoeda(receita - gastos)} />
-          <ResumoCard titulo="Abastecimentos" valor={formatarMoeda(gastosAbastecimento)} />
-          <ResumoCard titulo="Recargas elétricas" valor={formatarMoeda(gastosRecarga)} />
-          <ResumoCard titulo="Manutenções" valor={formatarMoeda(gastosManutencao)} />
-          <ResumoCard titulo="Financiamento / aluguel" valor={formatarMoeda(gastosContratos)} />
-          <ResumoCard titulo="Custo por KM" valor={totalRodado > 0 ? formatarMoeda(gastos / totalRodado) : "Base insuficiente"} />
-        </div>}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+            <SecaoDashboardVeiculo titulo="Manutenção" descricao="Últimos serviços e preparação para os próximos cuidados." icone={<FiTool />}>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <MiniInfoVeiculo titulo="Última revisão" valor={ultimaRevisao ? formatarDataBRLocal(ultimaRevisao.data) : "Não informado"} />
+                <MiniInfoVeiculo titulo="Próxima revisão" valor={formatarProximaRevisao(ultimaRevisao)} />
+              </div>
+              <ListaDashboardVeiculo itens={historicoManutencao.slice(0, 5)} formatarMoeda={formatarMoeda} vazio="Nenhuma manutenção vinculada." />
+            </SecaoDashboardVeiculo>
 
-        {!carregandoDashboard && abaAtiva === "consumo" && <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <ResumoCard titulo="Média" valor={mediaConsumo > 0 ? `${mediaConsumo.toFixed(2)} km/L` : "Sem base confiável"} />
-          <ResumoCard titulo="Melhor" valor={consumos.length ? `${Math.max(...consumos).toFixed(2)} km/L` : "-"} />
-          <ResumoCard titulo="Pior" valor={consumos.length ? `${Math.min(...consumos).toFixed(2)} km/L` : "-"} />
-          <ResumoCard titulo="Recarga elétrica" valor={veiculo.media_eletrica_km_kwh > 0 ? `${Number(veiculo.media_eletrica_km_kwh).toFixed(2)} km/kWh` : "Sem base confiável"} />
-        </div>}
+            <SecaoDashboardVeiculo titulo="Documentação" descricao="Situação dos registros essenciais do veículo." icone={<FiFileText />}>
+              <div className="space-y-3">
+                <InfoDocumento titulo="Seguro / proteção" valor={veiculo.protecao?.nome_protecao || "Não cadastrado"} status={protecaoVigente ? "Vigente" : "Não informado"} ok={protecaoVigente} />
+                <InfoDocumento titulo="IPVA" valor={ultimoIpva ? formatarDataBRLocal(ultimoIpva.data_compra) : "Não cadastrado"} status={ultimoIpva ? textoStatusDocumento(ultimoIpva.status) : "Não informado"} ok={Boolean(ultimoIpva)} />
+                <InfoDocumento titulo="Licenciamento" valor={ultimoLicenciamento ? formatarDataBRLocal(ultimoLicenciamento.data_compra) : "Não cadastrado"} status={ultimoLicenciamento ? textoStatusDocumento(ultimoLicenciamento.status) : "Não informado"} ok={Boolean(ultimoLicenciamento)} />
+              </div>
+              {veiculo.protecao && <ProtecaoVeiculoCard protecao={veiculo.protecao} formatarMoeda={formatarMoeda} compacto />}
+            </SecaoDashboardVeiculo>
+          </div>
 
-        {!carregandoDashboard && abaAtiva === "manutencao" && <ListaDashboardVeiculo itens={historico.filter((item) => item.tipo === "Manutenção")} formatarMoeda={formatarMoeda} vazio="Nenhuma manutenção vinculada." />}
-        {!carregandoDashboard && abaAtiva === "historico" && <ListaDashboardVeiculo itens={historico} formatarMoeda={formatarMoeda} vazio="Nenhum evento vinculado ao veículo." />}
-      </div>
+          <SecaoDashboardVeiculo titulo="TAG vinculada" descricao="Saldo e movimentações recentes da TAG deste veículo." icone={<FiTag />}>
+            {tag ? (
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 items-start">
+                <div className="xl:col-span-2">
+                  <TagFinanceiraCard
+                    tag={tag}
+                    contasBanco={contasBanco}
+                    cartoes={cartoes}
+                    formatarMoeda={formatarMoeda}
+                    formatarMoedaDigitada={formatarMoedaDigitada}
+                    numeroParaMoedaInput={numeroParaMoedaInput}
+                    onAtualizar={async () => {
+                      await onRecarregar?.();
+                      await onConfiguracaoTagAlterada?.();
+                    }}
+                    onErro={onErro}
+                  />
+                </div>
+                <div className="grid grid-cols-2 xl:grid-cols-1 gap-3">
+                  <MiniInfoVeiculo titulo="Última utilização" valor={ultimaUtilizacaoTag ? formatarDataBRLocal(ultimaUtilizacaoTag) : "Não informado"} />
+                  <MiniInfoVeiculo titulo="Última recarga" valor={ultimaRecargaTag ? formatarDataBRLocal(ultimaRecargaTag) : "Não informado"} />
+                </div>
+              </div>
+            ) : <PainelVazioVeiculo texto="Nenhuma TAG está vinculada a este veículo." />}
+          </SecaoDashboardVeiculo>
 
-      {veiculo.protecao && (
-        <ProtecaoVeiculoCard protecao={veiculo.protecao} formatarMoeda={formatarMoeda} />
+          <SecaoDashboardVeiculo titulo="Histórico completo" descricao="Abastecimentos, recargas e manutenções em ordem cronológica." icone={<FiMap />}>
+            <ListaDashboardVeiculo itens={historico} formatarMoeda={formatarMoeda} vazio="Nenhum evento vinculado ao veículo." />
+          </SecaoDashboardVeiculo>
+        </>
       )}
 
+      <SaudeVeiculoModal
+        aberto={saudeModalAberto}
+        onClose={() => setSaudeModalAberto(false)}
+        veiculo={veiculo}
+        protecaoVigente={protecaoVigente}
+        ultimaRevisao={ultimaRevisao}
+        ultimoIpva={ultimoIpva}
+        ultimoLicenciamento={ultimoLicenciamento}
+        formatarMoeda={formatarMoeda}
+      />
     </div>
   );
 }
 
-function ProtecaoVeiculoCard({ protecao, formatarMoeda }) {
+function SecaoDashboardVeiculo({ titulo, descricao, icone, children }) {
+  return (
+    <section className="rounded-3xl border border-gray-800 bg-[#111827] p-5 sm:p-6">
+      <div className="flex items-start gap-3">
+        <span className="w-10 h-10 rounded-2xl border border-green-500/20 bg-green-500/10 text-green-300 flex items-center justify-center shrink-0" aria-hidden="true">
+          {icone}
+        </span>
+        <div>
+          <h2 className="text-xl sm:text-2xl font-black">{titulo}</h2>
+          <p className="text-sm text-gray-400 mt-1">{descricao}</p>
+        </div>
+      </div>
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
+
+function IndicadorVeiculoCard({ titulo, valor, destaque = "text-white" }) {
+  return (
+    <div className="min-w-0 rounded-2xl border border-gray-800 bg-[#0B1120] p-4 sm:p-5">
+      <p className="text-xs sm:text-sm text-gray-400 leading-snug">{titulo}</p>
+      <p className={`text-lg sm:text-2xl font-black mt-2 leading-tight break-words [overflow-wrap:anywhere] ${destaque}`}>{valor}</p>
+    </div>
+  );
+}
+
+function ConsumoFonteCard({ consumo, formatarMoeda }) {
+  const temCiclos = consumo.ciclos > 0;
+  const formatarConsumo = (valor) => valor > 0 ? `${valor.toFixed(2)} ${consumo.unidadeConsumo}` : "Base insuficiente";
+
+  return (
+    <article className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.12em] text-blue-300">Fonte de energia</p>
+          <h3 className="text-xl font-black mt-1">{consumo.nome}</h3>
+        </div>
+        <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-bold text-gray-400">{consumo.ciclos} ciclo(s)</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mt-4">
+        <MiniMetricaConsumo titulo="Média" valor={formatarConsumo(consumo.media)} destaque />
+        <MiniMetricaConsumo titulo="Melhor consumo" valor={formatarConsumo(consumo.melhor)} />
+        <MiniMetricaConsumo titulo="Pior consumo" valor={formatarConsumo(consumo.pior)} />
+        <MiniMetricaConsumo titulo={`Preço médio/${consumo.unidadePreco}`} valor={consumo.precoMedio > 0 ? formatarMoeda(consumo.precoMedio) : "Não informado"} />
+        <div className="col-span-2">
+          <MiniMetricaConsumo titulo="Custo por KM nos ciclos" valor={temCiclos && consumo.custoPorKm > 0 ? formatarMoeda(consumo.custoPorKm) : "Base insuficiente"} />
+        </div>
+      </div>
+      {!temCiclos && <p className="text-xs text-gray-500 mt-3">É necessário registrar dois lançamentos desta fonte com odômetro válido.</p>}
+    </article>
+  );
+}
+
+function MiniMetricaConsumo({ titulo, valor, destaque = false }) {
+  return (
+    <div className="rounded-xl border border-gray-800 bg-[#111827] p-3 min-w-0">
+      <p className="text-xs text-gray-500">{titulo}</p>
+      <p className={`font-black mt-1 break-words ${destaque ? "text-blue-300" : "text-white"}`}>{valor}</p>
+    </div>
+  );
+}
+
+function SaudeVeiculoModal({ aberto, onClose, veiculo, protecaoVigente, ultimaRevisao, ultimoIpva, ultimoLicenciamento, formatarMoeda }) {
+  return (
+    <ModalBase
+      aberto={aberto}
+      onClose={onClose}
+      titulo="Configuração da saúde do veículo"
+      descricao="Informações reunidas automaticamente dos cadastros existentes, sem duplicar registros."
+      largura="max-w-3xl"
+    >
+      <div className="space-y-3">
+        <FonteSaudeCard
+          titulo="Proteção"
+          origem="Cadastro do veículo"
+          valor={veiculo.protecao?.nome_protecao || "Nenhuma proteção cadastrada"}
+          detalhe={veiculo.protecao ? `${protecaoVigente ? "Vigente" : "Fora da vigência"} · ${formatarDataBRLocal(veiculo.protecao.inicio_vigencia)} até ${formatarDataBRLocal(veiculo.protecao.fim_vigencia)}` : "Cadastre ou atualize a proteção na edição do veículo."}
+        />
+        <FonteSaudeCard
+          titulo="Revisões"
+          origem="Manutenções"
+          valor={ultimaRevisao?.titulo || "Nenhuma revisão registrada"}
+          detalhe={ultimaRevisao ? `Última em ${formatarDataBRLocal(ultimaRevisao.data)} · Próxima: ${formatarProximaRevisao(ultimaRevisao)}` : "A última manutenção registrada aparecerá automaticamente aqui."}
+        />
+        <FonteSaudeCard
+          titulo="IPVA"
+          origem="Lançamentos financeiros"
+          valor={ultimoIpva?.descricao || ultimoIpva?.categoria || "Nenhum IPVA registrado"}
+          detalhe={ultimoIpva ? `${formatarDataBRLocal(ultimoIpva.data_compra)} · ${textoStatusDocumento(ultimoIpva.status)} · ${formatarMoeda(ultimoIpva.valor_total)}` : "O último lançamento identificado como IPVA aparecerá automaticamente aqui."}
+        />
+        <FonteSaudeCard
+          titulo="Licenciamento"
+          origem="Lançamentos financeiros"
+          valor={ultimoLicenciamento?.descricao || ultimoLicenciamento?.categoria || "Nenhum licenciamento registrado"}
+          detalhe={ultimoLicenciamento ? `${formatarDataBRLocal(ultimoLicenciamento.data_compra)} · ${textoStatusDocumento(ultimoLicenciamento.status)} · ${formatarMoeda(ultimoLicenciamento.valor_total)}` : "O último lançamento identificado como licenciamento aparecerá automaticamente aqui."}
+        />
+      </div>
+    </ModalBase>
+  );
+}
+
+function FonteSaudeCard({ titulo, origem, valor, detalhe }) {
+  return (
+    <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-black text-white">{titulo}</p>
+        <span className="rounded-full bg-green-500/10 px-3 py-1 text-xs font-bold text-green-300">{origem}</span>
+      </div>
+      <p className="font-bold text-gray-200 mt-3 break-words">{valor}</p>
+      <p className="text-sm text-gray-500 mt-1">{detalhe}</p>
+    </div>
+  );
+}
+
+function MiniInfoVeiculo({ titulo, valor }) {
+  return (
+    <div className="min-w-0 rounded-2xl border border-gray-800 bg-[#0B1120]/80 p-4">
+      <p className="text-xs text-gray-500">{titulo}</p>
+      <p className="text-sm sm:text-base font-bold mt-1 break-words">{valor}</p>
+    </div>
+  );
+}
+
+function BadgeVeiculo({ children, classe }) {
+  return <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-black ${classe}`}>{children}</span>;
+}
+
+function StatusSaudeVeiculo({ titulo, detalhe, ok }) {
+  return (
+    <div className="py-3 flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <p className="font-bold">{titulo}</p>
+        <p className="text-xs text-gray-500 mt-0.5">{detalhe}</p>
+      </div>
+      <span className={ok ? "text-green-400" : "text-yellow-400"} aria-label={ok ? "Informado" : "Sem registro"}>
+        {ok ? <FiCheckCircle /> : <FiAlertTriangle />}
+      </span>
+    </div>
+  );
+}
+
+function InfoDocumento({ titulo, valor, status, ok = false }) {
+  return (
+    <div className="rounded-2xl border border-gray-800 bg-[#0B1120] p-4 flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-xs text-gray-500">{titulo}</p>
+        <p className="font-bold mt-1 break-words">{valor}</p>
+      </div>
+      <span className={`rounded-full px-3 py-1 text-xs font-black whitespace-nowrap ${ok ? "bg-green-500/15 text-green-300" : "bg-yellow-500/15 text-yellow-300"}`}>{status}</span>
+    </div>
+  );
+}
+
+function PainelVazioVeiculo({ texto }) {
+  return (
+    <div className="mt-4 rounded-2xl border border-dashed border-gray-700 bg-[#0B1120]/60 p-5 text-sm text-gray-400">
+      {texto}
+    </div>
+  );
+}
+
+function ProtecaoVeiculoCard({ protecao, formatarMoeda, compacto = false }) {
   const inicio = formatarDataBRLocal(protecao.inicio_vigencia);
   const fim = formatarDataBRLocal(protecao.fim_vigencia);
   const pagas = Number(protecao.parcelas_pagas || 0);
@@ -1794,7 +2086,7 @@ function ProtecaoVeiculoCard({ protecao, formatarMoeda }) {
   const nomeTipo = protecao.tipo_protecao === "protecao_veicular" ? "Proteção veicular" : "Seguro";
 
   return (
-    <div className="mt-8 bg-[#111827] border border-purple-500/30 rounded-2xl p-6">
+    <div className={`${compacto ? "mt-4" : "mt-8"} bg-[#111827] border border-purple-500/30 rounded-2xl p-5 sm:p-6`}>
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full bg-purple-500/20 text-purple-300 text-xs font-bold px-3 py-1">
@@ -1826,6 +2118,98 @@ function ProtecaoVeiculoCard({ protecao, formatarMoeda }) {
       </div>
     </div>
   );
+}
+
+function chaveFotoVeiculo(veiculoId) {
+  return `controldriver:veiculo:${veiculoId}:foto`;
+}
+
+function carregarFotoVeiculoLocal(veiculoId) {
+  try {
+    return localStorage.getItem(chaveFotoVeiculo(veiculoId)) || "";
+  } catch {
+    return "";
+  }
+}
+
+function prepararFotoVeiculo(arquivo) {
+  if (arquivo.size > 2 * 1024 * 1024) return Promise.reject(new Error("foto_muito_grande"));
+
+  return new Promise((resolve, reject) => {
+    const leitor = new FileReader();
+    leitor.onload = () => resolve(String(leitor.result || ""));
+    leitor.onerror = () => reject(leitor.error || new Error("erro_leitura_foto"));
+    leitor.readAsDataURL(arquivo);
+  });
+}
+
+function normalizarTextoVeiculo(valor) {
+  return String(valor || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function obterUltimoDocumento(documentos, termo) {
+  return [...(documentos || [])]
+    .filter((documento) => {
+      const status = normalizarTextoVeiculo(documento.status);
+      const texto = normalizarTextoVeiculo(`${documento.categoria || ""} ${documento.descricao || ""}`);
+      return !["cancelado", "cancelada", "excluido", "excluida"].includes(status) && texto.includes(termo);
+    })
+    .sort((a, b) => String(b.data_compra || "").localeCompare(String(a.data_compra || "")))[0] || null;
+}
+
+function obterUltimaRevisao(manutencoesFinanceiras, manutencoes) {
+  return [
+    ...(manutencoesFinanceiras || []).map((item) => ({
+      data: item.saidas?.data_compra,
+      titulo: item.servico || item.saidas?.descricao || "Manutenção",
+      proximaRevisaoKm: item.proxima_revisao_km,
+      proximaRevisaoData: item.proxima_revisao_data,
+      servicos: [],
+    })),
+    ...(manutencoes || []).map((item) => ({
+      data: item.data,
+      titulo: item.titulo || "Manutenção",
+      proximaRevisaoKm: null,
+      proximaRevisaoData: null,
+      servicos: item.servicos || [],
+    })),
+  ]
+    .filter((item) => item.data)
+    .sort((a, b) => String(b.data).localeCompare(String(a.data)))[0] || null;
+}
+
+function formatarProximaRevisao(revisao) {
+  if (!revisao) return "Não informado";
+  if (revisao.proximaRevisaoData) return formatarDataBRLocal(revisao.proximaRevisaoData);
+
+  const proximaKm = [revisao.proximaRevisaoKm, ...(revisao.servicos || []).map((servico) => servico.proxima_revisao_km)]
+    .map(Number)
+    .filter((valor) => Number.isFinite(valor) && valor > 0)
+    .sort((a, b) => a - b)[0];
+
+  return proximaKm ? `${proximaKm.toLocaleString("pt-BR")} km` : "Não informado";
+}
+
+function formatarPercentualLocal(valor) {
+  const numero = Number(valor || 0);
+  return numero.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 });
+}
+
+function textoStatusDocumento(status) {
+  const nomes = {
+    aberto: "Em aberto",
+    aberta: "Em aberto",
+    pago: "Pago",
+    paga: "Pago",
+    pendente: "Pendente",
+    vencido: "Vencido",
+    vencida: "Vencido",
+  };
+  return nomes[normalizarTextoVeiculo(status)] || status || "Registrado";
 }
 
 function formatarDataBRLocal(dataISO) {
@@ -1872,58 +2256,6 @@ function ListaDashboardVeiculo({ itens, formatarMoeda, vazio }) {
           <p className="font-black text-white shrink-0">{item.valor == null ? "-" : formatarMoeda(item.valor)}</p>
         </div>
       ))}
-    </div>
-  );
-}
-
-function ResumoCard({ titulo, valor, pequeno }) {
-  return (
-    <div className="bg-[#0B1120] border border-gray-800 rounded-2xl p-4 sm:p-5 min-w-0">
-      <p className="text-sm text-gray-400">{titulo}</p>
-      <p className={`${pequeno ? "text-lg sm:text-xl" : "text-2xl"} font-bold mt-2 leading-tight break-words`}>{valor}</p>
-    </div>
-  );
-}
-
-function MiniCard({ titulo, valor }) {
-  return (
-    <div className="border border-gray-800 rounded-xl p-3 min-w-0">
-      <p className="text-xs text-gray-500 leading-snug">{titulo}</p>
-      <p className="text-sm font-bold mt-1 leading-tight break-words">{valor}</p>
-    </div>
-  );
-}
-
-function InputTexto({ label, value, placeholder, onChange }) {
-  return (
-    <div>
-      <label className="text-sm text-gray-300">{label}</label>
-      <input
-        type="text"
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full mt-2 bg-[#0B1120] border border-gray-700 rounded-xl p-3"
-      />
-    </div>
-  );
-}
-
-function CampoMoeda({ label, value, placeholder, onChange }) {
-  return (
-    <div>
-      <label className="text-sm text-gray-300">{label}</label>
-      <div className="flex items-center mt-2 bg-[#111827] border border-gray-700 rounded-xl overflow-hidden">
-        <span className="px-3 text-gray-400">R$</span>
-        <input
-          type="text"
-          inputMode="decimal"
-          value={value}
-          placeholder={placeholder}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full bg-transparent p-3 outline-none"
-        />
-      </div>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import {
   adicionarMesesSeguro,
   filtrarCobrancasFaltantes,
@@ -49,4 +50,26 @@ test("completa somente cobranças faltantes sem recriar canceladas ou excluídas
   const registradas = ["2026-08-10", "2026-09-10"];
   assert.deepEqual(filtrarCobrancasFaltantes(esperadas, registradas, (item) => item), ["2026-10-10"]);
   assert.deepEqual(filtrarCobrancasFaltantes(esperadas, esperadas, (item) => item), []);
+});
+
+test("detalhes do veículo formam um dashboard contínuo sem abas", async () => {
+  const pagina = await readFile(new URL("../pages/Veiculos.jsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(pagina, /role="tablist"|role="tab"|abaAtiva/);
+  assert.doesNotMatch(pagina, /Resumo interno|Ver detalhes/);
+  assert.match(pagina, /Dashboard do veículo/);
+  assert.match(pagina, /Indicadores operacionais/);
+  assert.match(pagina, /Indicadores financeiros/);
+  assert.match(pagina, /Consumo/);
+  assert.match(pagina, /Manutenção/);
+  assert.match(pagina, /Documentação/);
+  assert.match(pagina, /TAG vinculada/);
+  assert.match(pagina, /Histórico completo/);
+  assert.match(pagina, /<TagFinanceiraCard/);
+  assert.match(pagina, /Odômetro inicial/);
+  assert.match(pagina, /Total de KM rodados/);
+  assert.match(pagina, /calcularConsumosPorFonte/);
+  assert.match(pagina, /Configuração da saúde do veículo/);
+  assert.doesNotMatch(pagina, /titulo="Dias trabalhados"|titulo="Corridas"/);
+  assert.doesNotMatch(pagina, /MiniInfoVeiculo titulo="Placa"|MiniInfoVeiculo titulo="Posse"|MiniInfoVeiculo titulo="Aquisição"|MiniInfoVeiculo titulo="KM inicial"/);
 });
