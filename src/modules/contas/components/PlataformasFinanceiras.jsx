@@ -25,7 +25,7 @@ import {
   excluirSaquePlataforma,
   registrarSaquePlataforma,
   salvarConfiguracaoPlataforma,
-  salvarParticipacaoPlataformaSaldoConsolidado,
+  salvarParticipacaoPlataformaSaldoConsolidado as salvarExibicaoPlataformaNasContas,
 } from "../services/plataformasFinanceiroService";
 import {
   calcularValorLiquidoSaque,
@@ -77,7 +77,7 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
   const [atualizacaoExtratoKey, setAtualizacaoExtratoKey] = useState(0);
   const [plataformaConfig, setPlataformaConfig] = useState(null);
   const [modalSelecionarConfig, setModalSelecionarConfig] = useState(false);
-  const [salvandoParticipacaoId, setSalvandoParticipacaoId] = useState(null);
+  const [salvandoExibicaoId, setSalvandoExibicaoId] = useState(null);
   const [feedback, setFeedback] = useState({
     aberto: false,
     tipo: "sucesso",
@@ -126,27 +126,31 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
     setAtualizacaoExtratoKey((atual) => atual + 1);
   }
 
-  async function alternarParticipacaoSaldo(plataforma, participa) {
-    setSalvandoParticipacaoId(plataforma.id);
+  async function alternarExibicaoSemSaldo(plataforma, exibirQuandoSemSaldo) {
+    setSalvandoExibicaoId(plataforma.id);
 
     try {
-      await salvarParticipacaoPlataformaSaldoConsolidado(plataforma.id, participa);
+      await salvarExibicaoPlataformaNasContas(plataforma.id, exibirQuandoSemSaldo);
       setPlataformas((atuais) => atuais.map((item) => (
         item.id === plataforma.id
-          ? { ...item, exibir_nas_contas: participa }
+          ? { ...item, exibir_nas_contas: exibirQuandoSemSaldo }
           : item
       )));
     } catch (error) {
-      console.error("Erro ao atualizar participação da plataforma no saldo consolidado:", error);
+      console.error("Erro ao atualizar exibição da plataforma sem saldo:", error);
       abrirFeedback(
         "erro",
         "Erro ao atualizar plataforma",
-        error.message || "Não foi possível atualizar a participação no Saldo Consolidado.",
+        error.message || "Não foi possível atualizar a exibição da plataforma sem saldo.",
       );
     } finally {
-      setSalvandoParticipacaoId(null);
+      setSalvandoExibicaoId(null);
     }
   }
+
+  const plataformasVisiveis = plataformas.filter(
+    (plataforma) => Number(plataforma.saldo || 0) !== 0 || plataforma.exibir_nas_contas !== false,
+  );
 
   return (
     <>
@@ -170,9 +174,9 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
           <div className="mt-4 rounded-2xl border border-gray-800 bg-[#111827] p-5">
             <p className="text-sm text-gray-400">Carregando saldos das plataformas...</p>
           </div>
-        ) : plataformas.length > 0 ? (
+        ) : plataformasVisiveis.length > 0 ? (
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {plataformas.map((plataforma) => (
+            {plataformasVisiveis.map((plataforma) => (
               <PlataformaCard
                 key={plataforma.id}
                 plataforma={plataforma}
@@ -185,7 +189,9 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
         ) : (
           <div className="mt-4 rounded-2xl border border-gray-800 bg-[#111827] p-5">
             <p className="text-sm text-gray-400">
-              Nenhuma plataforma financeira encontrada.
+              {plataformas.length
+                ? "As plataformas com saldo zero estão ocultas pela configuração atual."
+                : "Nenhuma plataforma financeira encontrada."}
             </p>
           </div>
         )}
@@ -194,8 +200,8 @@ export default function PlataformasFinanceiras({ onMovimentacao }) {
       <ListaConfiguracaoPlataformasModal
         aberto={modalSelecionarConfig}
         plataformas={plataformas}
-        salvandoId={salvandoParticipacaoId}
-        onAlternarParticipacao={alternarParticipacaoSaldo}
+        salvandoId={salvandoExibicaoId}
+        onAlternarExibicao={alternarExibicaoSemSaldo}
         onConfigurar={(plataforma) => {
           setModalSelecionarConfig(false);
           setPlataformaConfig(plataforma);
@@ -324,7 +330,7 @@ function ListaConfiguracaoPlataformasModal({
   aberto,
   plataformas,
   salvandoId,
-  onAlternarParticipacao,
+  onAlternarExibicao,
   onConfigurar,
   onClose,
 }) {
@@ -351,9 +357,11 @@ function ListaConfiguracaoPlataformasModal({
     <ModalBase
       aberto={aberto}
       titulo="Configurar plataforma"
-      descricao="Toque no nome para configurar ou defina se a plataforma participa do Saldo Consolidado."
+      descricao="Toque no nome para configurar. O switch define se a plataforma continua visível quando o saldo for R$ 0,00."
       onClose={fechar}
       largura="max-w-lg"
+      z="z-[110]"
+      backdrop="bg-black/85 backdrop-blur-[2px]"
     >
       {plataformas.length > 8 ? (
         <div className="flex items-center rounded-xl border border-gray-700 bg-[#0B1120] focus-within:border-green-400">
@@ -370,7 +378,7 @@ function ListaConfiguracaoPlataformasModal({
 
       <div className="mt-4 space-y-3">
         {plataformasFiltradas.map((plataforma) => {
-          const participa = plataforma.exibir_nas_contas !== false;
+          const exibirQuandoSemSaldo = plataforma.exibir_nas_contas !== false;
 
           return (
             <div
@@ -386,16 +394,15 @@ function ListaConfiguracaoPlataformasModal({
                 <LogoPlataforma nome={plataforma.nome} />
                 <span className="min-w-0">
                   <span className="block break-words font-bold leading-tight text-white">{plataforma.nome}</span>
-                  <span className="mt-1 block text-xs text-gray-500">Participa do Saldo Consolidado</span>
+                  <span className="mt-1 block text-xs text-gray-500">Mostrar mesmo sem saldo</span>
                 </span>
               </button>
 
-              <span className="text-xs font-bold text-gray-400">{participa ? "Sim" : "Não"}</span>
               <ToggleSwitch
-                ativo={participa}
+                ativo={exibirQuandoSemSaldo}
                 disabled={salvandoId === plataforma.id}
-                onChange={(valor) => onAlternarParticipacao(plataforma, valor)}
-                ariaLabel={`${plataforma.nome} participa do Saldo Consolidado: ${participa ? "Sim" : "Não"}`}
+                onChange={(valor) => onAlternarExibicao(plataforma, valor)}
+                ariaLabel={`Mostrar ${plataforma.nome} mesmo quando o saldo for zero`}
               />
             </div>
           );

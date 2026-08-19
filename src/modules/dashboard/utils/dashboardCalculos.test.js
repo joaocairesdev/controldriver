@@ -141,6 +141,17 @@ test("badges aparecem somente nos cards pequenos acima de título e valor", asyn
   assert.match(componentes, /bg-purple-500\/20 text-purple-300/);
 });
 
+test("cards de custos usam altura automática antes do breakpoint desktop", async () => {
+  const [pagina, componentes] = await Promise.all([
+    readFile(new URL("../pages/Dashboard.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/DashboardComponentes.jsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(pagina, /xl:auto-rows-fr/);
+  assert.doesNotMatch(pagina, /xl:grid-cols-2 auto-rows-fr/);
+  assert.match(componentes, /h-auto xl:h-full/);
+});
+
 test("listas financeiras do dashboard não possuem limites locais e usam janela fixa de 30 dias", async () => {
   const [pagina, componentes] = await Promise.all([
     readFile(new URL("../pages/Dashboard.jsx", import.meta.url), "utf8"),
@@ -159,11 +170,11 @@ test("saldo consolidado soma somente plataformas participantes", async () => {
     readFile(new URL("../components/DashboardComponentes.jsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(pagina, /plataformasFinanceiras\.filter\([\s\S]*plataforma\.exibir_nas_contas !== false/);
+  assert.match(pagina, /plataformasFinanceiras\.filter\([\s\S]*plataformasSelecionadas\.includes\(String\(plataforma\.id\)\)/);
   assert.match(pagina, /const saldoGeral = saldoContas \+ saldoPlataformas/);
-  assert.match(pagina, /plataformas=\{plataformasFinanceiras\}/);
+  assert.match(pagina, /plataformas=\{plataformasSaldoConsolidado\}/);
   assert.match(pagina, /quantidadePlataformasSaldo=\{plataformasSaldoConsolidado\.length\}/);
-  assert.match(componentes, /plataformas\.filter\(\(plataforma\) => plataforma\.visivel === true\)/);
+  assert.doesNotMatch(componentes, /plataforma\.visivel/);
   assert.match(componentes, /\{quantidadePlataformasSaldo\} plataforma\(s\) incluída\(s\) neste saldo/);
-  assert.match(componentes, /plataformasVisiveis\.map\(\(plataforma\)/);
+  assert.match(componentes, /plataformas\.map\(\(plataforma\)/);
 });

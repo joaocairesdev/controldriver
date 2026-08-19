@@ -27,6 +27,7 @@ import {
 
 
 const CONTAS_DASHBOARD_KEY = "controldriver_dashboard_contas_ativas_v1";
+const PLATAFORMAS_DASHBOARD_KEY = "controldriver_dashboard_plataformas_ativas_v1";
 const MESES = [
   "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
   "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
@@ -53,6 +54,7 @@ export default function Dashboard({ navegarPara }) {
   const [contas, setContas] = useState([]);
   const [plataformasFinanceiras, setPlataformasFinanceiras] = useState([]);
   const [contasSelecionadas, setContasSelecionadas] = useState([]);
+  const [plataformasSelecionadas, setPlataformasSelecionadas] = useState([]);
   const [datasComMovimento, setDatasComMovimento] = useState([]);
   const [metaAtiva, setMetaAtiva] = useState(null);
   const [metricas, setMetricas] = useState(criarMetricasVazias());
@@ -102,6 +104,13 @@ export default function Dashboard({ navegarPara }) {
     try {
       const plataformasData = await carregarPlataformasFinanceiras();
       setPlataformasFinanceiras(plataformasData);
+      const idsExistentes = plataformasData.map((plataforma) => String(plataforma.id));
+      const idsSalvos = carregarPlataformasSelecionadasLocalStorage();
+      const selecionadas = idsSalvos === null
+        ? idsExistentes
+        : idsSalvos.filter((id) => idsExistentes.includes(String(id)));
+      setPlataformasSelecionadas(selecionadas);
+      if (idsSalvos === null) salvarPlataformasSelecionadasLocalStorage(selecionadas);
     } catch (error) {
       console.error("Erro ao carregar saldos das plataformas no dashboard:", error);
       setPlataformasFinanceiras([]);
@@ -494,6 +503,19 @@ export default function Dashboard({ navegarPara }) {
     localStorage.setItem(CONTAS_DASHBOARD_KEY, JSON.stringify(ids.map(String)));
   }
 
+  function carregarPlataformasSelecionadasLocalStorage() {
+    try {
+      const valor = localStorage.getItem(PLATAFORMAS_DASHBOARD_KEY);
+      return valor === null ? null : JSON.parse(valor).map(String);
+    } catch {
+      return null;
+    }
+  }
+
+  function salvarPlataformasSelecionadasLocalStorage(ids) {
+    localStorage.setItem(PLATAFORMAS_DASHBOARD_KEY, JSON.stringify(ids.map(String)));
+  }
+
   function alternarContaDashboard(contaId) {
     setContasSelecionadas((listaAtual) => {
       const id = String(contaId);
@@ -509,6 +531,24 @@ export default function Dashboard({ navegarPara }) {
     const todas = contas.map((conta) => String(conta.id));
     setContasSelecionadas(todas);
     salvarContasSelecionadasLocalStorage(todas);
+  }
+
+  function alternarPlataformaDashboard(plataformaId) {
+    setPlataformasSelecionadas((listaAtual) => {
+      const id = String(plataformaId);
+      const novaLista = listaAtual.includes(id)
+        ? listaAtual.filter((item) => item !== id)
+        : [...listaAtual, id];
+      salvarPlataformasSelecionadasLocalStorage(novaLista);
+      return novaLista;
+    });
+  }
+
+  function aplicarTodosItensSaldo() {
+    aplicarTodasContas();
+    const todasPlataformas = plataformasFinanceiras.map((plataforma) => String(plataforma.id));
+    setPlataformasSelecionadas(todasPlataformas);
+    salvarPlataformasSelecionadasLocalStorage(todasPlataformas);
   }
 
   function dataISO(date) {
@@ -732,7 +772,7 @@ export default function Dashboard({ navegarPara }) {
 
   const contasAtivasDashboard = contas.filter((conta) => contasSelecionadas.includes(String(conta.id)));
   const plataformasSaldoConsolidado = plataformasFinanceiras.filter(
-    (plataforma) => plataforma.exibir_nas_contas !== false,
+    (plataforma) => plataformasSelecionadas.includes(String(plataforma.id)),
   );
   const saldoContas = contasAtivasDashboard.reduce((total, conta) => total + Number(conta.saldo_atual || 0), 0);
   const saldoPlataformas = plataformasSaldoConsolidado.reduce(
@@ -864,7 +904,7 @@ export default function Dashboard({ navegarPara }) {
 
       {!carregando && (
         <section className="space-y-4">
-          <div className="grid grid-cols-1 xl:grid-cols-2 auto-rows-fr gap-4 items-stretch">
+          <div className="grid grid-cols-1 xl:grid-cols-2 xl:auto-rows-fr gap-4 xl:items-stretch">
             <CustosCategoriaCard
               titulo="Custos do Trabalho"
               dados={custoTrabalho}
@@ -924,7 +964,7 @@ export default function Dashboard({ navegarPara }) {
             <SaldoGeralCard
               saldoGeral={saldoGeral}
               contas={contasAtivasDashboard}
-              plataformas={plataformasFinanceiras}
+              plataformas={plataformasSaldoConsolidado}
               quantidadePlataformasSaldo={plataformasSaldoConsolidado.length}
               abrirConfiguracao={() => setModalContasAberto(true)}
               abrirPagina={() => navegarPara?.("contas")}
@@ -959,8 +999,11 @@ export default function Dashboard({ navegarPara }) {
         <ModalContasDashboard
           contas={contas}
           contasSelecionadas={contasSelecionadas}
+          plataformas={plataformasFinanceiras}
+          plataformasSelecionadas={plataformasSelecionadas}
           alternarConta={alternarContaDashboard}
-          selecionarTodas={aplicarTodasContas}
+          alternarPlataforma={alternarPlataformaDashboard}
+          selecionarTodas={aplicarTodosItensSaldo}
           fechar={() => setModalContasAberto(false)}
           formatarMoeda={formatarMoeda}
         />

@@ -36,7 +36,7 @@ test("extrato mantém ganhos somente leitura e oferece busca e paginação", asy
 test("cards preservam todas as plataformas e a hierarquia visual responsiva", async () => {
   const fonte = await ler("../components/PlataformasFinanceiras.jsx");
 
-  assert.match(fonte, /plataformas\.map\(\(plataforma\)/);
+  assert.match(fonte, /plataformasVisiveis\.map\(\(plataforma\)/);
   assert.match(fonte, /grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5/);
   assert.match(fonte, /Number\(plataforma\.saldo \|\| 0\) > 0/);
   assert.match(fonte, /disabled=\{!permiteSaque\}/);
@@ -46,13 +46,14 @@ test("cards preservam todas as plataformas e a hierarquia visual responsiva", as
   assert.doesNotMatch(fonte, /font-black truncate/);
 });
 
-test("lista usa logo, nome e switch para participação no saldo consolidado", async () => {
+test("lista usa logo, nome e switch apenas para exibição de plataformas sem saldo", async () => {
   const fonte = await ler("../components/PlataformasFinanceiras.jsx");
 
   assert.match(fonte, /function ListaConfiguracaoPlataformasModal/);
   assert.match(fonte, /<LogoPlataforma nome=\{plataforma\.nome\}/);
-  assert.match(fonte, /Participa do Saldo Consolidado/);
-  assert.match(fonte, /<ToggleSwitch[\s\S]*onAlternarParticipacao\(plataforma, valor\)/);
+  assert.match(fonte, /Mostrar mesmo sem saldo/);
+  assert.match(fonte, /<ToggleSwitch[\s\S]*onAlternarExibicao\(plataforma, valor\)/);
+  assert.doesNotMatch(fonte, /Participa do Saldo Consolidado/);
   assert.match(fonte, /plataformas\.length > 8/);
   assert.match(fonte, /placeholder="Buscar\.\.\."/);
   assert.doesNotMatch(fonte, /não pode ser ocultada/);
@@ -75,7 +76,7 @@ test("edição do saque mantém transferência, data e taxa na mesma função SQ
   assert.match(migration, /delete from public\.saidas/);
 });
 
-test("preferência persistida da plataforma controla participação sem alterar regras financeiras", async () => {
+test("preferência persistida controla a exibição sem alterar regras financeiras", async () => {
   const [migration, servico] = await Promise.all([
     ler("../../../../supabase/migrations/20260805150000_exibir_plataformas_nas_contas.sql"),
     ler("../services/plataformasFinanceiroService.js"),

@@ -101,7 +101,7 @@ export function CustosCategoriaCard({
   const temaPessoal = tema === "pessoal";
 
   return (
-    <div className={`h-full bg-[#111827] border rounded-3xl p-5 ${temaPessoal ? "border-purple-500/35" : "border-green-500/35"}`}>
+    <div className={`h-auto xl:h-full bg-[#111827] border rounded-3xl p-5 ${temaPessoal ? "border-purple-500/35" : "border-green-500/35"}`}>
       <div className="flex items-center justify-between gap-4">
         <h3 className={`text-xl font-black ${temaPessoal ? "text-purple-300" : "text-green-300"}`}>{titulo}</h3>
       </div>
@@ -264,8 +264,6 @@ export function SaldoGeralCard({
   abrirPagina,
   formatarMoeda,
 }) {
-  const plataformasVisiveis = plataformas.filter((plataforma) => plataforma.visivel === true);
-
   return (
     <div
       className="relative bg-green-500 border border-green-400 hover:border-white rounded-3xl p-6 sm:p-7 text-white overflow-hidden cursor-pointer transition"
@@ -309,11 +307,11 @@ export function SaldoGeralCard({
         ))}
       </div>
 
-      {plataformasVisiveis.length > 0 && (
+      {plataformas.length > 0 && (
         <div className="mt-5 border-t border-white/20 pt-4">
           <p className="text-xs font-black uppercase tracking-wide text-white/70">Saldos nas plataformas</p>
           <div className="mt-2 divide-y divide-white/15">
-            {plataformasVisiveis.map((plataforma) => (
+            {plataformas.map((plataforma) => (
               <div key={plataforma.id} className="py-2 flex items-center justify-between gap-3 text-sm">
                 <span className="truncate text-white/85">{plataforma.nome}</span>
                 <span className="whitespace-nowrap text-white/90">{formatarMoeda(plataforma.saldo)}</span>

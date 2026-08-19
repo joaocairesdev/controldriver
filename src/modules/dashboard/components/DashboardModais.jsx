@@ -1,4 +1,5 @@
 import ModalBase from "../../../shared/components/modals/ModalBase";
+import ToggleSwitch from "../../../shared/components/ui/ToggleSwitch";
 
 export function ModalRateioDashboard({ rateio, fechar }) {
   return (
@@ -141,44 +142,27 @@ export function ModalContasPagarDashboard({ diasSelecionados, alterarDias, fecha
   );
 }
 
-export function ModalContasDashboard({ contas, contasSelecionadas, alternarConta, selecionarTodas, fechar, formatarMoeda }) {
+export function ModalContasDashboard({
+  contas,
+  contasSelecionadas,
+  plataformas,
+  plataformasSelecionadas,
+  alternarConta,
+  alternarPlataforma,
+  selecionarTodas,
+  fechar,
+  formatarMoeda,
+}) {
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[90] p-4">
-      <div className="w-full max-w-lg bg-[#111827] border border-gray-800 rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-hide">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-black">Contas no Dashboard</h2>
-            <p className="text-gray-400 text-sm mt-2">Escolha quais contas entram no Saldo Atual Geral.</p>
-          </div>
-          <button type="button" onClick={fechar} className="w-10 h-10 rounded-xl bg-red-500 hover:bg-red-600 text-white font-black">
-            ×
-          </button>
-        </div>
-
-        <div className="mt-5 space-y-3">
-          {contas.map((conta) => {
-            const ativo = contasSelecionadas.includes(String(conta.id));
-            return (
-              <button
-                key={conta.id}
-                type="button"
-                onClick={() => alternarConta(conta.id)}
-                className="w-full bg-[#0B1120] border border-gray-800 hover:border-green-500/50 rounded-2xl p-4 flex items-center justify-between gap-4 text-left"
-              >
-                <div className="min-w-0">
-                  <p className="font-black truncate">{conta.nome}</p>
-                  <p className="text-sm text-gray-500 mt-1">{formatarMoeda(conta.saldo_atual)}</p>
-                </div>
-
-                <div className={`w-14 h-8 rounded-full p-1 transition ${ativo ? "bg-green-500" : "bg-gray-700"}`}>
-                  <div className={`w-6 h-6 rounded-full bg-white transition ${ativo ? "translate-x-6" : "translate-x-0"}`} />
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-6 grid grid-cols-2 gap-3">
+    <ModalBase
+      aberto
+      titulo="Saldo Consolidado"
+      descricao="Escolha quais contas e plataformas participam do saldo exibido no Dashboard."
+      onClose={fechar}
+      largura="max-w-lg"
+      z="z-[110]"
+      rodape={(
+        <div className="grid grid-cols-2 gap-3">
           <button type="button" onClick={selecionarTodas} className="border border-gray-700 hover:bg-white/5 text-white font-black rounded-xl p-3">
             Ativar todas
           </button>
@@ -186,8 +170,61 @@ export function ModalContasDashboard({ contas, contasSelecionadas, alternarConta
             Concluir
           </button>
         </div>
-      </div>
-    </div>
+      )}
+    >
+      <section aria-labelledby="contas-saldo-titulo">
+        <h3 id="contas-saldo-titulo" className="text-xs font-black uppercase tracking-[0.14em] text-gray-500">Contas</h3>
+        <div className="mt-3 space-y-3">
+          {contas.map((conta) => {
+            const ativo = contasSelecionadas.includes(String(conta.id));
+            return (
+              <div
+                key={conta.id}
+                className="w-full bg-[#0B1120] border border-gray-800 hover:border-green-500/50 rounded-2xl p-4 flex items-center justify-between gap-4 text-left"
+              >
+                <div className="min-w-0">
+                  <p className="font-black truncate">{conta.nome}</p>
+                  <p className="text-sm text-gray-500 mt-1">{formatarMoeda(conta.saldo_atual)}</p>
+                </div>
+
+                <ToggleSwitch
+                  ativo={ativo}
+                  onChange={() => alternarConta(conta.id)}
+                  ariaLabel={`${conta.nome} participa do Saldo Consolidado`}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="mt-6" aria-labelledby="plataformas-saldo-titulo">
+        <h3 id="plataformas-saldo-titulo" className="text-xs font-black uppercase tracking-[0.14em] text-gray-500">Plataformas</h3>
+        <div className="mt-3 space-y-3">
+          {plataformas.map((plataforma) => {
+            const ativo = plataformasSelecionadas.includes(String(plataforma.id));
+            return (
+              <div
+                key={plataforma.id}
+                className="w-full bg-[#0B1120] border border-gray-800 hover:border-green-500/50 rounded-2xl p-4 flex items-center justify-between gap-4"
+              >
+                <div className="min-w-0">
+                  <p className="font-black truncate">{plataforma.nome}</p>
+                  <p className="text-sm text-gray-500 mt-1">{formatarMoeda(plataforma.saldo)}</p>
+                  <p className="text-xs text-gray-500 mt-1">Participa do Saldo Consolidado</p>
+                </div>
+
+                <ToggleSwitch
+                  ativo={ativo}
+                  onChange={() => alternarPlataforma(plataforma.id)}
+                  ariaLabel={`${plataforma.nome} participa do Saldo Consolidado`}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </ModalBase>
   );
 }
 

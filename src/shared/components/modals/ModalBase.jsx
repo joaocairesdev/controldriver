@@ -44,6 +44,7 @@ export default function ModalBase({
   onRequestClose,
   z = "z-[100]",
   largura = "max-w-lg",
+  backdrop = "bg-black/70",
   mostrarFechar = true,
   acaoCabecalho = null,
   rodape = null,
@@ -93,6 +94,7 @@ export default function ModalBase({
 
   useEffect(() => {
     if (!aberto) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAlteradoInternamente(false);
       setConfirmacaoAberta(false);
     }
@@ -129,13 +131,15 @@ export default function ModalBase({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+    // solicitarFechamento reflete as opções já listadas abaixo sem rearmar o listener a cada render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aberto, fecharComEsc, confirmarAoFecharSeAlterado, temAlteracao, onClose, onRequestClose]);
 
   if (!aberto) return null;
 
   return (
     <div
-      className={`fixed inset-0 bg-black/70 flex items-end sm:items-center justify-center ${z} overscroll-none overflow-hidden px-0 sm:px-4 pb-0 sm:py-4`}
+      className={`fixed inset-0 ${backdrop} flex items-end sm:items-center justify-center ${z} overscroll-none overflow-hidden px-0 sm:px-4 pb-0 sm:py-4`}
       onMouseDown={(event) => {
         if (!fecharAoClicarFora) return;
         if (event.target === event.currentTarget) {
