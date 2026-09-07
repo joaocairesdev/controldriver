@@ -298,13 +298,12 @@ export function SaldoGeralCard({
         </p>
       </div>
 
-      <div className="mt-5 divide-y divide-white/15">
-        {contas.slice(0, 6).map((conta) => (
-          <div key={conta.id} className="py-2 flex items-center justify-between gap-3 text-sm">
-            <span className="truncate text-white/85">{conta.nome}</span>
-            <span className="whitespace-nowrap text-white/90">{formatarMoeda(conta.saldo_atual)}</span>
-          </div>
-        ))}
+      <div className="mt-5 space-y-4">
+        <GrupoSaldos titulo="Carteira" contas={contas.filter((conta) => conta.tipo_conta === "carteira")} formatarMoeda={formatarMoeda} />
+        {contas.some((conta) => conta.tipo_conta === "tag") && (
+          <GrupoSaldos titulo="TAG" contas={contas.filter((conta) => conta.tipo_conta === "tag")} formatarMoeda={formatarMoeda} />
+        )}
+        <GrupoSaldos titulo="Contas bancárias" contas={contas.filter((conta) => conta.tipo_conta === "banco")} formatarMoeda={formatarMoeda} />
       </div>
 
       {plataformas.length > 0 && (
@@ -320,6 +319,23 @@ export function SaldoGeralCard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function GrupoSaldos({ titulo, contas, formatarMoeda }) {
+  if (!contas.length) return null;
+  return (
+    <div className="border-t border-white/20 pt-3 first:border-t-0 first:pt-0">
+      <p className="text-xs font-black uppercase tracking-wide text-white/70">{titulo}</p>
+      <div className="mt-1 divide-y divide-white/15">
+        {contas.map((conta) => (
+          <div key={conta.id} className="py-2 flex items-center justify-between gap-3 text-sm">
+            <span className="truncate text-white/85">{conta.nome}</span>
+            <span className="whitespace-nowrap text-white/90">{formatarMoeda(conta.saldo_atual)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

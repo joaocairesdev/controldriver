@@ -1,0 +1,341 @@
+import { gerarParcelasContrato } from "../../contratos/utils/contratosFinanceiros.js";
+import { criarCobrancaContrato } from "../../contratos/services/cobrancasContratosService.js";
+import { gerarVencimentosAluguel } from "../utils/veiculosFinanceiro.js";
+import { adicionarMesesSeguro } from "../../../shared/utils/recorrencia.js";
+
+const FORMAS_CREDITO = new Set(["credito_avista", "credito_parcelado"]);
+
+function origemPrevista(formaPagamento, contaId, cartaoId) {
+  if (FORMAS_CREDITO.has(formaPagamento)) {
+    return { contaPagamentoId: null, cartaoPagamentoId: Number(cartaoId) };
+  }
+  if (formaPagamento === "boleto") {
+    return { contaPagamentoId: null, cartaoPagamentoId: null };
+  }
+  return { contaPagamentoId: Number(contaId), cartaoPagamentoId: null };
+}
+
+function criarPlano({
+  papel,
+  tipoAgendamento,
+  ordem,
+  valorTotal = null,
+  valorCobranca,
+  quantidadeCobrancas,
+  primeiroVencimento,
+  periodicidade = null,
+  fimRecorrencia = null,
+  formaPagamento,
+  contaId,
+  cartaoId,
+  parcelas,
+}) {
+  const origem = origemPrevista(formaPagamento, contaId, cartaoId);
+  return {
+    papel,
+    tipoAgendamento,
+    ordem,
+    valorTotal,
+    valorCobranca,
+    quantidadeCobrancas,
+    primeiroVencimento,
+    periodicidade,
+    fimRecorrencia,
+    formaPagamento,
+    ...origem,
+    parcelas,
+  };
+}
+
+function gerarVencimentosMensaisAteFim(primeiroVencimento, fimRecorrencia) {
+  const vencimentos = [];
+  let proximoVencimento = primeiroVencimento;
+  while (proximoVencimento && proximoVencimento <= fimRecorrencia) {
+    const lote = gerarVencimentosAluguel({
+      proximoVencimento,
+      frequencia: "mensal",
+      dataFim: fimRecorrencia,
+    });
+    if (!lote.length) break;
+    vencimentos.push(...lote);
+    proximoVencimento = adicionarMesesSeguro(lote.at(-1), 1);
+  }
+  return vencimentos;
+}
+
+export function montarPlanosCobrancaProtecao(dados) {
+  if (dados.formaContratacao === "pagamento_unico") {
+    const valor = Number(dados.pagamentoUnico.valor);
+    const vencimento = dados.pagamentoUnico.dataPagamento;
+    return [criarPlano({
+      papel: "principal",
+      tipoAgendamento: "unica",
+      ordem: 1,
+      valorTotal: valor,
+      valorCobranca: valor,
+      quantidadeCobrancas: 1,
+      primeiroVencimento: vencimento,
+      formaPagamento: dados.pagamentoUnico.formaPagamento,
+      contaId: dados.pagamentoUnico.contaId,
+      cartaoId: dados.pagamentoUnico.cartaoId,
+      parcelas: gerarParcelasContrato({
+        quantidade: 1,
+        valorContratado: valor,
+        primeiroVencimento: vencimento,
+      }),
+    })];
+  }
+
+  if (dados.formaContratacao === "mensal") {
+    const valor = Number(dados.mensal.valorMensal);
+    const vencimentos = gerarVencimentosMensaisAteFim(
+      dados.mensal.primeiroVencimento,
+      dados.fimVigencia,
+    );
+    return [criarPlano({
+      papel: "mensalidade",
+      tipoAgendamento: "recorrente",
+      ordem: 1,
+      valorCobranca: valor,
+      quantidadeCobrancas: null,
+      primeiroVencimento: dados.mensal.primeiroVencimento,
+      periodicidade: "mensal",
+      fimRecorrencia: dados.fimVigencia,
+      formaPagamento: dados.mensal.formaPagamento,
+      contaId: dados.mensal.contaId,
+      cartaoId: dados.mensal.cartaoId,
+      parcelas: vencimentos.map((vencimento, indice) => ({
+        numero: indice + 1,
+        vencimento,
+        valor,
+      })),
+    })];
+  }
+
+  if (dados.formaContratacao === "parcelado") {
+    const valorTotal = Number(dados.parcelado.valorTotal);
+    const quantidade = Number(dados.parcelado.numeroParcelas);
+    const parcelas = gerarParcelasContrato({
+      quantidade,
+      valorContratado: valorTotal,
+      primeiroVencimento: dados.parcelado.primeiroVencimento,
+    });
+    return [criarPlano({
+      papel: "principal",
+      tipoAgendamento: "parcelada",
+      ordem: 1,
+      valorTotal,
+      valorCobranca: parcelas[0]?.valor || 0,
+      quantidadeCobrancas: quantidade,
+      primeiroVencimento: dados.parcelado.primeiroVencimento,
+      periodicidade: "mensal",
+      formaPagamento: dados.parcelado.formaPagamento,
+      contaId: dados.parcelado.contaId,
+      cartaoId: dados.parcelado.cartaoId,
+      parcelas,
+    })];
+  }
+
+  const valorEntrada = Number(dados.entrada.valor);
+  const quantidade = Number(dados.parcelas.numeroParcelas);
+  const valorParcela = Number(dados.parcelas.valorParcela);
+  return [
+    criarPlano({
+      papel: "entrada",
+      tipoAgendamento: "unica",
+      ordem: 1,
+      valorTotal: valorEntrada,
+      valorCobranca: valorEntrada,
+      quantidadeCobrancas: 1,
+      primeiroVencimento: dados.entrada.dataPagamento,
+      formaPagamento: dados.entrada.formaPagamento,
+      contaId: dados.entrada.contaId,
+      cartaoId: dados.entrada.cartaoId,
+      parcelas: gerarParcelasContrato({
+        quantidade: 1,
+        valorContratado: valorEntrada,
+        primeiroVencimento: dados.entrada.dataPagamento,
+      }),
+    }),
+    criarPlano({
+      papel: "saldo",
+      tipoAgendamento: "parcelada",
+      ordem: 2,
+      valorTotal: Math.round(quantidade * valorParcela * 100) / 100,
+      valorCobranca: valorParcela,
+      quantidadeCobrancas: quantidade,
+      primeiroVencimento: dados.parcelas.primeiroVencimento,
+      periodicidade: "mensal",
+      formaPagamento: dados.parcelas.formaPagamento,
+      contaId: dados.parcelas.contaId,
+      cartaoId: dados.parcelas.cartaoId,
+      parcelas: gerarParcelasContrato({
+        quantidade,
+        valorParcela,
+        primeiroVencimento: dados.parcelas.primeiroVencimento,
+      }),
+    }),
+  ];
+}
+
+async function buscarCategoriaSeguroId(supabase) {
+  const { data, error } = await supabase
+    .from("categorias")
+    .select("id")
+    .eq("nome", "Seguro")
+    .maybeSingle();
+  if (error) throw error;
+  return data?.id || null;
+}
+
+async function criarCobrancasDoPlano(supabase, {
+  contrato,
+  plano,
+  planoId,
+  veiculoId,
+  nomeVeiculo,
+  categoriaId,
+}) {
+  for (const parcela of plano.parcelas) {
+    const { data: parcelaCriada, error: erroParcela } = await supabase
+      .from("contratos_financeiros_parcelas")
+      .insert({
+        contrato_id: contrato.id,
+        plano_cobranca_id: planoId,
+        numero: parcela.numero,
+        data_vencimento: parcela.vencimento,
+        valor: parcela.valor,
+        valor_pago: 0,
+        status: "aberta",
+      })
+      .select()
+      .single();
+    if (erroParcela) throw erroParcela;
+
+    await criarCobrancaContrato(supabase, {
+      contratoId: contrato.id,
+      parcelaId: parcelaCriada.id,
+      dataVencimento: parcela.vencimento,
+      valor: parcela.valor,
+      formaPagamento: plano.formaPagamento,
+      contaId: plano.contaPagamentoId,
+      cartaoId: plano.cartaoPagamentoId,
+      categoria: "Seguro",
+      categoriaId,
+      descricao: `${contrato.nome} - ${nomeVeiculo} (${parcela.numero}/${plano.parcelas.length})`,
+      finalidade: "trabalho",
+      veiculoId: Number(veiculoId),
+    });
+  }
+}
+
+export async function salvarProtecaoComContrato(supabase, {
+  veiculoId,
+  nomeVeiculo,
+  protecaoAnterior = null,
+  acao = "",
+  dados,
+}) {
+  const planos = montarPlanosCobrancaProtecao(dados);
+  const parcelas = planos.flatMap((plano) => plano.parcelas);
+  const valorTotal = parcelas.reduce((total, parcela) => total + Number(parcela.valor || 0), 0);
+  const primeiroVencimento = [...parcelas]
+    .sort((a, b) => String(a.vencimento).localeCompare(String(b.vencimento)))[0]?.vencimento || null;
+  const categoriaId = await buscarCategoriaSeguroId(supabase);
+
+  if (protecaoAnterior && ["renovar", "substituir"].includes(acao)) {
+    const status = acao === "renovar" ? "renovada" : "substituida";
+    const encerradaEm = new Date().toISOString().split("T")[0];
+    const { error } = await supabase
+      .from("veiculos_protecoes")
+      .update({ ativo: false, status, encerrada_em: encerradaEm })
+      .eq("id", protecaoAnterior.id);
+    if (error) throw error;
+    if (protecaoAnterior.contrato_financeiro_id) {
+      const { error: erroContratoAnterior } = await supabase
+        .from("contratos_financeiros")
+        .update({ status: "cancelado", cancelado_em: encerradaEm, updated_at: new Date().toISOString() })
+        .eq("id", protecaoAnterior.contrato_financeiro_id);
+      if (erroContratoAnterior) throw erroContratoAnterior;
+    }
+  }
+
+  const { data: contrato, error: erroContrato } = await supabase
+    .from("contratos_financeiros")
+    .insert({
+      tipo_contrato: dados.tipoProtecao,
+      nome: dados.nomeProtecao.trim(),
+      contraparte_nome: dados.nomeProtecao.trim(),
+      data_inicio: dados.inicioVigencia,
+      data_fim: dados.fimVigencia,
+      descricao: `${dados.tipoProtecao === "seguro" ? "Seguro" : "Proteção veicular"} - ${nomeVeiculo}`,
+      status: "ativo",
+    })
+    .select()
+    .single();
+  if (erroContrato) throw erroContrato;
+
+  const planoPrincipal = planos.find((plano) => plano.papel !== "entrada") || planos[0];
+  const { data: protecao, error: erroProtecao } = await supabase
+    .from("veiculos_protecoes")
+    .insert({
+      veiculo_id: Number(veiculoId),
+      contrato_financeiro_id: contrato.id,
+      tipo_protecao: dados.tipoProtecao,
+      nome_protecao: dados.nomeProtecao.trim(),
+      inicio_vigencia: dados.inicioVigencia,
+      fim_vigencia: dados.fimVigencia,
+      forma_pagamento: planoPrincipal.formaPagamento,
+      valor_total: Math.round(valorTotal * 100) / 100,
+      valor_parcela: planoPrincipal.valorCobranca,
+      numero_parcelas: parcelas.length,
+      parcelas_pagas: 0,
+      primeiro_vencimento_pendente: primeiroVencimento,
+      conta_id: planoPrincipal.contaPagamentoId,
+      cartao_id: planoPrincipal.cartaoPagamentoId,
+      lancamentos_gerados: true,
+      ativo: true,
+      status: "ativa",
+      encerrada_em: null,
+      substitui_protecao_id: protecaoAnterior && ["renovar", "substituir"].includes(acao)
+        ? protecaoAnterior.id
+        : null,
+    })
+    .select()
+    .single();
+  if (erroProtecao) throw erroProtecao;
+
+  for (const plano of planos) {
+    const { data: planoCriado, error: erroPlano } = await supabase
+      .from("contratos_financeiros_planos_cobranca")
+      .insert({
+        contrato_id: contrato.id,
+        papel: plano.papel,
+        tipo_agendamento: plano.tipoAgendamento,
+        ordem: plano.ordem,
+        valor_total: plano.valorTotal,
+        valor_cobranca: plano.valorCobranca,
+        quantidade_cobrancas: plano.quantidadeCobrancas,
+        primeiro_vencimento: plano.primeiroVencimento,
+        periodicidade: plano.periodicidade,
+        fim_recorrencia: plano.fimRecorrencia,
+        forma_pagamento_prevista: plano.formaPagamento,
+        conta_pagamento_id: plano.contaPagamentoId,
+        cartao_pagamento_id: plano.cartaoPagamentoId,
+      })
+      .select()
+      .single();
+    if (erroPlano) throw erroPlano;
+
+    await criarCobrancasDoPlano(supabase, {
+      contrato,
+      plano,
+      planoId: planoCriado.id,
+      veiculoId,
+      nomeVeiculo,
+      categoriaId,
+    });
+  }
+
+  return protecao;
+}

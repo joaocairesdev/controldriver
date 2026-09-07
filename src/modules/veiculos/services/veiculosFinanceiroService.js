@@ -249,6 +249,7 @@ export async function salvarFinanciamentoVeiculo(supabase, {
     instituicao_financeira: financiamento.instituicaoFinanceira.trim(),
     valor_veiculo: Number(financiamento.valorVeiculo),
     valor_financiado: Number(financiamento.valorFinanciado),
+    saldo_devedor: financiamento.saldoDevedor == null ? null : Number(financiamento.saldoDevedor),
     valor_entrada: Number(financiamento.entrada || 0),
     total_parcelas: Number(financiamento.totalParcelas),
     parcelas_pagas: Number(financiamento.parcelasPagas || 0),

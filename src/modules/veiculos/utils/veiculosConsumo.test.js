@@ -28,6 +28,8 @@ test("calcula ciclos independentes quando etanol e gasolina se alternam", () => 
   assert.equal(gasolina.media, 15);
   assert.equal(etanol.precoMedio, 14 / 3);
   assert.equal(gasolina.precoMedio, 20 / 3);
+  assert.equal(etanol.detalhes.length, 2);
+  assert.equal(etanol.detalhes[0].consumo, 10);
 });
 
 test("ignora registros cancelados na cronologia de cada combustível", () => {

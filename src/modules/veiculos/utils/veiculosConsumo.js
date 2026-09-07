@@ -20,6 +20,7 @@ function resumirCiclos({ chave, nome, registros, quantidadeCampo, precoCampo, un
     .filter(abastecimentoParticipaDoConsumo)
     .sort(compararAbastecimentosCronologicamente);
   const ciclos = [];
+  const detalhes = [];
 
   ordenados.forEach((registro, indice) => {
     const anterior = ordenados[indice - 1];
@@ -30,10 +31,19 @@ function resumirCiclos({ chave, nome, registros, quantidadeCampo, precoCampo, un
     const consumoRegistrado = usarMetricasRegistradas ? numeroPositivo(registro.km_por_kwh) : 0;
     const kmCronologia = anterior && odometro > odometroAnterior ? odometro - odometroAnterior : 0;
     const km = kmRegistrado || kmCronologia;
+    const consumo = km > 0 && quantidade > 0 ? (consumoRegistrado || km / quantidade) : 0;
+
+    detalhes.push({
+      id: registro.id,
+      data: registro.saidas?.data_compra || registro.data,
+      valor: Number(registro.saidas?.valor_total || quantidade * numeroPositivo(registro[precoCampo]) || 0),
+      quantidade,
+      consumo,
+    });
 
     if (km > 0 && quantidade > 0) {
       ciclos.push({
-        consumo: consumoRegistrado || km / quantidade,
+        consumo,
         custo: quantidade * numeroPositivo(registro[precoCampo]),
         km,
       });
@@ -56,6 +66,7 @@ function resumirCiclos({ chave, nome, registros, quantidadeCampo, precoCampo, un
     unidadeConsumo,
     unidadePreco,
     registros: ordenados.length,
+    detalhes: detalhes.sort((a, b) => String(b.data || "").localeCompare(String(a.data || ""))),
     ciclos: ciclos.length,
     media: consumos.length ? consumos.reduce((total, consumo) => total + consumo, 0) / consumos.length : 0,
     melhor: consumos.length ? Math.max(...consumos) : 0,

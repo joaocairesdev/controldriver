@@ -64,12 +64,39 @@ test("detalhes do veículo formam um dashboard contínuo sem abas", async () => 
   assert.match(pagina, /Manutenção/);
   assert.match(pagina, /Documentação/);
   assert.match(pagina, /TAG vinculada/);
-  assert.match(pagina, /Histórico completo/);
+  assert.doesNotMatch(pagina, /Histórico completo/);
   assert.match(pagina, /<TagFinanceiraCard/);
   assert.match(pagina, /Odômetro inicial/);
   assert.match(pagina, /Total de KM rodados/);
   assert.match(pagina, /calcularConsumosPorFonte/);
-  assert.match(pagina, /Configuração da saúde do veículo/);
+  assert.match(pagina, /Avisos/);
+  assert.doesNotMatch(pagina, /Cadastro:/);
+  assert.match(pagina, /ControlDriver · \+ IPVA/);
+  assert.match(pagina, /ControlDriver · \+ Licenciamento/);
+  assert.match(pagina, /Movimentar TAG/);
+  assert.doesNotMatch(pagina, /Registrar uso|Registrar recarga/);
+  assert.match(pagina, /scrollIntoView/);
+  assert.doesNotMatch(pagina, /Saúde do veículo|SaudeVeiculoModal|Adicionar foto|Alterar foto/);
   assert.doesNotMatch(pagina, /titulo="Dias trabalhados"|titulo="Corridas"/);
-  assert.doesNotMatch(pagina, /MiniInfoVeiculo titulo="Placa"|MiniInfoVeiculo titulo="Posse"|MiniInfoVeiculo titulo="Aquisição"|MiniInfoVeiculo titulo="KM inicial"/);
+  assert.match(pagina, /titulo="Informações do Veículo"/);
+  assert.match(pagina, /MiniInfoVeiculo titulo="Posse"/);
+  assert.doesNotMatch(pagina, /MiniInfoVeiculo titulo="Placa"|MiniInfoVeiculo titulo="Aquisição"|MiniInfoVeiculo titulo="KM inicial"/);
+});
+
+test("novo veículo abre cadastro único com os campos essenciais", async () => {
+  const pagina = await readFile(new URL("../pages/Veiculos.jsx", import.meta.url), "utf8");
+  const cadastro = await readFile(new URL("../components/CadastroVeiculoModal.jsx", import.meta.url), "utf8");
+
+  assert.doesNotMatch(pagina, /O que deseja cadastrar\?/);
+  assert.match(pagina, /<CadastroVeiculoModal/);
+  assert.match(pagina, /setVeiculoDetalhes\(detalhes \|\| veiculoSalvo\)/);
+  assert.match(cadastro, /Placa/);
+  assert.match(cadastro, /Marca/);
+  assert.match(cadastro, /Modelo/);
+  assert.match(cadastro, /Ano/);
+  assert.match(cadastro, /Quilometragem inicial/);
+  assert.match(cadastro, /Tipo de combustível/);
+  assert.match(cadastro, /SelecionarOpcaoModal/);
+  assert.match(cadastro, /Próprio/);
+  assert.match(cadastro, /Alugado/);
 });

@@ -145,10 +145,7 @@ export function ModalContasPagarDashboard({ diasSelecionados, alterarDias, fecha
 export function ModalContasDashboard({
   contas,
   contasSelecionadas,
-  plataformas,
-  plataformasSelecionadas,
   alternarConta,
-  alternarPlataforma,
   selecionarTodas,
   fechar,
   formatarMoeda,
@@ -157,7 +154,7 @@ export function ModalContasDashboard({
     <ModalBase
       aberto
       titulo="Saldo Consolidado"
-      descricao="Escolha quais contas e plataformas participam do saldo exibido no Dashboard."
+      descricao="Escolha as contas bancárias que participam do saldo. Carteira, TAG e plataformas com saldo são incluídas automaticamente."
       onClose={fechar}
       largura="max-w-lg"
       z="z-[110]"
@@ -198,32 +195,6 @@ export function ModalContasDashboard({
         </div>
       </section>
 
-      <section className="mt-6" aria-labelledby="plataformas-saldo-titulo">
-        <h3 id="plataformas-saldo-titulo" className="text-xs font-black uppercase tracking-[0.14em] text-gray-500">Plataformas</h3>
-        <div className="mt-3 space-y-3">
-          {plataformas.map((plataforma) => {
-            const ativo = plataformasSelecionadas.includes(String(plataforma.id));
-            return (
-              <div
-                key={plataforma.id}
-                className="w-full bg-[#0B1120] border border-gray-800 hover:border-green-500/50 rounded-2xl p-4 flex items-center justify-between gap-4"
-              >
-                <div className="min-w-0">
-                  <p className="font-black truncate">{plataforma.nome}</p>
-                  <p className="text-sm text-gray-500 mt-1">{formatarMoeda(plataforma.saldo)}</p>
-                  <p className="text-xs text-gray-500 mt-1">Participa do Saldo Consolidado</p>
-                </div>
-
-                <ToggleSwitch
-                  ativo={ativo}
-                  onChange={() => alternarPlataforma(plataforma.id)}
-                  ariaLabel={`${plataforma.nome} participa do Saldo Consolidado`}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </section>
     </ModalBase>
   );
 }

@@ -164,17 +164,21 @@ test("listas financeiras do dashboard não possuem limites locais e usam janela 
   assert.doesNotMatch(componentes, /contas\.slice\(0, 5\)/);
 });
 
-test("saldo consolidado soma somente plataformas participantes", async () => {
+test("saldo consolidado inclui plataformas não zeradas e ordena as fontes", async () => {
   const [pagina, componentes] = await Promise.all([
     readFile(new URL("../pages/Dashboard.jsx", import.meta.url), "utf8"),
     readFile(new URL("../components/DashboardComponentes.jsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(pagina, /plataformasFinanceiras\.filter\([\s\S]*plataformasSelecionadas\.includes\(String\(plataforma\.id\)\)/);
+  assert.match(pagina, /plataformasFinanceiras\.filter\([\s\S]*Math\.abs\(Number\(plataforma\.saldo \|\| 0\)\) > 0\.004/);
+  assert.match(pagina, /const contasAtivasDashboard = \[\.\.\.carteiraDashboard, \.\.\.tagsDashboard, \.\.\.contasBancariasDashboard\]/);
   assert.match(pagina, /const saldoGeral = saldoContas \+ saldoPlataformas/);
   assert.match(pagina, /plataformas=\{plataformasSaldoConsolidado\}/);
   assert.match(pagina, /quantidadePlataformasSaldo=\{plataformasSaldoConsolidado\.length\}/);
   assert.doesNotMatch(componentes, /plataforma\.visivel/);
   assert.match(componentes, /\{quantidadePlataformasSaldo\} plataforma\(s\) incluída\(s\) neste saldo/);
   assert.match(componentes, /plataformas\.map\(\(plataforma\)/);
+  assert.match(componentes, /titulo="Carteira"/);
+  assert.match(componentes, /titulo="TAG"/);
+  assert.match(componentes, /titulo="Contas bancárias"/);
 });

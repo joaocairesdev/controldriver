@@ -62,6 +62,7 @@ export default function ModalBase({
   const scrollAreaRef = useRef(null);
   const [alteradoInternamente, setAlteradoInternamente] = useState(false);
   const [confirmacaoAberta, setConfirmacaoAberta] = useState(false);
+  const [viewportModal, setViewportModal] = useState(null);
 
   const estruturaLegada = extrairRodapeLegado(children);
   const conteudoCentral = estruturaLegada.conteudo;
@@ -113,6 +114,25 @@ export default function ModalBase({
   }, [aberto]);
 
   useEffect(() => {
+    if (!aberto || !window.visualViewport) return undefined;
+    const viewport = window.visualViewport;
+    const atualizarViewport = () => setViewportModal({
+      top: viewport.offsetTop,
+      left: viewport.offsetLeft,
+      width: viewport.width,
+      height: viewport.height,
+    });
+    // Sincroniza o overlay com a área realmente visível quando o teclado virtual abre.
+    atualizarViewport();
+    viewport.addEventListener("resize", atualizarViewport);
+    viewport.addEventListener("scroll", atualizarViewport);
+    return () => {
+      viewport.removeEventListener("resize", atualizarViewport);
+      viewport.removeEventListener("scroll", atualizarViewport);
+    };
+  }, [aberto]);
+
+  useEffect(() => {
     if (!aberto || scrollKey === null || scrollKey === undefined) return;
 
     requestAnimationFrame(() => {
@@ -140,6 +160,14 @@ export default function ModalBase({
   return (
     <div
       className={`fixed inset-0 ${backdrop} flex items-end sm:items-center justify-center ${z} overscroll-none overflow-hidden px-0 sm:px-4 pb-0 sm:py-4`}
+      style={viewportModal ? {
+        top: `${viewportModal.top}px`,
+        left: `${viewportModal.left}px`,
+        right: "auto",
+        bottom: "auto",
+        width: `${viewportModal.width}px`,
+        height: `${viewportModal.height}px`,
+      } : undefined}
       onMouseDown={(event) => {
         if (!fecharAoClicarFora) return;
         if (event.target === event.currentTarget) {

@@ -39,6 +39,18 @@ body {
   color: var(--cd-text);
 }
 
+/* Mantém overlays legados dentro da área visível quando o teclado virtual abre. */
+.fixed.inset-0[class*="bg-black"] {
+  top: var(--cd-visual-viewport-top, 0px);
+  bottom: auto;
+  height: var(--cd-visual-viewport-height, 100dvh);
+  max-height: var(--cd-visual-viewport-height, 100dvh);
+}
+
+.fixed.inset-0[class*="bg-black"] > div {
+  max-height: calc(var(--cd-visual-viewport-height, 100dvh) - 1rem);
+}
+
 [data-theme="claro"] body {
   color-scheme: light;
   background: var(--cd-bg);

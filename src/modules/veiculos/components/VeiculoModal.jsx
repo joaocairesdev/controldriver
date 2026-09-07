@@ -15,6 +15,7 @@ export default function VeiculoModal({
   onSelecionarCategoria,
   onClose,
   onSalvar,
+  somenteProtecao = false,
 
   marca,
   setMarca,
@@ -126,6 +127,7 @@ export default function VeiculoModal({
   const tagPrePaga = tipoTag === "pre_paga";
   const tagPosPaga = tipoTag === "pos_paga";
   const etapas = useMemo(() => {
+    if (somenteProtecao) return ["protecao"];
     const lista = ["situacao", "veiculo"];
     if (tipoPosse === "proprio" && situacaoAquisicao === "financiado") lista.push("financiamento");
     if (tipoPosse === "alugado") {
@@ -134,7 +136,7 @@ export default function VeiculoModal({
     }
     lista.push("protecao", "tag", "resumo");
     return lista;
-  }, [tipoPosse, situacaoAquisicao, caucao.houve]);
+  }, [tipoPosse, situacaoAquisicao, caucao.houve, somenteProtecao]);
   const formasPagamentoContrato = useMemo(
     () => formasPagamentoProtecao.filter((item) => !["credito_parcelado", "boleto_parcelado"].includes(item.valor)),
     [formasPagamentoProtecao]
@@ -166,10 +168,12 @@ export default function VeiculoModal({
 
   useEffect(() => {
     if (aberto) {
+      // Reinicia o fluxo quando o modal passa a representar outro veículo.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setEtapa(1);
       setErros({});
     }
-  }, [aberto, veiculoEditando?.id]);
+  }, [aberto, veiculoEditando?.id, somenteProtecao]);
 
   if (!aberto) return null;
 
@@ -358,7 +362,7 @@ export default function VeiculoModal({
     <>
       <ModalBase
         aberto={aberto}
-        titulo={`${veiculoEditando ? "Editar Veículo" : "Novo Veículo"} · ${tituloEtapa}`}
+        titulo={somenteProtecao ? "Seguro / Proteção Veicular" : `${veiculoEditando ? "Editar Veículo" : "Novo Veículo"} · ${tituloEtapa}`}
         descricao={descricaoEtapa}
         onClose={onClose}
         largura="max-w-2xl"
@@ -366,7 +370,7 @@ export default function VeiculoModal({
       
         confirmarAoFecharSeAlterado>
         <div>
-          <IndicadorEtapas etapa={etapa} total={etapas.length} />
+          {!somenteProtecao && <IndicadorEtapas etapa={etapa} total={etapas.length} />}
 
           {etapaAtual === "situacao" && (
             <section className="mt-6 space-y-5">
@@ -476,6 +480,7 @@ export default function VeiculoModal({
                 <CampoMoeda label="Valor do veículo" value={financiamento.valorVeiculo} placeholder="0,00" onChange={(valor) => atualizarGrupo(setFinanciamento, "valorVeiculo", formatarMoedaDigitada(valor))} erro={erros.valorVeiculo} shakeKey={shakeKey} />
                 <CampoMoeda label="Valor financiado" value={financiamento.valorFinanciado} placeholder="0,00" onChange={(valor) => atualizarGrupo(setFinanciamento, "valorFinanciado", formatarMoedaDigitada(valor))} erro={erros.valorFinanciado} shakeKey={shakeKey} />
                 <CampoMoeda label="Entrada" value={financiamento.entrada} placeholder="0,00" onChange={(valor) => atualizarGrupo(setFinanciamento, "entrada", formatarMoedaDigitada(valor))} />
+                <CampoMoeda label="Saldo devedor" value={financiamento.saldoDevedor} placeholder="0,00" onChange={(valor) => atualizarGrupo(setFinanciamento, "saldoDevedor", formatarMoedaDigitada(valor))} />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <InputTexto label="Total de parcelas" value={financiamento.totalParcelas} placeholder="48" onChange={(valor) => atualizarGrupo(setFinanciamento, "totalParcelas", somenteNumeros(valor))} erro={erros.totalParcelas} shakeKey={shakeKey} />
@@ -968,7 +973,7 @@ export default function VeiculoModal({
                 onClick={salvar}
                 className="bg-green-500 hover:bg-green-600 text-black font-bold rounded-xl p-3"
               >
-                {veiculoEditando ? "Salvar Alterações" : "Salvar"}
+                {somenteProtecao ? "Salvar proteção" : veiculoEditando ? "Salvar Alterações" : "Salvar"}
               </button>
             )}
           </div>
