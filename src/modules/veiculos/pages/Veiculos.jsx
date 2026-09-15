@@ -4,6 +4,7 @@ import TagFinanceiraCard from "../../tag/components/TagFinanceiraCard";
 import TagModal from "../../tag/components/TagModal";
 import VeiculoModal from "../components/VeiculoModal";
 import ProtecaoModal from "../components/ProtecaoModal";
+import MensalidadesProtecao from "../components/MensalidadesProtecao";
 import CadastroVeiculoModal from "../components/CadastroVeiculoModal";
 import {
   AquisicaoVeiculoModal,
@@ -48,6 +49,7 @@ import { somarPagamentosDoAbastecimento } from "../../abastecimentos/utils/abast
 import { calcularConsumosPorFonte } from "../utils/veiculosConsumo";
 import { salvarAquisicaoVeiculo, salvarDocumentoVeiculo } from "../services/veiculoCentralService";
 import { salvarProtecaoComContrato } from "../services/protecaoFinanceiroService";
+import { carregarMensalidadesProtecao, lancarMensalidadeProtecao } from "../services/mensalidadesProtecaoService";
 
 const criarFinanciamentoPadrao = () => ({
   instituicaoFinanceira: "", valorVeiculo: "", valorFinanciado: "", entrada: "",
@@ -1833,6 +1835,39 @@ function DetalhesVeiculo({
   const [manutencaoSelecionada, setManutencaoSelecionada] = useState(null);
   const [tagEtapa, setTagEtapa] = useState("");
   const [salvandoCentral, setSalvandoCentral] = useState(false);
+  const [agendaProtecao, setAgendaProtecao] = useState(null);
+  const [salvandoMensalidade, setSalvandoMensalidade] = useState(false);
+
+  useEffect(() => {
+    let ativo = true;
+    if (!veiculo.protecao?.contrato_financeiro_id) return () => { ativo = false; };
+    carregarMensalidadesProtecao(supabase, veiculo.protecao)
+      .then((agenda) => { if (ativo) setAgendaProtecao({ protecaoId: veiculo.protecao.id, agenda }); })
+      .catch((error) => { if (ativo) { console.error(error); onErro?.("Erro", "Não foi possível carregar as mensalidades.", "erro"); } });
+    return () => { ativo = false; };
+  }, [veiculo.protecao, onErro]);
+
+  async function lancarMensalidade(dados) {
+    if (salvandoMensalidade) return false;
+    setSalvandoMensalidade(true);
+    try {
+      const resultado = await lancarMensalidadeProtecao(supabase, {
+        protecao: veiculo.protecao,
+        nomeVeiculo: veiculo.nome,
+        ...dados,
+      });
+      setAgendaProtecao({ protecaoId: veiculo.protecao.id, agenda: await carregarMensalidadesProtecao(supabase, veiculo.protecao) });
+      await onRecarregar?.();
+      if (resultado.recuperada) onErro?.("Cobrança já lançada", "O lançamento existente foi recuperado.", "sucesso");
+      return true;
+    } catch (error) {
+      console.error(error);
+      onErro?.("Erro", "Não foi possível lançar esta mensalidade. Atualize a proteção e tente novamente.", "erro");
+      return false;
+    } finally {
+      setSalvandoMensalidade(false);
+    }
+  }
 
   useEffect(() => {
     let ativo = true;
@@ -2109,7 +2144,8 @@ function DetalhesVeiculo({
                 {veiculo.protecao && <button type="button" onClick={() => onGerenciarProtecao("substituir")} className="rounded-xl border border-blue-500/40 px-4 py-2 font-bold text-blue-300 hover:bg-blue-500/10">Substituir</button>}
               </div>
               <InfoDocumento titulo="Seguro / proteção" valor={veiculo.protecao?.nome_protecao || "Não cadastrado"} status={protecaoVigente ? "Vigente" : veiculo.protecao ? "Fora da vigência" : "Não informado"} ok={protecaoVigente} />
-              {veiculo.protecao && <ProtecaoVeiculoCard protecao={veiculo.protecao} formatarMoeda={formatarMoeda} compacto />}
+              {veiculo.protecao && <ProtecaoVeiculoCard protecao={veiculo.protecao} agenda={agendaProtecao?.protecaoId === veiculo.protecao.id ? agendaProtecao.agenda : null} formatarMoeda={formatarMoeda} compacto />}
+              {veiculo.protecao && agendaProtecao?.protecaoId === veiculo.protecao.id && agendaProtecao.agenda && <MensalidadesProtecao protecao={veiculo.protecao} agenda={agendaProtecao.agenda} contas={contasBanco} cartoes={cartoes} formatarMoeda={formatarMoeda} onLancar={lancarMensalidade} salvando={salvandoMensalidade} />}
               {dadosDashboard.protecoes.some((item) => item.id !== veiculo.protecao?.id) && (
                 <div className="mt-4 border-t border-gray-800 pt-4">
                   <p className="mb-3 text-xs font-black uppercase tracking-wide text-gray-500">Histórico</p>
@@ -2335,7 +2371,7 @@ function PainelVazioVeiculo({ texto }) {
   );
 }
 
-function ProtecaoVeiculoCard({ protecao, formatarMoeda, compacto = false }) {
+function ProtecaoVeiculoCard({ protecao, agenda = null, formatarMoeda, compacto = false }) {
   const inicio = formatarDataBRLocal(protecao.inicio_vigencia);
   const fim = formatarDataBRLocal(protecao.fim_vigencia);
   const pagas = Number(protecao.parcelas_pagas || 0);
@@ -2359,20 +2395,16 @@ function ProtecaoVeiculoCard({ protecao, formatarMoeda, compacto = false }) {
         </div>
 
         <div className="sm:text-right">
-          <p className="text-xs text-gray-500">Parcelas</p>
-          <p className="text-lg font-black text-white">
-            {pagas}/{total} pagas
-          </p>
-          <p className="text-xs text-gray-400">
-            {restantes} em aberto
-          </p>
+          <p className="text-xs text-gray-500">{agenda ? "Agenda mensal" : "Parcelas"}</p>
+          <p className="text-lg font-black text-white">{agenda ? `${agenda.itens.length} previstas` : `${pagas}/${total} pagas`}</p>
+          {!agenda && <p className="text-xs text-gray-400">{restantes} em aberto</p>}
         </div>
       </div>
 
       <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <MiniInfoTag titulo="Valor da parcela" valor={formatarMoeda(protecao.valor_parcela || protecao.valor_total)} />
-        <MiniInfoTag titulo="Forma de pagamento" valor={textoFormaProtecaoLocal(protecao.forma_pagamento)} />
-        <MiniInfoTag titulo="Próximo vencimento" valor={formatarDataBRLocal(protecao.primeiro_vencimento_pendente)} />
+        <MiniInfoTag titulo={agenda ? "Valor mensal padrão" : "Valor da parcela"} valor={formatarMoeda(protecao.valor_parcela || protecao.valor_total)} />
+        <MiniInfoTag titulo={agenda ? "Forma prevista" : "Forma de pagamento"} valor={textoFormaProtecaoLocal(protecao.forma_pagamento)} />
+        <MiniInfoTag titulo={agenda ? "Início do controle" : "Próximo vencimento"} valor={formatarDataBRLocal(agenda?.contrato.data_inicio_controle_financeiro || protecao.primeiro_vencimento_pendente)} />
       </div>
     </div>
   );

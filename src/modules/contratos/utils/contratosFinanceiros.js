@@ -28,6 +28,16 @@ function paraCentavos(valor) {
   return Math.round(Number(valor || 0) * 100);
 }
 
+function deCentavos(valor) {
+  return Number(valor || 0) / 100;
+}
+
+export function somarValoresParcelas(parcelas = []) {
+  return deCentavos(
+    parcelas.reduce((total, parcela) => total + paraCentavos(parcela?.valor), 0),
+  );
+}
+
 export function calcularTaxaJurosPercentual(valorRecebido, valorContratado) {
   const recebidoCentavos = paraCentavos(valorRecebido);
   const contratadoCentavos = paraCentavos(valorContratado);
@@ -63,7 +73,7 @@ export function gerarParcelasContrato({
   const valores = valorContratado !== undefined
     ? dividirValorEmParcelas(valorContratado, total)
     : Array.from({ length: total }, () => Math.round(Number(valorParcela || 0) * 100) / 100);
-  if (!total || valores.length !== total || !primeiroVencimento || !periodicidade) return [];
+  if (!total || valores.length !== total || !dataISOValida(primeiroVencimento) || !periodicidade) return [];
 
   const parcelas = [];
   let proximoVencimento = primeiroVencimento;
@@ -76,6 +86,136 @@ export function gerarParcelasContrato({
   }
 
   return parcelas;
+}
+
+function criarErroAgendaMensal(campo, mensagem) {
+  const erro = new RangeError(mensagem);
+  erro.campo = campo;
+  return erro;
+}
+
+function dataISOValida(data) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(data || ""))
+    && adicionarMesesSeguro(data, 0) === data;
+}
+
+export function gerarAgendaMensalContrato({
+  inicioVigencia,
+  fimVigencia,
+  primeiroVencimento,
+  valorPadrao,
+}) {
+  if (!dataISOValida(inicioVigencia) || !dataISOValida(fimVigencia)) {
+    throw criarErroAgendaMensal("fimVigencia", "Informe uma vigência válida.");
+  }
+  if (inicioVigencia >= fimVigencia) {
+    throw criarErroAgendaMensal(
+      "fimVigencia",
+      "O fim da vigência deve ser posterior ao início.",
+    );
+  }
+  if (!dataISOValida(primeiroVencimento)
+    || primeiroVencimento < inicioVigencia
+    || primeiroVencimento >= fimVigencia) {
+    throw criarErroAgendaMensal(
+      "primeiroVencimento",
+      "O primeiro vencimento deve estar dentro da vigência.",
+    );
+  }
+
+  const valor = Math.round(Number(valorPadrao || 0) * 100) / 100;
+  const agenda = [];
+  let indice = 0;
+  let vencimento = primeiroVencimento;
+
+  while (vencimento < fimVigencia) {
+    agenda.push({ numero: indice + 1, vencimento, valor });
+    indice += 1;
+    vencimento = adicionarMesesSeguro(primeiroVencimento, indice);
+  }
+
+  return agenda;
+}
+
+export function aplicarValoresIndividuaisAgenda(agenda = [], valoresIndividuais = {}) {
+  return agenda.map((parcela) => {
+    if (!Object.hasOwn(valoresIndividuais, parcela.vencimento)) return parcela;
+    return {
+      ...parcela,
+      valor: deCentavos(paraCentavos(valoresIndividuais[parcela.vencimento])),
+    };
+  });
+}
+
+export function validarAgendaMensalContrato({
+  inicioVigencia,
+  fimVigencia,
+  primeiroVencimento,
+  valorPadrao,
+  agenda,
+}) {
+  const esperada = gerarAgendaMensalContrato({
+    inicioVigencia,
+    fimVigencia,
+    primeiroVencimento,
+    valorPadrao,
+  });
+  if (agenda === undefined || agenda === null) return esperada;
+  if (!Array.isArray(agenda) || agenda.length !== esperada.length) {
+    throw new Error("A agenda mensal não corresponde à vigência informada.");
+  }
+
+  return esperada.map((parcela, indice) => {
+    const recebida = agenda[indice];
+    const valorCentavos = paraCentavos(recebida?.valor);
+    if (recebida?.numero !== parcela.numero
+      || recebida?.vencimento !== parcela.vencimento
+      || valorCentavos <= 0) {
+      throw criarErroAgendaMensal(
+        `agenda.${parcela.vencimento}`,
+        "A agenda mensal contém uma parcela inválida.",
+      );
+    }
+    return { ...parcela, valor: deCentavos(valorCentavos) };
+  });
+}
+
+export function calcularParcelamentoBidirecional({
+  quantidade,
+  valorTotal,
+  valorParcela,
+  origem = "total",
+}) {
+  const totalParcelas = Number(quantidade || 0);
+  if (!Number.isInteger(totalParcelas) || totalParcelas <= 0) {
+    return { valorTotal: 0, valorParcela: 0, valoresParcelas: [] };
+  }
+
+  if (origem === "parcela") {
+    const parcelaCentavos = paraCentavos(valorParcela);
+    if (parcelaCentavos <= 0) {
+      return { valorTotal: 0, valorParcela: 0, valoresParcelas: [] };
+    }
+    const valoresParcelas = Array.from(
+      { length: totalParcelas },
+      () => deCentavos(parcelaCentavos),
+    );
+    return {
+      valorTotal: deCentavos(parcelaCentavos * totalParcelas),
+      valorParcela: deCentavos(parcelaCentavos),
+      valoresParcelas,
+    };
+  }
+
+  const valoresParcelas = dividirValorEmParcelas(valorTotal, totalParcelas);
+  if (valoresParcelas.length !== totalParcelas) {
+    return { valorTotal: 0, valorParcela: 0, valoresParcelas: [] };
+  }
+  return {
+    valorTotal: somarValoresParcelas(valoresParcelas.map((valor) => ({ valor }))),
+    valorParcela: valoresParcelas[0],
+    valoresParcelas,
+  };
 }
 
 export function rotuloEntradaAvulsa(entrada) {

@@ -1,4 +1,4 @@
-import { obterFusoHorario } from "./preferencias";
+import { obterFusoHorario } from "./preferencias.js";
 
 export function hojeBrasil() {
   const partes = new Intl.DateTimeFormat("en-CA", {

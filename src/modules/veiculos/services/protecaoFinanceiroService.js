@@ -1,7 +1,10 @@
-import { gerarParcelasContrato } from "../../contratos/utils/contratosFinanceiros.js";
+import {
+  calcularParcelamentoBidirecional,
+  gerarParcelasContrato,
+  somarValoresParcelas,
+  validarAgendaMensalContrato,
+} from "../../contratos/utils/contratosFinanceiros.js";
 import { criarCobrancaContrato } from "../../contratos/services/cobrancasContratosService.js";
-import { gerarVencimentosAluguel } from "../utils/veiculosFinanceiro.js";
-import { adicionarMesesSeguro } from "../../../shared/utils/recorrencia.js";
 
 const FORMAS_CREDITO = new Set(["credito_avista", "credito_parcelado"]);
 
@@ -47,26 +50,59 @@ function criarPlano({
   };
 }
 
-function gerarVencimentosMensaisAteFim(primeiroVencimento, fimRecorrencia) {
-  const vencimentos = [];
-  let proximoVencimento = primeiroVencimento;
-  while (proximoVencimento && proximoVencimento <= fimRecorrencia) {
-    const lote = gerarVencimentosAluguel({
-      proximoVencimento,
-      frequencia: "mensal",
-      dataFim: fimRecorrencia,
-    });
-    if (!lote.length) break;
-    vencimentos.push(...lote);
-    proximoVencimento = adicionarMesesSeguro(lote.at(-1), 1);
+function montarParcelamento(dados, origemPadrao) {
+  const quantidade = Number(dados.numeroParcelas);
+  const origem = dados.origemCalculo || origemPadrao;
+  if (!Number.isInteger(quantidade) || quantidade < 2 || !["total", "parcela"].includes(origem)) {
+    throw new Error("Informe uma quantidade válida de parcelas.");
   }
-  return vencimentos;
+  const calculo = calcularParcelamentoBidirecional({
+    quantidade,
+    valorTotal: dados.valorTotal,
+    valorParcela: dados.valorParcela,
+    origem,
+  });
+  if (calculo.valoresParcelas.length !== quantidade) {
+    throw new Error("Informe valores válidos para o parcelamento.");
+  }
+
+  const centavos = (valor) => Math.round(Number(valor || 0) * 100);
+  if (origem === "total"
+    && Number(dados.valorParcela || 0) > 0
+    && centavos(dados.valorParcela) !== centavos(calculo.valorParcela)) {
+    throw new Error("O valor da parcela não corresponde ao total informado.");
+  }
+  if (origem === "parcela"
+    && Number(dados.valorTotal || 0) > 0
+    && centavos(dados.valorTotal) !== centavos(calculo.valorTotal)) {
+    throw new Error("O valor total não corresponde às parcelas informadas.");
+  }
+
+  const parcelas = gerarParcelasContrato({
+    quantidade,
+    valorParcela: calculo.valorParcela,
+    primeiroVencimento: dados.primeiroVencimento,
+  }).map((parcela, indice) => ({
+    ...parcela,
+    valor: calculo.valoresParcelas[indice],
+  }));
+  if (parcelas.length !== quantidade) {
+    throw new Error("Informe uma data válida para o primeiro vencimento.");
+  }
+  return { ...calculo, quantidade, parcelas };
 }
 
 export function montarPlanosCobrancaProtecao(dados) {
   if (dados.formaContratacao === "pagamento_unico") {
     const valor = Number(dados.pagamentoUnico.valor);
+    if (Math.round(valor * 100) <= 0) throw new Error("Informe um valor válido para o pagamento.");
     const vencimento = dados.pagamentoUnico.dataPagamento;
+    const parcelas = gerarParcelasContrato({
+      quantidade: 1,
+      valorContratado: valor,
+      primeiroVencimento: vencimento,
+    });
+    if (parcelas.length !== 1) throw new Error("Informe uma data válida para o pagamento.");
     return [criarPlano({
       papel: "principal",
       tipoAgendamento: "unica",
@@ -78,24 +114,31 @@ export function montarPlanosCobrancaProtecao(dados) {
       formaPagamento: dados.pagamentoUnico.formaPagamento,
       contaId: dados.pagamentoUnico.contaId,
       cartaoId: dados.pagamentoUnico.cartaoId,
-      parcelas: gerarParcelasContrato({
-        quantidade: 1,
-        valorContratado: valor,
-        primeiroVencimento: vencimento,
-      }),
+      parcelas,
     })];
   }
 
   if (dados.formaContratacao === "mensal") {
     const valor = Number(dados.mensal.valorMensal);
-    const vencimentos = gerarVencimentosMensaisAteFim(
-      dados.mensal.primeiroVencimento,
-      dados.fimVigencia,
-    );
+    if (Math.round(valor * 100) <= 0) throw new Error("Informe um valor mensal válido.");
+    const parcelas = validarAgendaMensalContrato({
+      inicioVigencia: dados.inicioVigencia,
+      fimVigencia: dados.fimVigencia,
+      primeiroVencimento: dados.mensal.primeiroVencimento,
+      valorPadrao: valor,
+      agenda: dados.mensal.agenda,
+    });
+    if (!dados.mensal.dataInicioControleFinanceiro) {
+      throw new Error("Informe o primeiro vencimento que será controlado pelo ControlDriver.");
+    }
+    if (!parcelas.some((parcela) => parcela.vencimento === dados.mensal.dataInicioControleFinanceiro)) {
+      throw new Error("O início do controle financeiro deve corresponder a um vencimento da agenda mensal.");
+    }
     return [criarPlano({
       papel: "mensalidade",
       tipoAgendamento: "recorrente",
       ordem: 1,
+      valorTotal: somarValoresParcelas(parcelas),
       valorCobranca: valor,
       quantidadeCobrancas: null,
       primeiroVencimento: dados.mensal.primeiroVencimento,
@@ -104,41 +147,37 @@ export function montarPlanosCobrancaProtecao(dados) {
       formaPagamento: dados.mensal.formaPagamento,
       contaId: dados.mensal.contaId,
       cartaoId: dados.mensal.cartaoId,
-      parcelas: vencimentos.map((vencimento, indice) => ({
-        numero: indice + 1,
-        vencimento,
-        valor,
-      })),
+      parcelas,
     })];
   }
 
   if (dados.formaContratacao === "parcelado") {
-    const valorTotal = Number(dados.parcelado.valorTotal);
-    const quantidade = Number(dados.parcelado.numeroParcelas);
-    const parcelas = gerarParcelasContrato({
-      quantidade,
-      valorContratado: valorTotal,
-      primeiroVencimento: dados.parcelado.primeiroVencimento,
-    });
+    const parcelamento = montarParcelamento(dados.parcelado, "total");
     return [criarPlano({
       papel: "principal",
       tipoAgendamento: "parcelada",
       ordem: 1,
-      valorTotal,
-      valorCobranca: parcelas[0]?.valor || 0,
-      quantidadeCobrancas: quantidade,
+      valorTotal: parcelamento.valorTotal,
+      valorCobranca: parcelamento.valorParcela,
+      quantidadeCobrancas: parcelamento.quantidade,
       primeiroVencimento: dados.parcelado.primeiroVencimento,
       periodicidade: "mensal",
       formaPagamento: dados.parcelado.formaPagamento,
       contaId: dados.parcelado.contaId,
       cartaoId: dados.parcelado.cartaoId,
-      parcelas,
+      parcelas: parcelamento.parcelas,
     })];
   }
 
   const valorEntrada = Number(dados.entrada.valor);
-  const quantidade = Number(dados.parcelas.numeroParcelas);
-  const valorParcela = Number(dados.parcelas.valorParcela);
+  if (Math.round(valorEntrada * 100) <= 0) throw new Error("Informe um valor válido para a entrada.");
+  const parcelamento = montarParcelamento(dados.parcelas, "parcela");
+  const parcelasEntrada = gerarParcelasContrato({
+    quantidade: 1,
+    valorContratado: valorEntrada,
+    primeiroVencimento: dados.entrada.dataPagamento,
+  });
+  if (parcelasEntrada.length !== 1) throw new Error("Informe uma data válida para a entrada.");
   return [
     criarPlano({
       papel: "entrada",
@@ -151,29 +190,21 @@ export function montarPlanosCobrancaProtecao(dados) {
       formaPagamento: dados.entrada.formaPagamento,
       contaId: dados.entrada.contaId,
       cartaoId: dados.entrada.cartaoId,
-      parcelas: gerarParcelasContrato({
-        quantidade: 1,
-        valorContratado: valorEntrada,
-        primeiroVencimento: dados.entrada.dataPagamento,
-      }),
+      parcelas: parcelasEntrada,
     }),
     criarPlano({
       papel: "saldo",
       tipoAgendamento: "parcelada",
       ordem: 2,
-      valorTotal: Math.round(quantidade * valorParcela * 100) / 100,
-      valorCobranca: valorParcela,
-      quantidadeCobrancas: quantidade,
+      valorTotal: parcelamento.valorTotal,
+      valorCobranca: parcelamento.valorParcela,
+      quantidadeCobrancas: parcelamento.quantidade,
       primeiroVencimento: dados.parcelas.primeiroVencimento,
       periodicidade: "mensal",
       formaPagamento: dados.parcelas.formaPagamento,
       contaId: dados.parcelas.contaId,
       cartaoId: dados.parcelas.cartaoId,
-      parcelas: gerarParcelasContrato({
-        quantidade,
-        valorParcela,
-        primeiroVencimento: dados.parcelas.primeiroVencimento,
-      }),
+      parcelas: parcelamento.parcelas,
     }),
   ];
 }
@@ -195,6 +226,7 @@ async function criarCobrancasDoPlano(supabase, {
   veiculoId,
   nomeVeiculo,
   categoriaId,
+  materializarImediatamente,
 }) {
   for (const parcela of plano.parcelas) {
     const { data: parcelaCriada, error: erroParcela } = await supabase
@@ -212,20 +244,22 @@ async function criarCobrancasDoPlano(supabase, {
       .single();
     if (erroParcela) throw erroParcela;
 
-    await criarCobrancaContrato(supabase, {
-      contratoId: contrato.id,
-      parcelaId: parcelaCriada.id,
-      dataVencimento: parcela.vencimento,
-      valor: parcela.valor,
-      formaPagamento: plano.formaPagamento,
-      contaId: plano.contaPagamentoId,
-      cartaoId: plano.cartaoPagamentoId,
-      categoria: "Seguro",
-      categoriaId,
-      descricao: `${contrato.nome} - ${nomeVeiculo} (${parcela.numero}/${plano.parcelas.length})`,
-      finalidade: "trabalho",
-      veiculoId: Number(veiculoId),
-    });
+    if (materializarImediatamente) {
+      await criarCobrancaContrato(supabase, {
+        contratoId: contrato.id,
+        parcelaId: parcelaCriada.id,
+        dataVencimento: parcela.vencimento,
+        valor: parcela.valor,
+        formaPagamento: plano.formaPagamento,
+        contaId: plano.contaPagamentoId,
+        cartaoId: plano.cartaoPagamentoId,
+        categoria: "Seguro",
+        categoriaId,
+        descricao: `${contrato.nome} - ${nomeVeiculo} (${parcela.numero}/${plano.parcelas.length})`,
+        finalidade: "trabalho",
+        veiculoId: Number(veiculoId),
+      });
+    }
   }
 }
 
@@ -238,7 +272,7 @@ export async function salvarProtecaoComContrato(supabase, {
 }) {
   const planos = montarPlanosCobrancaProtecao(dados);
   const parcelas = planos.flatMap((plano) => plano.parcelas);
-  const valorTotal = parcelas.reduce((total, parcela) => total + Number(parcela.valor || 0), 0);
+  const valorTotal = somarValoresParcelas(parcelas);
   const primeiroVencimento = [...parcelas]
     .sort((a, b) => String(a.vencimento).localeCompare(String(b.vencimento)))[0]?.vencimento || null;
   const categoriaId = await buscarCategoriaSeguroId(supabase);
@@ -268,6 +302,9 @@ export async function salvarProtecaoComContrato(supabase, {
       contraparte_nome: dados.nomeProtecao.trim(),
       data_inicio: dados.inicioVigencia,
       data_fim: dados.fimVigencia,
+      data_inicio_controle_financeiro: dados.formaContratacao === "mensal"
+        ? dados.mensal.dataInicioControleFinanceiro
+        : null,
       descricao: `${dados.tipoProtecao === "seguro" ? "Seguro" : "Proteção veicular"} - ${nomeVeiculo}`,
       status: "ativo",
     })
@@ -334,6 +371,7 @@ export async function salvarProtecaoComContrato(supabase, {
       veiculoId,
       nomeVeiculo,
       categoriaId,
+      materializarImediatamente: plano.tipoAgendamento !== "recorrente",
     });
   }
 
